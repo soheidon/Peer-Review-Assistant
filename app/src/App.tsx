@@ -16,6 +16,8 @@ function App() {
   const [validationOk, setValidationOk] = useState(false);
   const [sourceAttached, setSourceAttached] = useState(false);
   const [preprocessDone, setPreprocessDone] = useState(false);
+  const [numberingDone, setNumberingDone] = useState(false);
+  const [sectionsDone, setSectionsDone] = useState(false);
 
   const addLog = (entry: LogEntry) => {
     setLogs((prev) => [...prev, entry]);
@@ -245,6 +247,46 @@ function App() {
     }
   };
 
+  const runNumbering = async () => {
+    setNumberingDone(false);
+    addLog({ event: "info", message: "Running paragraph/sentence numbering..." });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const cmd = Command.create("pra-cli", [
+        "preprocess-numbering",
+        "--project",
+        projectPath,
+      ]);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+      if (output.code === 0) setNumberingDone(true);
+    } catch (e: unknown) {
+      addLog({ event: "error", message: e instanceof Error ? e.message : String(e) });
+    }
+  };
+
+  const runSections = async () => {
+    setSectionsDone(false);
+    addLog({ event: "info", message: "Splitting manuscript into sections..." });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const cmd = Command.create("pra-cli", [
+        "preprocess-sections",
+        "--project",
+        projectPath,
+      ]);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+      if (output.code === 0) setSectionsDone(true);
+    } catch (e: unknown) {
+      addLog({ event: "error", message: e instanceof Error ? e.message : String(e) });
+    }
+  };
+
   const logLineStyle = (entry: LogEntry): React.CSSProperties => {
     let color = "#555";
     if (entry.event === "done" || entry.event === "healthcheck" || entry.status === "ok")
@@ -328,6 +370,18 @@ function App() {
             Preprocess docx
           </button>
           {preprocessDone && <span className="status-chip ok">Done</span>}
+        </div>
+        <div className="row">
+          <button onClick={runNumbering} disabled={!preprocessDone}>
+            Paragraph & Sentence Numbering
+          </button>
+          {numberingDone && <span className="status-chip ok">Done</span>}
+        </div>
+        <div className="row">
+          <button onClick={runSections} disabled={!preprocessDone}>
+            Split Sections
+          </button>
+          {sectionsDone && <span className="status-chip ok">Done</span>}
         </div>
       </section>
 

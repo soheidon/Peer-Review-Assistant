@@ -417,5 +417,144 @@ def preprocess_docx(project_dir):
          message="docx preprocessing complete.")
 
 
+@main.command()
+@click.option("--project", "project_dir", required=True,
+              type=click.Path(file_okay=False, writable=True),
+              help="Path to the project working folder.")
+def preprocess_numbering(project_dir):
+    """Add paragraph and sentence numbers to extracted text."""
+    from peer_review_assistant.preprocess import number_paragraphs_and_sentences
+
+    emit("progress", task="preprocess-numbering", step="validate", percent=0)
+
+    proj_path = os.path.join(project_dir, "project.json")
+    if not os.path.isfile(proj_path):
+        error("NO_PROJECT", "project.json not found. Run init-project first.")
+
+    json_path = os.path.join(project_dir, "manuscript_full.json")
+    if not os.path.isfile(json_path):
+        error("NO_MANUSCRIPT",
+              "manuscript_full.json not found. Run preprocess-docx first.")
+
+    emit("progress", task="preprocess-numbering", step="load", percent=20)
+
+    with open(json_path, "r", encoding="utf-8") as f:
+        manuscript = json.load(f)
+
+    emit("progress", task="preprocess-numbering", step="number", percent=50)
+
+    result = number_paragraphs_and_sentences(manuscript["paragraphs"])
+
+    emit("progress", task="preprocess-numbering", step="save", percent=80)
+
+    out_path = os.path.join(project_dir, "paragraph_sentence_map.json")
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(result, f, indent=2, ensure_ascii=False)
+
+    emit("progress", task="preprocess-numbering", step="update_status", percent=90)
+
+    # Append log
+    log_path = os.path.join(project_dir, "logs", "preprocess.log")
+    now = datetime.now(JST).isoformat()
+    log_entry = (f"[{now}] preprocess-numbering: "
+                 f"paragraphs={result['paragraph_count']}, "
+                 f"sentences={result['sentence_count']}\n")
+    with open(log_path, "a", encoding="utf-8") as f:
+        f.write(log_entry)
+
+    # Update project.json
+    with open(proj_path, "r", encoding="utf-8") as f:
+        proj = json.load(f)
+    proj["updated_at"] = datetime.now(JST).isoformat()
+    with open(proj_path, "w", encoding="utf-8") as f:
+        json.dump(proj, f, indent=2, ensure_ascii=False)
+
+    emit("done",
+         task="preprocess-numbering",
+         paragraph_count=result["paragraph_count"],
+         sentence_count=result["sentence_count"],
+         message="Paragraph and sentence numbering complete.")
+
+
+@main.command()
+@click.option("--project", "project_dir", required=True,
+              type=click.Path(file_okay=False, writable=True),
+              help="Path to the project working folder.")
+def preprocess_sections(project_dir):
+    """Split manuscript into sections based on heading styles."""
+    from peer_review_assistant.preprocess import split_sections
+
+    emit("progress", task="preprocess-sections", step="validate", percent=0)
+
+    proj_path = os.path.join(project_dir, "project.json")
+    if not os.path.isfile(proj_path):
+        error("NO_PROJECT", "project.json not found. Run init-project first.")
+
+    json_path = os.path.join(project_dir, "manuscript_full.json")
+    if not os.path.isfile(json_path):
+        error("NO_MANUSCRIPT",
+              "manuscript_full.json not found. Run preprocess-docx first.")
+
+    emit("progress", task="preprocess-sections", step="load", percent=20)
+
+    with open(json_path, "r", encoding="utf-8") as f:
+        manuscript = json.load(f)
+
+    emit("progress", task="preprocess-sections", step="split", percent=50)
+
+    result = split_sections(manuscript["paragraphs"])
+
+    emit("progress", task="preprocess-sections", step="save", percent=80)
+
+    sections_dir = os.path.join(project_dir, "sections")
+    os.makedirs(sections_dir, exist_ok=True)
+
+    for sec in result["sections"]:
+        fname = f"{sec['name']}.txt"
+        fpath = os.path.join(sections_dir, fname)
+        text = "\n".join(p["text"] for p in sec["paragraphs"] if p["text"].strip())
+        with open(fpath, "w", encoding="utf-8") as f:
+            f.write(text)
+
+    # Save section_map.json
+    section_map = {
+        "section_count": result["section_count"],
+        "sections": [
+            {
+                "name": s["name"],
+                "heading": s["heading"],
+                "start_paragraph": s["start_paragraph"],
+                "end_paragraph": s["end_paragraph"],
+            }
+            for s in result["sections"]
+        ],
+    }
+    map_path = os.path.join(sections_dir, "section_map.json")
+    with open(map_path, "w", encoding="utf-8") as f:
+        json.dump(section_map, f, indent=2, ensure_ascii=False)
+
+    emit("progress", task="preprocess-sections", step="update_status", percent=90)
+
+    # Append log
+    log_path = os.path.join(project_dir, "logs", "preprocess.log")
+    now = datetime.now(JST).isoformat()
+    log_entry = (f"[{now}] preprocess-sections: "
+                 f"sections={result['section_count']}\n")
+    with open(log_path, "a", encoding="utf-8") as f:
+        f.write(log_entry)
+
+    # Update project.json
+    with open(proj_path, "r", encoding="utf-8") as f:
+        proj = json.load(f)
+    proj["updated_at"] = datetime.now(JST).isoformat()
+    with open(proj_path, "w", encoding="utf-8") as f:
+        json.dump(proj, f, indent=2, ensure_ascii=False)
+
+    emit("done",
+         task="preprocess-sections",
+         section_count=result["section_count"],
+         message="Section splitting complete.")
+
+
 if __name__ == "__main__":
     main()

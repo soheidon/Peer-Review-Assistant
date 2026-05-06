@@ -97,39 +97,123 @@ pra-cli preprocess-docx --project <project_folder>
 
 ---
 
-## 2. Phase 2B: 段落番号・文番号作成（予定）
+## 2. Phase 2B: 段落番号・文番号作成
 
 ### 2.1 目的
 
 Phase 2A で抽出した各段落・文に番号を付与し、査読コメントの位置指定に使えるようにする。
 
-### 2.2 出力ファイル
-
-- `paragraph_sentence_map.json`
-
-### 2.3 コマンド（予定）
+### 2.2 CLI コマンド
 
 ```bash
 pra-cli preprocess-numbering --project <project_folder>
 ```
 
+### 2.3 入力
+
+- `manuscript_full.json`（Phase 2A の出力）
+
+### 2.4 文分割ロジック
+
+正規表現 `[^。。.!！?？\n]+[。。.!！?？\n]?` により文境界を検出する。
+
+### 2.5 出力ファイル
+
+`paragraph_sentence_map.json`
+
+```json
+{
+  "paragraph_count": 18,
+  "sentence_count": 32,
+  "paragraphs": [
+    {
+      "index": 0,
+      "paragraph_number": 1,
+      "text": "...",
+      "style": "Title",
+      "sentence_count": 1,
+      "sentences": [
+        {"sentence_number": 1, "text": "..."}
+      ]
+    }
+  ]
+}
+```
+
+| フィールド | 型 | 説明 |
+|---|---|---|
+| `paragraph_count` | int | 総段落数 |
+| `sentence_count` | int | 総文数 |
+| `paragraphs[].paragraph_number` | int | 1始まりの段落番号 |
+| `paragraphs[].sentence_count` | int | その段落内の文数 |
+| `paragraphs[].sentences[].sentence_number` | int | 段落内での1始まり文番号 |
+
+### 2.6 エラーコード
+
+| コード | 条件 |
+|---|---|
+| `NO_PROJECT` | `project.json` が存在しない |
+| `NO_MANUSCRIPT` | `manuscript_full.json` が存在しない |
+
 ---
 
-## 3. Phase 2C: セクション分割（予定）
+## 3. Phase 2C: セクション分割
 
 ### 3.1 目的
 
-見出しスタイル・フォントサイズ・太字情報からセクション境界を推定し、セクション単位に分割する。
+見出しスタイル（Title, Heading 1〜3）からセクション境界を検出し、セクション単位に分割する。
 
-### 3.2 出力ファイル
-
-- `sections/*.txt`（abstract.txt, introduction.txt, methods.txt 等）
-
-### 3.3 コマンド（予定）
+### 3.2 CLI コマンド
 
 ```bash
 pra-cli preprocess-sections --project <project_folder>
 ```
+
+### 3.3 入力
+
+- `manuscript_full.json`（Phase 2A の出力）
+
+### 3.4 セクション分類ロジック
+
+見出しテキストを小文字化し、キーワード照合で標準セクション名にマッピングする。
+
+| 標準セクション名 | マッチするキーワード |
+|---|---|
+| `abstract` | abstract, 概要, 要旨 |
+| `introduction` | introduction, intro, はじめに, 序論, 緒言 |
+| `aim_objective` | aim, objective, purpose, 目的, 目標 |
+| `methods` | method, methods, materials and methods, experimental, 方法, 実験, 手法 |
+| `results` | results, result, 結果 |
+| `discussion` | discussion, 考察, 議論 |
+| `conclusion` | conclusion, conclusions, summary, 結論, まとめ, 総括 |
+| `references` | references, bibliography, 参考文献, 引用文献, 文献 |
+
+マッチしない場合は見出しテキストをファイル名用に変換したものを使用する。
+
+### 3.5 出力ファイル
+
+#### sections/<name>.txt
+
+各セクションの段落テキストを改行で連結したファイル。
+
+#### sections/section_map.json
+
+```json
+{
+  "section_count": 8,
+  "sections": [
+    {"name": "abstract", "heading": "Abstract", "start_paragraph": 1, "end_paragraph": 2},
+    {"name": "introduction", "heading": "Introduction", "start_paragraph": 3, "end_paragraph": 5}
+  ]
+}
+```
+
+### 3.6 エラーコード
+
+| コード | 条件 |
+|---|---|
+| `NO_PROJECT` | `project.json` が存在しない |
+| `NO_MANUSCRIPT` | `manuscript_full.json` が存在しない |
 
 ---
 

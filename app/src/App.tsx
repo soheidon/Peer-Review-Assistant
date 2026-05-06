@@ -11,12 +11,29 @@ function App() {
   const [projectPath, setProjectPath] = useState("");
   const [healthcheckStatus, setHealthcheckStatus] = useState<string | null>(null);
   const [projectCreated, setProjectCreated] = useState(false);
+  const [docxPath, setDocxPath] = useState("");
+  const [pdfPath, setPdfPath] = useState("");
+  const [validationOk, setValidationOk] = useState(false);
+  const [sourceAttached, setSourceAttached] = useState(false);
 
   const addLog = (entry: LogEntry) => {
     setLogs((prev) => [...prev, entry]);
   };
 
   const clearLogs = () => setLogs([]);
+
+  const parseOutput = (stdout: string) => {
+    const lines = stdout.trim().split("\n");
+    for (const line of lines) {
+      if (line.trim()) {
+        try {
+          addLog(JSON.parse(line));
+        } catch {
+          addLog({ event: "stdout", message: line });
+        }
+      }
+    }
+  };
 
   const runHealthcheck = async () => {
     setHealthcheckStatus("running");
@@ -62,13 +79,38 @@ function App() {
     }
   };
 
+  const browseDocx = async () => {
+    const selected = await open({
+      multiple: false,
+      title: "Select manuscript .docx",
+      filters: [{ name: "Word documents", extensions: ["docx"] }],
+    });
+    if (selected && typeof selected === "string") {
+      setDocxPath(selected);
+      setValidationOk(false);
+      setSourceAttached(false);
+    }
+  };
+
+  const browsePdf = async () => {
+    const selected = await open({
+      multiple: false,
+      title: "Select line-numbered PDF",
+      filters: [{ name: "PDF files", extensions: ["pdf"] }],
+    });
+    if (selected && typeof selected === "string") {
+      setPdfPath(selected);
+      setValidationOk(false);
+      setSourceAttached(false);
+    }
+  };
+
   const createProject = async () => {
     if (!projectPath.trim()) {
       addLog({ event: "error", message: "Please select a project folder first." });
       return;
     }
 
-    // Client-side release/ check
     const normalized = projectPath.replace(/\\/g, "/").toLowerCase();
     if (normalized.includes("/release/") || normalized.endsWith("/release")) {
       addLog({
@@ -89,23 +131,81 @@ function App() {
         projectPath,
       ]);
       const output = await cmd.execute();
-
-      const lines = output.stdout.trim().split("\n");
-      for (const line of lines) {
-        if (line.trim()) {
-          try {
-            const parsed = JSON.parse(line);
-            addLog(parsed);
-            if (parsed.event === "done") {
-              setProjectCreated(true);
-            }
-          } catch {
-            addLog({ event: "stdout", message: line });
-          }
-        }
-      }
+      parseOutput(output.stdout);
       if (output.stderr) {
         addLog({ event: "stderr", message: output.stderr });
+      }
+
+      if (output.code === 0) {
+        setProjectCreated(true);
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog({ event: "error", message: msg });
+    }
+  };
+
+  const validateInput = async () => {
+    if (!docxPath.trim() || !pdfPath.trim()) {
+      addLog({ event: "error", message: "Please select both docx and PDF files." });
+      return;
+    }
+
+    setValidationOk(false);
+    addLog({ event: "info", message: "Validating input files..." });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const cmd = Command.create("pra-cli", [
+        "validate-input",
+        "--docx",
+        docxPath,
+        "--pdf",
+        pdfPath,
+      ]);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) {
+        addLog({ event: "stderr", message: output.stderr });
+      }
+
+      if (output.code === 0) {
+        setValidationOk(true);
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog({ event: "error", message: msg });
+    }
+  };
+
+  const attachSource = async () => {
+    if (!projectPath.trim()) {
+      addLog({ event: "error", message: "Please create a project first." });
+      return;
+    }
+
+    setSourceAttached(false);
+    addLog({ event: "info", message: "Attaching source files..." });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const cmd = Command.create("pra-cli", [
+        "attach-source",
+        "--project",
+        projectPath,
+        "--docx",
+        docxPath,
+        "--pdf",
+        pdfPath,
+      ]);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) {
+        addLog({ event: "stderr", message: output.stderr });
+      }
+
+      if (output.code === 0) {
+        setSourceAttached(true);
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -114,12 +214,12 @@ function App() {
   };
 
   const logLineStyle = (entry: LogEntry): React.CSSProperties => {
-    let color = "#ccc";
+    let color = "#555";
     if (entry.event === "done" || entry.event === "healthcheck" || entry.status === "ok")
-      color = "#4f4";
-    else if (entry.event === "error") color = "#f44";
-    else if (entry.event === "progress") color = "#fa0";
-    return { color, margin: 0, fontSize: "13px", fontFamily: "monospace" };
+      color = "#107c10";
+    else if (entry.event === "error") color = "#c42b1c";
+    else if (entry.event === "progress") color = "#ca5010";
+    return { color, margin: 0, fontSize: "12px", fontFamily: "monospace" };
   };
 
   return (
@@ -159,6 +259,40 @@ function App() {
         </div>
       </section>
 
+      <section className="panel">
+        <h2>Source</h2>
+        <div className="row">
+          <input
+            type="text"
+            value={docxPath}
+            onChange={(e) => setDocxPath(e.target.value)}
+            placeholder="Select manuscript .docx..."
+            className="path-input"
+          />
+          <button onClick={browseDocx}>Browse</button>
+        </div>
+        <div className="row">
+          <input
+            type="text"
+            value={pdfPath}
+            onChange={(e) => setPdfPath(e.target.value)}
+            placeholder="Select line-numbered PDF..."
+            className="path-input"
+          />
+          <button onClick={browsePdf}>Browse</button>
+        </div>
+        <div className="row">
+          <button onClick={validateInput}>Validate Input Files</button>
+          {validationOk && <span className="status-chip ok">Valid</span>}
+        </div>
+        <div className="row">
+          <button onClick={attachSource} disabled={!validationOk || !projectCreated}>
+            Attach to Project
+          </button>
+          {sourceAttached && <span className="status-chip ok">Attached</span>}
+        </div>
+      </section>
+
       <section className="panel log-panel">
         <div className="log-header">
           <h2>Log</h2>
@@ -166,7 +300,7 @@ function App() {
         </div>
         <div className="log-area">
           {logs.length === 0 && (
-            <p style={{ color: "#666", fontSize: "13px", fontFamily: "monospace" }}>
+            <p style={{ color: "#999", fontSize: "12px", fontFamily: "monospace" }}>
               Ready. Click a command above.
             </p>
           )}

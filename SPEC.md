@@ -452,9 +452,20 @@ Wordから保存した行番号付きPDF：
 [前処理を実行]
 ```
 
-### 7.3 docx から抽出する情報
+### 7.3 入力ファイルの扱い
 
-Python CLI で docx から以下を抽出する。
+ユーザーは GUI で任意のファイル名の docx と PDF を選択する。アプリは以下の手順で検証・取り込みを行う。
+
+1. **ファイル選択**: ユーザーが `original/` などから任意名の docx と PDF を選択
+2. **入力チェック** (`validate-input`): 存在確認、拡張子確認、ファイルサイズ確認、SHA256 計算
+3. **作業コピー** (`attach-source`): チェック OK 後、`work/source/manuscript.docx` と `work/source/manuscript_line_numbered.pdf` に標準名でコピー
+4. **パス記録**: `project.json` に元ファイルパス (`original_docx_path`, `original_pdf_path`) と作業コピーパス (`docx_path`, `pdf_path`) の両方を記録
+
+原本 (`original/`) はアプリが変更せず、作業コピー (`work/source/`) のみを処理対象とする。
+
+### 7.4 docx から抽出する情報
+
+Python CLI で `source/manuscript.docx` から以下を抽出する。
 
 * 全文テキスト
 * 段落
@@ -465,9 +476,9 @@ Python CLI で docx から以下を抽出する。
 * 図表キャプション
 * 本文中引用候補
 
-### 7.4 PDF から抽出する情報
+### 7.5 PDF から抽出する情報
 
-Word から保存した PDF から以下を抽出する。
+`source/manuscript_line_numbered.pdf` から以下を抽出する。
 
 * ページ番号
 * 表示行番号

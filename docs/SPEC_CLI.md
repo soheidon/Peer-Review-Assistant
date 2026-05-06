@@ -198,10 +198,15 @@ pra-cli init-project --project <作業フォルダのパス>
   "created_at": "2026-05-07T04:27:50.945084+09:00",
   "updated_at": "2026-05-07T04:27:50.945084+09:00",
   "source": {
+    "original_docx_path": null,
+    "original_pdf_path": null,
     "docx_path": null,
     "pdf_path": null,
     "docx_sha256": null,
-    "pdf_sha256": null
+    "pdf_sha256": null,
+    "docx_size_bytes": null,
+    "pdf_size_bytes": null,
+    "input_validation_status": "not_started"
   },
   "manuscript": {
     "title": null,
@@ -253,20 +258,133 @@ pra-cli init-project --project <作業フォルダのパス>
 
 ---
 
-## 6. エラーコード一覧
+## 6. validate-input コマンド
 
-| エラーコード | 発生コマンド | 説明 |
-|---|---|---|
-| `RELEASE_FOLDER_REJECTED` | `init-project` | 指定パスが `release/` 以下である |
-| `PROJECT_EXISTS` | `init-project` | 指定パスに既に `project.json` が存在する |
+### 6.1 目的
 
-今後、各フェーズの実装に伴いエラーコードを追加する。
+選択された docx と PDF ファイルが、前処理を開始するための基本条件を満たしているか検証する。ファイルのコピーは行わない。
+
+### 6.2 呼び出し
+
+```bash
+pra-cli validate-input --docx <file.docx> --pdf <file.pdf>
+```
+
+### 6.3 パラメータ
+
+| パラメータ | 必須 | 型 | 説明 |
+|---|---|---|---|
+| `--docx` | はい | FILE（.docx） | 検証する docx ファイルのパス |
+| `--pdf` | はい | FILE（.pdf） | 検証する PDF ファイルのパス |
+
+### 6.4 検証項目
+
+1. docx ファイルが存在するか
+2. docx の拡張子が `.docx` か
+3. docx のファイルサイズが 0 より大きいか
+4. PDF ファイルが存在するか
+5. PDF の拡張子が `.pdf` か
+6. PDF のファイルサイズが 0 より大きいか
+7. 両方の SHA256 を計算
+
+### 6.5 成功時の出力
+
+```json
+{"event":"progress","task":"validate-input","step":"check_files","percent":0}
+{"event":"progress","task":"validate-input","step":"compute_hash","percent":50}
+{"event":"done","task":"validate-input","docx_path":"<絶対パス>","pdf_path":"<絶対パス>","docx_sha256":"abc...","pdf_sha256":"def...","docx_size_bytes":123456,"pdf_size_bytes":234567,"message":"Input files are valid."}
+```
+
+### 6.6 失敗時の出力
+
+```json
+{"event":"error","code":"INPUT_VALIDATION_FAILED","message":"docx file extension is not .docx: ...; PDF file is empty: ..."}
+```
+
+### 6.7 終了コード
+
+成功 `0` / 失敗 `1`
 
 ---
 
-## 7. release/ 以下拒否仕様
+## 7. attach-source コマンド
 
-### 7.1 判定ロジック
+### 7.1 目的
+
+検証済みの docx と PDF を `work/source/` に標準名でコピーし、`project.json` に元パス・作業コピーパス・SHA256・ファイルサイズを記録する。
+
+### 7.2 呼び出し
+
+```bash
+pra-cli attach-source --project <project_folder> --docx <file.docx> --pdf <file.pdf>
+```
+
+### 7.3 パラメータ
+
+| パラメータ | 必須 | 型 | 説明 |
+|---|---|---|---|
+| `--project` | はい | PATH（ディレクトリ） | 作業フォルダのパス（init-project で作成済みであること） |
+| `--docx` | はい | FILE（.docx） | 原本 docx ファイルのパス |
+| `--pdf` | はい | FILE（.pdf） | 原本 PDF ファイルのパス |
+
+### 7.4 処理ステップ
+
+| percent | step | 内容 |
+|---|---|---|
+| 0 | validate | project.json の存在確認、release/ チェック |
+| 10 | validate_inputs | docx/PDF の存在・拡張子・サイズ検証 |
+| 30 | compute_hash | SHA256 とファイルサイズを計算 |
+| 50 | check_existing | work/source/ に既存ファイルがないか確認 |
+| 70 | copy_files | work/source/manuscript.docx と manuscript_line_numbered.pdf にコピー |
+| 85 | update_project_json | project.json の source セクションを更新 |
+
+### 7.5 work/source/ 既存ファイルの扱い
+
+`source/manuscript.docx` または `source/manuscript_line_numbered.pdf` が既に存在する場合、`SOURCE_EXISTS` エラーで拒否する。上書きしたい場合はユーザーが手動で削除する必要がある（Phase 2 暫定仕様）。
+
+### 7.6 project.json 更新内容
+
+`source` セクションに以下を書き込む。
+
+```json
+{
+  "source": {
+    "original_docx_path": "D:/.../original/received_manuscript.docx",
+    "original_pdf_path": "D:/.../original/received_manuscript_line_numbered.pdf",
+    "docx_path": "source/manuscript.docx",
+    "pdf_path": "source/manuscript_line_numbered.pdf",
+    "docx_sha256": "abc123...",
+    "pdf_sha256": "def456...",
+    "docx_size_bytes": 123456,
+    "pdf_size_bytes": 234567,
+    "input_validation_status": "ok"
+  }
+}
+```
+
+### 7.7 done イベント
+
+```json
+{"event":"done","task":"attach-source","docx_path":"source/manuscript.docx","pdf_path":"source/manuscript_line_numbered.pdf","docx_sha256":"abc...","pdf_sha256":"def...","message":"Source files attached successfully."}
+```
+
+---
+
+## 8. エラーコード一覧
+
+| エラーコード | 発生コマンド | 説明 |
+|---|---|---|
+| `RELEASE_FOLDER_REJECTED` | `init-project`, `attach-source` | 指定パスが `release/` 以下である |
+| `PROJECT_EXISTS` | `init-project` | 指定パスに既に `project.json` が存在する |
+| `INPUT_VALIDATION_FAILED` | `validate-input`, `attach-source` | docx/PDF が検証条件を満たさない |
+| `SOURCE_EXISTS` | `attach-source` | work/source/ に既にファイルが存在する |
+| `NO_PROJECT` | `attach-source` | project.json が見つからない（init-project 未実行） |
+
+---
+
+## 9. release/ 以下拒否仕様
+
+### 9.1 判定ロジック
 
 ```python
 def is_under_release(path):
@@ -280,7 +398,7 @@ def is_under_release(path):
 - 小文字化してパスセグメントに分割
 - いずれかのセグメントが `release` と完全一致するか判定
 
-### 7.2 二重保護
+### 9.2 二重保護
 
 **クライアントサイド（App.tsx）**: フォルダ選択時にパスを検査し、release/ 以下なら CLI 呼び出し前にブロックする。
 
@@ -288,9 +406,9 @@ def is_under_release(path):
 
 ---
 
-## 8. Tauri からの subprocess 呼び出し
+## 10. Tauri からの subprocess 呼び出し
 
-### 8.1 呼び出しパターン
+### 10.1 呼び出しパターン
 
 ```typescript
 const { Command } = await import("@tauri-apps/plugin-shell");
@@ -299,7 +417,7 @@ const output = await cmd.execute();
 // output.stdout を行単位で JSON.parse
 ```
 
-### 8.2 スコープ許可
+### 10.2 スコープ許可
 
 Tauri v2 では、実行可能なコマンドを capabilities で明示的に許可する必要がある。
 
@@ -316,7 +434,7 @@ Tauri v2 では、実行可能なコマンドを capabilities で明示的に許
 }
 ```
 
-### 8.3 注意事項
+### 10.3 注意事項
 
 - `tauri.conf.json` の `plugins.shell` には `open` のみを記述し、スコープは capabilities で定義する（Tauri v2.3.x の仕様）
 - subprocess の stdout をテキストとして取得し、改行で分割して各行を JSON.parse する
@@ -325,16 +443,18 @@ Tauri v2 では、実行可能なコマンドを capabilities で明示的に許
 
 ---
 
-## 9. 実装状況
+## 11. 実装状況
 
-### 9.1 実装済み（Phase 1）
+### 11.1 実装済み（Phase 1）
 
 | コマンド | 状況 |
 |---|---|
 | `pra-cli healthcheck` | 実装済み |
 | `pra-cli init-project` | 実装済み |
+| `pra-cli validate-input` | 実装済み |
+| `pra-cli attach-source` | 実装済み |
 
-### 9.2 今後実装予定
+### 11.2 今後実装予定
 
 | コマンド | フェーズ | 説明 |
 |---|---|---|
@@ -352,7 +472,7 @@ Tauri v2 では、実行可能なコマンドを capabilities で明示的に許
 
 ---
 
-## 10. 関連文書
+## 12. 関連文書
 
 - [SPEC.md](../SPEC.md) — 全体仕様（セクション2.3〜2.4）
 - [IMPLEMENTATION_PLAN.md](../IMPLEMENTATION_PLAN.md) — 実装フェーズ別仕様

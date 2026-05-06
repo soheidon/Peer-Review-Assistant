@@ -5,8 +5,8 @@
 }
 
 body {
-  background: #1a1a2e;
-  color: #e0e0e0;
+  background: #f3f3f3;
+  color: #1a1a1a;
   font-family: "Segoe UI", system-ui, sans-serif;
   padding: 16px;
 }
@@ -16,65 +16,83 @@ body {
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
 header h1 {
-  font-size: 22px;
-  color: #fff;
+  font-size: 20px;
+  color: #1a1a1a;
+  font-weight: 600;
 }
 
 .subtitle {
-  font-size: 13px;
-  color: #888;
+  font-size: 12px;
+  color: #666;
 }
 
 .panel {
-  background: #16213e;
-  border: 1px solid #0f3460;
-  border-radius: 8px;
-  padding: 16px;
+  background: #ffffff;
+  border: 1px solid #d9d9d9;
+  border-radius: 4px;
+  padding: 14px 16px;
 }
 
 .panel h2 {
-  font-size: 14px;
-  color: #aaa;
-  margin-bottom: 10px;
+  font-size: 13px;
+  color: #555;
+  margin-bottom: 8px;
   text-transform: uppercase;
-  letter-spacing: 1px;
+  letter-spacing: 0.5px;
+  font-weight: 600;
 }
 
 .row {
   display: flex;
   gap: 8px;
   align-items: center;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
+}
+
+.row:last-child {
+  margin-bottom: 0;
 }
 
 .path-input {
   flex: 1;
-  padding: 6px 10px;
-  background: #0f3460;
-  border: 1px solid #1a1a4e;
-  border-radius: 4px;
-  color: #e0e0e0;
+  padding: 5px 8px;
+  background: #ffffff;
+  border: 1px solid #c0c0c0;
+  border-radius: 3px;
+  color: #1a1a1a;
   font-size: 13px;
+  height: 28px;
+}
+
+.path-input:focus {
+  outline: none;
+  border-color: #0078d4;
 }
 
 button {
-  padding: 6px 16px;
-  background: #e94560;
-  color: #fff;
-  border: none;
-  border-radius: 4px;
+  padding: 4px 14px;
+  background: #e1e1e1;
+  color: #1a1a1a;
+  border: 1px solid #b0b0b0;
+  border-radius: 3px;
   cursor: pointer;
-  font-size: 13px;
-  font-weight: 500;
+  font-size: 12px;
+  font-weight: 400;
   white-space: nowrap;
+  height: 28px;
 }
 
 button:hover {
-  background: #d63851;
+  background: #d5d5d5;
+  border-color: #999;
+}
+
+button:active {
+  background: #c8c8c8;
 }
 
 button:disabled {
@@ -83,30 +101,28 @@ button:disabled {
 }
 
 .clear-btn {
-  background: #333;
-  padding: 4px 10px;
+  padding: 2px 8px;
   font-size: 11px;
-}
-
-.clear-btn:hover {
-  background: #555;
+  height: 22px;
 }
 
 .status-chip {
-  font-size: 12px;
-  padding: 2px 8px;
+  font-size: 11px;
+  padding: 1px 8px;
   border-radius: 10px;
   font-weight: 600;
+  height: 20px;
+  line-height: 18px;
 }
 
 .status-chip.ok {
-  background: #1a4a1a;
-  color: #4f4;
+  background: #dff6dd;
+  color: #107c10;
 }
 
 .status-chip.err {
-  background: #4a1a1a;
-  color: #f44;
+  background: #fde7e9;
+  color: #c42b1c;
 }
 
 .log-panel {
@@ -117,17 +133,21 @@ button:disabled {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
+}
+
+.log-header h2 {
+  margin-bottom: 0;
 }
 
 .log-area {
-  background: #0d1117;
-  border: 1px solid #0f3460;
-  border-radius: 4px;
-  padding: 10px;
-  max-height: 400px;
+  background: #fafafa;
+  border: 1px solid #d9d9d9;
+  border-radius: 3px;
+  padding: 8px 10px;
+  max-height: 360px;
   overflow-y: auto;
-  font-family: monospace;
+  font-family: "Cascadia Code", "Consolas", monospace;
 }
 
 .log-area pre {

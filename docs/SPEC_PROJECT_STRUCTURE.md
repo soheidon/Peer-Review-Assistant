@@ -123,7 +123,57 @@ release/
 
 ---
 
-## 3. 作業フォルダ構成
+## 3. ユーザー査読案件フォルダ構成（推奨運用例）
+
+ユーザーは、1つの査読案件につき1つの案件フォルダを作成する。このフォルダの配下に `original/`、`work/`、`final/` の3領域を置くことを推奨する。
+
+```text
+D:\GoogleDrive\Documents\Paper\査読\2025-05-07-Scientific Reports\
+  original/
+    受け取った原本をそのまま保存する場所
+    received_manuscript.docx
+    received_manuscript_line_numbered.pdf
+    reviewer_instructions.pdf
+    journal_email.txt
+
+  work/
+    Peer Review Assistant の作業フォルダ
+    project.json
+    source/
+      manuscript.docx                         ← アプリがコピーした標準名ファイル
+      manuscript_line_numbered.pdf            ← アプリがコピーした標準名ファイル
+    sections/
+    citations/
+    lines/
+    outputs/
+    status/
+    logs/
+
+  final/
+    最終的に投稿・提出した査読コメントを保存する場所
+    review_submitted.md
+    comments_to_authors.md
+    confidential_comments_to_editor.md
+```
+
+### 3.1 各領域の役割
+
+| 領域 | 作成者 | 役割 |
+|---|---|---|
+| `original/` | ユーザー（手動） | 受け取った原本をそのまま保管。アプリは読み取りのみ行う |
+| `work/` | アプリ（`init-project`） | アプリが処理に使う作業フォルダ。`project.json` をルートに持つ |
+| `work/source/` | アプリ（`attach-source`） | アプリが原本からコピーした標準名ファイルを置く場所 |
+| `final/` | ユーザー（手動） | 提出済みの査読コメントを保存。アプリは関与しない |
+
+### 3.2 original/ と work/source/ の違い
+
+- `original/` は**人間が原本を保管する場所**。ファイル名は任意。アプリはここに書き込まない。
+- `work/source/` は**アプリが処理用にコピーしたファイルを置く場所**。ファイル名は `manuscript.docx` と `manuscript_line_numbered.pdf` に固定。
+- 原本をそのまま残すことで、誤操作や上書きから保護する。
+
+---
+
+## 4. 作業フォルダ構成
 
 作業フォルダはリポジトリ外にユーザーが任意の場所を指定する。
 
@@ -133,7 +183,7 @@ release/
 D:/PeerReviewProjects/project_001/
 ```
 
-### 3.1 作業フォルダのディレクトリ構造
+### 4.1 作業フォルダのディレクトリ構造
 
 前処理後、作業フォルダには以下のファイル群が作成される。
 
@@ -200,7 +250,7 @@ project_folder/
     errors.log
 ```
 
-### 3.2 作業フォルダと release/ の分離
+### 4.2 作業フォルダと release/ の分離
 
 GUI側では、作業フォルダ選択時に以下を行う。
 
@@ -211,11 +261,11 @@ GUI側では、作業フォルダ選択時に以下を行う。
 
 ---
 
-## 4. project.json
+## 5. project.json
 
 `project.json` は作業フォルダ全体のメタ情報を保持する中心ファイルである。API Key などの秘密情報は保存しない。
 
-### 4.1 初期スキーマ
+### 5.1 初期スキーマ
 
 ```json
 {
@@ -223,10 +273,15 @@ GUI側では、作業フォルダ選択時に以下を行う。
   "created_at": "2026-05-07T03:30:00+09:00",
   "updated_at": "2026-05-07T03:30:00+09:00",
   "source": {
+    "original_docx_path": null,
+    "original_pdf_path": null,
     "docx_path": null,
     "pdf_path": null,
     "docx_sha256": null,
-    "pdf_sha256": null
+    "pdf_sha256": null,
+    "docx_size_bytes": null,
+    "pdf_size_bytes": null,
+    "input_validation_status": "not_started"
   },
   "manuscript": {
     "title": null,
@@ -248,7 +303,7 @@ GUI側では、作業フォルダ選択時に以下を行う。
 }
 ```
 
-### 4.2 前処理完了後のスキーマ例
+### 5.2 attach-source 完了後のスキーマ例
 
 ```json
 {
@@ -256,10 +311,15 @@ GUI側では、作業フォルダ選択時に以下を行う。
   "created_at": "2026-05-07T03:30:00+09:00",
   "updated_at": "2026-05-07T03:35:00+09:00",
   "source": {
+    "original_docx_path": "D:/.../original/received_manuscript.docx",
+    "original_pdf_path": "D:/.../original/received_manuscript_line_numbered.pdf",
     "docx_path": "source/manuscript.docx",
     "pdf_path": "source/manuscript_line_numbered.pdf",
-    "docx_sha256": "...",
-    "pdf_sha256": "..."
+    "docx_sha256": "abc123...",
+    "pdf_sha256": "def456...",
+    "docx_size_bytes": 123456,
+    "pdf_size_bytes": 234567,
+    "input_validation_status": "ok"
   },
   "manuscript": {
     "title": null,
@@ -283,11 +343,11 @@ GUI側では、作業フォルダ選択時に以下を行う。
 
 ---
 
-## 5. task_status.json
+## 6. task_status.json
 
 `task_status.json` は全処理のステータスを一元管理するファイルである。
 
-### 5.1 ステータス値
+### 6.1 ステータス値
 
 ```text
 not_started  — 未着手
@@ -298,7 +358,7 @@ failed       — 失敗
 not_used     — 不使用（手入力未使用など）
 ```
 
-### 5.2 初期スキーマ
+### 6.2 初期スキーマ
 
 ```json
 {
@@ -348,14 +408,14 @@ not_used     — 不使用（手入力未使用など）
 
 ---
 
-## 6. GUI による作業フォルダ選択の制約
+## 7. GUI による作業フォルダ選択の制約
 
-### 6.1 選択不可条件
+### 7.1 選択不可条件
 
 - `release/` 以下のパスは選択不可または警告表示
 - 既存の作業フォルダを開く場合は `project.json` の存在を確認する
 
-### 6.2 最近使った作業フォルダ
+### 7.2 最近使った作業フォルダ
 
 - アプリ設定にパスのみを記録する
 - 原稿本文や解析結果は履歴に含めない

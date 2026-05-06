@@ -343,9 +343,12 @@ docx 原稿と Word から保存した行番号付き PDF を読み込み、本�
 
 ## 2.2 実装対象
 
-* docx ファイルの読み込み
-* PDF ファイルの読み込み
-* source フォルダへのコピー
+* 任意名の docx/PDF を GUI で指定
+* docx/PDF の入力検証（存在確認、拡張子、ファイルサイズ、SHA256）
+* 検証済みファイルを work/source/ へ標準名でコピー
+* `project.json` に元ファイルパスと作業コピー先パスの両方を記録
+* docx ファイルの読み込み（source/manuscript.docx）
+* PDF ファイルの読み込み（source/manuscript_line_numbered.pdf）
 * docx本文抽出
 * 段落番号付与
 * 文番号付与
@@ -355,36 +358,69 @@ docx 原稿と Word から保存した行番号付き PDF を読み込み、本�
 * セクション分割
 * 前処理レポート生成
 
-## 2.3 Python CLI コマンド
+## 2.3 入力ファイルの流れ
+
+```text
+1. ユーザーが original/ などから任意名の docx と PDF を GUI で選択
+2. [入力ファイルをチェック] → validate-input で検証
+3. OK なら [作業フォルダへ取り込み] → attach-source で work/source/ に標準名コピー
+4. 取り込み完了後、前処理へ進む
+```
+
+### 2.3.1 work/source/ 既存ファイルの扱い（Phase 2 暫定）
+
+`work/source/manuscript.docx` または `work/source/manuscript_line_numbered.pdf` が既に存在する場合、`attach-source` は `SOURCE_EXISTS` エラーで拒否する。上書きが必要な場合はユーザーが手動で削除する。
+
+## 2.4 Python CLI コマンド
 
 ```bash
-pra-cli preprocess \
+# ファイル検証のみ（コピーしない）
+pra-cli validate-input --docx <file.docx> --pdf <file.pdf>
+
+# 検証＋コピー＋project.json 更新
+pra-cli attach-source \
   --project <project_folder> \
   --docx <file.docx> \
   --pdf <file.pdf>
+
+# 前処理実行
+pra-cli preprocess \
+  --project <project_folder>
 ```
 
-## 2.4 GUI
+## 2.5 GUI
 
 ```text
 前処理画面
 
 原稿 docx:
-[docxを選択]
+[任意のパスを選択]
 
 Wordから保存した行番号付きPDF:
-[pdfを選択]
+[任意のパスを選択]
 
-出力フォルダ:
-[作業フォルダを選択]
+[入力ファイルをチェック]
+
+チェック結果:
+□ docx 存在確認
+□ PDF 存在確認
+□ 拡張子 (.docx / .pdf)
+□ ファイルサイズ > 0
+□ SHA256 計算
+
+[作業フォルダへ取り込み]  ← チェックOK時のみ有効
+
+取り込み後:
+□ work/source/manuscript.docx
+□ work/source/manuscript_line_numbered.pdf
+
+[前処理を実行]
 
 推奨設定:
 - 1段組み
 - 標準余白
 - Wordから直接保存したPDF
 - 行番号あり
-
-[前処理を実行]
 
 前処理結果:
 □ docx本文抽出

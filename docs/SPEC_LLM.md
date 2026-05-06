@@ -221,7 +221,10 @@ pra-cli run-check \
 | `sections/results.txt` | no | Results テキスト |
 | `sections/discussion.txt` | no | Discussion テキスト |
 | `sections/conclusion.txt` | no | Conclusion テキスト |
+| `sections/_aggregated/*.txt` | no | 統合セクションテキスト（親セクション + 全子セクションの内容）。個別の .txt が空で `section_map.json` に `has_subsections: true` が記録されている場合にフォールバックとして使用される |
 | `sections/section_map.json` | no | セクション階層情報 |
+
+親セクションの個別 .txt ファイルが空で、かつ `section_map.json` に `has_subsections: true` が記録されている場合、`sections/_aggregated/` 配下の統合ファイルが代わりに読み込まれる。これにより、Discussion の見出し直下に本文がなくても、下位セクション（major_findings, limitations など）の内容が LLM に送られる。
 
 ### 6.3 プロンプト
 

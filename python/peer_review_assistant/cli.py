@@ -482,7 +482,7 @@ def preprocess_numbering(project_dir):
               help="Path to the project working folder.")
 def preprocess_sections(project_dir):
     """Split manuscript into sections based on heading styles."""
-    from peer_review_assistant.preprocess import split_sections
+    from peer_review_assistant.preprocess import split_sections, build_parent_child_map
 
     emit("progress", task="preprocess-sections", step="validate", percent=0)
 
@@ -516,6 +516,44 @@ def preprocess_sections(project_dir):
         with open(fpath, "w", encoding="utf-8") as f:
             f.write(text)
 
+    # Compute parent-child relationships for aggregation
+    parent_child = build_parent_child_map(result["sections"])
+    has_subsections = parent_child["has_subsections"]
+    children_of = parent_child["children_of"]
+
+    # Generate aggregated files for parent sections with subsections
+    aggregated_dir = os.path.join(sections_dir, "_aggregated")
+    aggregated_text_paths = {}
+
+    for sec in result["sections"]:
+        if has_subsections.get(sec["name"]):
+            children = children_of.get(sec["name"], [])
+            parts = []
+            if sec["heading"]:
+                parts.append(sec["heading"])
+            for child in children:
+                child_heading = child.get("heading")
+                if child_heading:
+                    child_level = child.get("level", 2)
+                    if child_level is not None and child_level >= 1:
+                        prefix = "#" * (child_level + 1) + " "
+                    else:
+                        prefix = "## "
+                    parts.append(f"{prefix}{child_heading}")
+                child_txt_path = os.path.join(sections_dir, f"{child['name']}.txt")
+                if os.path.isfile(child_txt_path):
+                    with open(child_txt_path, "r", encoding="utf-8") as cf:
+                        child_text = cf.read().strip()
+                        if child_text:
+                            parts.append(child_text)
+            if len(parts) > 0:
+                os.makedirs(aggregated_dir, exist_ok=True)
+                agg_text = "\n\n".join(parts) + "\n"
+                agg_path = os.path.join(aggregated_dir, f"{sec['name']}.txt")
+                with open(agg_path, "w", encoding="utf-8") as af:
+                    af.write(agg_text)
+                aggregated_text_paths[sec["name"]] = f"sections/_aggregated/{sec['name']}.txt"
+
     # Save section_map.json
     section_map = {
         "section_count": result["section_count"],
@@ -527,6 +565,8 @@ def preprocess_sections(project_dir):
                 "parent_section": s["parent_section"],
                 "start_paragraph": s["start_paragraph"],
                 "end_paragraph": s["end_paragraph"],
+                "has_subsections": has_subsections.get(s["name"], False),
+                "aggregated_text_path": aggregated_text_paths.get(s["name"]),
             }
             for s in result["sections"]
         ],
@@ -857,25 +897,42 @@ def run_check(project_dir, check_name, slot, provider, base_url, model, api_key)
     with open(manuscript_path, "r", encoding="utf-8") as f:
         manuscript_data = json.load(f)
 
-    # Load section texts
+    # Load section_map for hierarchy info (before section_texts for fallback)
+    section_map = None
+    section_map_path = os.path.join(project_dir, "sections", "section_map.json")
+    if os.path.isfile(section_map_path):
+        with open(section_map_path, "r", encoding="utf-8") as f:
+            section_map = json.load(f)
+
+    # Load section texts with aggregated fallback for empty parent sections
     section_texts = {}
     sections_dir = os.path.join(project_dir, "sections")
     section_names = ["abstract", "introduction", "aim_objective", "methods",
                      "results", "discussion", "conclusion"]
     for name in section_names:
         path = os.path.join(sections_dir, f"{name}.txt")
+        content = None
         if os.path.isfile(path):
             with open(path, "r", encoding="utf-8") as f:
                 content = f.read().strip()
-                if content:
-                    section_texts[name] = content
-
-    # Load section_map for hierarchy info
-    section_map = None
-    section_map_path = os.path.join(project_dir, "sections", "section_map.json")
-    if os.path.isfile(section_map_path):
-        with open(section_map_path, "r", encoding="utf-8") as f:
-            section_map = json.load(f)
+        if content:
+            section_texts[name] = content
+        elif section_map:
+            # Individual .txt is empty or missing — try aggregated fallback
+            sec_entry = next(
+                (s for s in section_map.get("sections", [])
+                 if s["name"] == name),
+                None
+            )
+            if sec_entry and sec_entry.get("has_subsections"):
+                agg_rel = sec_entry.get("aggregated_text_path")
+                if agg_rel:
+                    agg_abs = os.path.join(project_dir, agg_rel)
+                    if os.path.isfile(agg_abs):
+                        with open(agg_abs, "r", encoding="utf-8") as af:
+                            agg_content = af.read().strip()
+                            if agg_content:
+                                section_texts[name] = agg_content
 
     # Build prompt
     emit("progress", task="run-check", step="building_prompt", percent=40,

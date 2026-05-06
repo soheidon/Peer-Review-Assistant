@@ -202,3 +202,31 @@ def _safe_section_name(heading_text):
     name = re.sub(r"[^a-z0-9]+", "_", name)
     name = name.strip("_")
     return name or "section"
+
+
+def build_parent_child_map(sections):
+    """Compute parent-to-children relationships from a sections list.
+
+    Args:
+        sections: list of section dicts from split_sections(), each with
+                  name, heading, level, parent_section, start_paragraph,
+                  end_paragraph, paragraphs[]
+
+    Returns:
+        dict with:
+            has_subsections: dict mapping section name -> bool
+            children_of: dict mapping parent name -> list of child section dicts
+    """
+    has_subsections = {s["name"]: False for s in sections}
+    children_of = {}
+
+    for s in sections:
+        parent = s.get("parent_section")
+        if parent:
+            has_subsections[parent] = True
+            children_of.setdefault(parent, []).append(s)
+
+    return {
+        "has_subsections": has_subsections,
+        "children_of": children_of,
+    }

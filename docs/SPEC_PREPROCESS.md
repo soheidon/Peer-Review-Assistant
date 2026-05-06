@@ -196,15 +196,22 @@ pra-cli preprocess-sections --project <project_folder>
 
 各セクションの段落テキストを改行で連結したファイル。
 
+#### sections/_aggregated/<name>.txt
+
+子セクションを持つ親セクション向けの統合テキストファイル。親セクションの見出し直下の本文が空で、下位セクションにのみ本文が存在する場合のフォールバックとして使用される。
+
+ファイル内容は、親セクションの見出しテキスト + 各子セクションの見出し（Markdown の `#` プレフィックス付き）+ 子セクションの本文を連結したもの。
+
 #### sections/section_map.json
 
 ```json
 {
   "section_count": 8,
   "sections": [
-    {"name": "abstract", "heading": "Abstract", "level": 1, "parent_section": null, "start_paragraph": 1, "end_paragraph": 2},
-    {"name": "procedure", "heading": "Procedure", "level": 2, "parent_section": "methods", "start_paragraph": 10, "end_paragraph": 12},
-    {"name": "introduction", "heading": "Introduction", "level": 1, "parent_section": null, "start_paragraph": 3, "end_paragraph": 5}
+    {"name": "abstract", "heading": "Abstract", "level": 1, "parent_section": null, "start_paragraph": 1, "end_paragraph": 2, "has_subsections": false, "aggregated_text_path": null},
+    {"name": "procedure", "heading": "Procedure", "level": 2, "parent_section": "methods", "start_paragraph": 10, "end_paragraph": 12, "has_subsections": false, "aggregated_text_path": null},
+    {"name": "methods", "heading": "Methods", "level": 1, "parent_section": null, "start_paragraph": 8, "end_paragraph": 14, "has_subsections": true, "aggregated_text_path": "sections/_aggregated/methods.txt"},
+    {"name": "introduction", "heading": "Introduction", "level": 1, "parent_section": null, "start_paragraph": 3, "end_paragraph": 5, "has_subsections": false, "aggregated_text_path": null}
   ]
 }
 ```
@@ -218,6 +225,8 @@ pra-cli preprocess-sections --project <project_folder>
 | `sections[].parent_section` | string\|null | 親セクションの `name`（上位レベルの見出しがない場合は null） |
 | `sections[].start_paragraph` | int | セクション先頭段落のインデックス |
 | `sections[].end_paragraph` | int | セクション末尾段落のインデックス |
+| `sections[].has_subsections` | bool | 子セクションを持つかどうか |
+| `sections[].aggregated_text_path` | string\|null | 統合テキストファイルのパス（例: `"sections/_aggregated/discussion.txt"`）。子セクションがない場合は null |
 
 ### 3.6 エラーコード
 

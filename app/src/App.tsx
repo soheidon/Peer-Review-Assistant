@@ -23,6 +23,8 @@ function App() {
   const [structureCheckResults, setStructureCheckResults] = useState<Record<string, string>>({});
   const [structureMergeDone, setStructureMergeDone] = useState(false);
   const [structureMergeRunning, setStructureMergeRunning] = useState(false);
+  const [finalMergeDone, setFinalMergeDone] = useState(false);
+  const [finalMergeRunning, setFinalMergeRunning] = useState(false);
 
   const defaultSlots = [
     { name: "summary", provider: "", baseUrl: "", model: "", apiKey: "" },
@@ -478,6 +480,36 @@ function App() {
     }
   };
 
+  const runFinalMerge = async () => {
+    if (!projectPath.trim()) {
+      addLog({ event: "error", message: "Please create a project first." });
+      return;
+    }
+
+    setFinalMergeRunning(true);
+    addLog({ event: "info", message: "Generating final review..." });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const cmd = Command.create("pra-cli", [
+        "final-merge",
+        "--project", projectPath,
+      ]);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+
+      if (output.code === 0) {
+        setFinalMergeDone(true);
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog({ event: "error", message: msg });
+    } finally {
+      setFinalMergeRunning(false);
+    }
+  };
+
   const logLineStyle = (entry: LogEntry): React.CSSProperties => {
     let color = "#555";
     if (entry.event === "done" || entry.event === "healthcheck" || entry.status === "ok")
@@ -679,7 +711,6 @@ function App() {
           <button
             onClick={runMergeStructure}
             disabled={
-              !crossrefDone ||
               structureMergeDone ||
               structureMergeRunning ||
               llmSlots.filter((s) => s.name.startsWith("reviewer")).every(
@@ -693,6 +724,20 @@ function App() {
           {structureMergeRunning && (
             <span className="status-chip" style={{ backgroundColor: "#eee", color: "#555" }}>
               Merging...
+            </span>
+          )}
+        </div>
+        <div className="row">
+          <button
+            onClick={runFinalMerge}
+            disabled={!structureMergeDone || finalMergeDone || finalMergeRunning}
+          >
+            Generate Final Review
+          </button>
+          {finalMergeDone && <span className="status-chip ok">Generated</span>}
+          {finalMergeRunning && (
+            <span className="status-chip" style={{ backgroundColor: "#eee", color: "#555" }}>
+              Generating...
             </span>
           )}
         </div>

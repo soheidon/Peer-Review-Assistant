@@ -1089,5 +1089,106 @@ def merge_section_cmd(project_dir, check_name):
          message=f"Section merge complete ({result['merged_count']} comments).")
 
 
+@main.command(name="final-merge")
+@click.option("--project", "project_dir", required=True,
+              type=click.Path(file_okay=False, writable=True),
+              help="Path to the project working folder.")
+def final_merge_cmd(project_dir):
+    """Generate final review documents from merged section results."""
+    from peer_review_assistant.output.final import final_merge
+
+    emit("progress", task="final-merge", step="validate", percent=0)
+
+    # Gate: project.json exists
+    proj_path = os.path.join(project_dir, "project.json")
+    if not os.path.isfile(proj_path):
+        error("NO_PROJECT", "project.json not found. Run init-project first.")
+
+    # Gate: merged.section.json exists
+    merged_path = os.path.join(project_dir, "outputs", "structure",
+                               "merged.section.json")
+    if not os.path.isfile(merged_path):
+        error("NO_MERGED_STRUCTURE",
+              "outputs/structure/merged.section.json not found. "
+              "Run merge-section --check structure first.")
+
+    emit("progress", task="final-merge", step="generate", percent=30)
+
+    try:
+        result = final_merge(project_dir)
+    except FileNotFoundError as e:
+        error("NO_MERGED_STRUCTURE", str(e))
+    except json.JSONDecodeError as e:
+        error("FINAL_MERGE_ERROR",
+              f"Failed to parse merged.section.json: {e}")
+    except Exception as e:
+        error("FINAL_MERGE_ERROR",
+              f"Final merge generation failed: {e}")
+
+    emit("progress", task="final-merge", step="save", percent=70,
+         comments=result["total_comments"],
+         major=result["major_count"],
+         minor=result["minor_count"])
+
+    out_dir = os.path.join(project_dir, "outputs", "final")
+    os.makedirs(out_dir, exist_ok=True)
+
+    content = result["content"]
+    file_map = [
+        ("final_review.md", content["final_review_md"]),
+        ("comments_to_authors.md", content["comments_to_authors_md"]),
+        ("confidential_comments_to_editor.md",
+         content["confidential_comments_md"]),
+        ("recommendation.md", content["recommendation_md"]),
+    ]
+    for fname, text in file_map:
+        fpath = os.path.join(out_dir, fname)
+        with open(fpath, "w", encoding="utf-8") as f:
+            f.write(text)
+
+    audit_path = os.path.join(out_dir, "audit_trail.json")
+    with open(audit_path, "w", encoding="utf-8") as f:
+        json.dump(content["audit_trail"], f, indent=2, ensure_ascii=False)
+
+    emit("progress", task="final-merge", step="update_status", percent=90)
+
+    # Update task_status.json
+    status_path = os.path.join(project_dir, "status", "task_status.json")
+    if os.path.isfile(status_path):
+        with open(status_path, "r", encoding="utf-8") as f:
+            task_status = json.load(f)
+        task_status["final_merge"] = "done"
+        with open(status_path, "w", encoding="utf-8") as f:
+            json.dump(task_status, f, indent=2, ensure_ascii=False)
+
+    # Append merge.log
+    now = datetime.now(JST)
+    log_path = os.path.join(project_dir, "logs", "merge.log")
+    log_entry = (f"[{now.isoformat()}] final-merge check=structure "
+                 f"comments={result['total_comments']} "
+                 f"major={result['major_count']} "
+                 f"minor={result['minor_count']} "
+                 f"recommendation=\"{result['recommendation']}\"\n")
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    with open(log_path, "a", encoding="utf-8") as f:
+        f.write(log_entry)
+
+    # Update project.json timestamp
+    with open(proj_path, "r", encoding="utf-8") as f:
+        proj = json.load(f)
+    proj["updated_at"] = now.isoformat()
+    with open(proj_path, "w", encoding="utf-8") as f:
+        json.dump(proj, f, indent=2, ensure_ascii=False)
+
+    emit("done",
+         task="final-merge",
+         comments=result["total_comments"],
+         major=result["major_count"],
+         minor=result["minor_count"],
+         recommendation=result["recommendation"],
+         message=f"Final review generated ({result['total_comments']} comments, "
+                 f"recommendation: {result['recommendation']}).")
+
+
 if __name__ == "__main__":
     main()

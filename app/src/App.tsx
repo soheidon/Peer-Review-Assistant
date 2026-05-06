@@ -15,6 +15,7 @@ function App() {
   const [pdfPath, setPdfPath] = useState("");
   const [validationOk, setValidationOk] = useState(false);
   const [sourceAttached, setSourceAttached] = useState(false);
+  const [preprocessDone, setPreprocessDone] = useState(false);
 
   const addLog = (entry: LogEntry) => {
     setLogs((prev) => [...prev, entry]);
@@ -213,6 +214,37 @@ function App() {
     }
   };
 
+  const preprocessSource = async () => {
+    if (!projectPath.trim()) {
+      addLog({ event: "error", message: "Please create a project first." });
+      return;
+    }
+
+    setPreprocessDone(false);
+    addLog({ event: "info", message: "Preprocessing docx..." });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const cmd = Command.create("pra-cli", [
+        "preprocess-docx",
+        "--project",
+        projectPath,
+      ]);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) {
+        addLog({ event: "stderr", message: output.stderr });
+      }
+
+      if (output.code === 0) {
+        setPreprocessDone(true);
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog({ event: "error", message: msg });
+    }
+  };
+
   const logLineStyle = (entry: LogEntry): React.CSSProperties => {
     let color = "#555";
     if (entry.event === "done" || entry.event === "healthcheck" || entry.status === "ok")
@@ -290,6 +322,12 @@ function App() {
             Attach to Project
           </button>
           {sourceAttached && <span className="status-chip ok">Attached</span>}
+        </div>
+        <div className="row">
+          <button onClick={preprocessSource} disabled={!sourceAttached}>
+            Preprocess docx
+          </button>
+          {preprocessDone && <span className="status-chip ok">Done</span>}
         </div>
       </section>
 

@@ -332,5 +332,90 @@ def attach_source(project_dir, docx_path, pdf_path):
          message="Source files attached successfully.")
 
 
+@main.command()
+@click.option("--project", "project_dir", required=True,
+              type=click.Path(file_okay=False, writable=True),
+              help="Path to the project working folder.")
+def preprocess_docx(project_dir):
+    """Extract text and paragraph structure from source/manuscript.docx."""
+    from peer_review_assistant.preprocess import extract_docx_text
+
+    emit("progress", task="preprocess-docx", step="read_docx", percent=0)
+
+    # Validate project
+    proj_path = os.path.join(project_dir, "project.json")
+    if not os.path.isfile(proj_path):
+        error("NO_PROJECT",
+              "project.json not found. Run init-project first.")
+
+    # Check source file exists
+    docx_path = os.path.join(project_dir, "source", "manuscript.docx")
+    if not os.path.isfile(docx_path):
+        error("NO_SOURCE_FILE",
+              "source/manuscript.docx not found. Run attach-source first.")
+
+    emit("progress", task="preprocess-docx", step="extract_text", percent=30)
+
+    try:
+        result = extract_docx_text(docx_path)
+    except Exception as e:
+        error("DOCX_READ_ERROR",
+              f"Failed to read docx: {e}")
+
+    emit("progress", task="preprocess-docx", step="save_txt", percent=60)
+
+    # Save plain text
+    txt_path = os.path.join(project_dir, "manuscript_full.txt")
+    full_text = "\n".join(p["text"] for p in result["paragraphs"])
+    with open(txt_path, "w", encoding="utf-8") as f:
+        f.write(full_text)
+
+    emit("progress", task="preprocess-docx", step="save_json", percent=80)
+
+    # Save structured JSON (paragraphs only, not full text)
+    json_output = {
+        "paragraph_count": result["paragraph_count"],
+        "character_count": result["character_count"],
+        "paragraphs": result["paragraphs"],
+    }
+    json_path = os.path.join(project_dir, "manuscript_full.json")
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(json_output, f, indent=2, ensure_ascii=False)
+
+    emit("progress", task="preprocess-docx", step="update_status", percent=90)
+
+    # Update task_status.json
+    status_path = os.path.join(project_dir, "status", "task_status.json")
+    if os.path.isfile(status_path):
+        with open(status_path, "r", encoding="utf-8") as f:
+            task_status = json.load(f)
+        task_status["preprocess"] = "done"
+        with open(status_path, "w", encoding="utf-8") as f:
+            json.dump(task_status, f, indent=2, ensure_ascii=False)
+
+    # Update project.json updated_at
+    with open(proj_path, "r", encoding="utf-8") as f:
+        proj = json.load(f)
+    proj["updated_at"] = datetime.now(JST).isoformat()
+    proj["preprocess"]["status"] = "done"
+    with open(proj_path, "w", encoding="utf-8") as f:
+        json.dump(proj, f, indent=2, ensure_ascii=False)
+
+    # Append to preprocess.log
+    log_path = os.path.join(project_dir, "logs", "preprocess.log")
+    now = datetime.now(JST).isoformat()
+    log_entry = (f"[{now}] preprocess-docx: "
+                 f"paragraphs={result['paragraph_count']}, "
+                 f"chars={result['character_count']}\n")
+    with open(log_path, "a", encoding="utf-8") as f:
+        f.write(log_entry)
+
+    emit("done",
+         task="preprocess-docx",
+         paragraph_count=result["paragraph_count"],
+         character_count=result["character_count"],
+         message="docx preprocessing complete.")
+
+
 if __name__ == "__main__":
     main()

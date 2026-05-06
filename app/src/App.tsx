@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 
 interface LogEntry {
@@ -25,6 +25,9 @@ function App() {
   const [structureMergeRunning, setStructureMergeRunning] = useState(false);
   const [finalMergeDone, setFinalMergeDone] = useState(false);
   const [finalMergeRunning, setFinalMergeRunning] = useState(false);
+  const [selectedResultFile, setSelectedResultFile] = useState("final_review.md");
+  const [resultFileContent, setResultFileContent] = useState("");
+  const [resultFileLoading, setResultFileLoading] = useState(false);
 
   const defaultSlots = [
     { name: "summary", provider: "", baseUrl: "", model: "", apiKey: "" },
@@ -510,6 +513,43 @@ function App() {
     }
   };
 
+  const loadResultFile = async (filename: string) => {
+    if (!projectPath.trim()) return;
+    const filePath = `${projectPath.replace(/\\/g, "/")}/outputs/final/${filename}`;
+    setResultFileLoading(true);
+    setSelectedResultFile(filename);
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const content = await invoke<string>("read_text_file", { path: filePath });
+      setResultFileContent(content);
+    } catch {
+      setResultFileContent("(File not found or could not be read)");
+    } finally {
+      setResultFileLoading(false);
+    }
+  };
+
+  const reloadResults = () => {
+    loadResultFile(selectedResultFile);
+  };
+
+  const openOutputFolder = async () => {
+    if (!projectPath.trim()) return;
+    try {
+      const { open: shellOpen } = await import("@tauri-apps/plugin-shell");
+      const finalDir = `${projectPath.replace(/\\/g, "/")}/outputs/final`;
+      await shellOpen(`file:///${finalDir}`);
+    } catch {
+      // ignore - folder may not exist
+    }
+  };
+
+  useEffect(() => {
+    if (finalMergeDone && projectPath.trim()) {
+      loadResultFile("final_review.md");
+    }
+  }, [finalMergeDone]);
+
   const logLineStyle = (entry: LogEntry): React.CSSProperties => {
     let color = "#555";
     if (entry.event === "done" || entry.event === "healthcheck" || entry.status === "ok")
@@ -741,6 +781,48 @@ function App() {
             </span>
           )}
         </div>
+      </section>
+
+      <section className="panel">
+        <h2>Results</h2>
+        <div className="row">
+          {[
+            { file: "final_review.md", label: "Final Review" },
+            { file: "comments_to_authors.md", label: "Comments to Authors" },
+            { file: "confidential_comments_to_editor.md", label: "Confidential to Editor" },
+            { file: "recommendation.md", label: "Recommendation" },
+            { file: "audit_trail.json", label: "Audit Trail" },
+          ].map(({ file, label }) => (
+            <button
+              key={file}
+              onClick={() => loadResultFile(file)}
+              disabled={!projectPath.trim()}
+              style={
+                selectedResultFile === file
+                  ? { fontWeight: "bold", backgroundColor: "#d0e4f7" }
+                  : {}
+              }
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="row">
+          <button onClick={reloadResults} disabled={!projectPath.trim()}>
+            Reload Results
+          </button>
+          <button onClick={openOutputFolder} disabled={!projectPath.trim()}>
+            Open Output Folder
+          </button>
+          {resultFileLoading && (
+            <span className="status-chip" style={{ backgroundColor: "#eee", color: "#555" }}>
+              Loading...
+            </span>
+          )}
+        </div>
+        <pre className="result-content">
+          {resultFileContent || "Select a file to view results."}
+        </pre>
       </section>
 
       <section className="panel log-panel">

@@ -208,3 +208,18 @@ button:disabled {
 .llm-input-wide {
   width: 220px;
 }
+
+.result-content {
+  margin-top: 8px;
+  padding: 12px;
+  background: #fff;
+  border: 1px solid #d9d9d9;
+  border-radius: 4px;
+  font-family: "Cascadia Code", "Consolas", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  max-height: 400px;
+  overflow-y: auto;
+  color: #1a1a1a;
+}

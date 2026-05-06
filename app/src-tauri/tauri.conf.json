@@ -25,14 +25,7 @@
   },
   "plugins": {
     "shell": {
-      "open": true,
-      "scope": [
-        {
-          "name": "pra-cli",
-          "cmd": "pra-cli",
-          "args": true
-        }
-      ]
+      "open": true
     }
   }
 }

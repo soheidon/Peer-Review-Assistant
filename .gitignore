@@ -10,6 +10,7 @@ venv/
 # Node / Tauri
 node_modules/
 app/src-tauri/target/
+app/src-tauri/gen/
 
 # IDE
 .vscode/
@@ -29,3 +30,6 @@ credentials.json
 
 # Workspaces (user data)
 workspaces/
+
+# Session logs (canonical copies in docs/implementation_logs/)
+logs/

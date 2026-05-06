@@ -20,15 +20,17 @@
 本書は、将来的に以下の個別仕様書へ分割する前提で作成する。
 
 ```text
-SPEC_PROJECT_STRUCTURE.md
+SPEC_PROJECT_STRUCTURE.md  — 作成済み
+SPEC_CLI.md                — 作成済み（Phase 1 実装反映済み）
 SPEC_PREPROCESS.md
-SPEC_CLI.md
 SPEC_GUI.md
 SPEC_LLM.md
 SPEC_CITATION_DB.md
 SPEC_REVIEW_OUTPUT.md
 SPEC_SECURITY.md
 ```
+
+実装ログは `docs/implementation_logs/` に保存する。
 
 ---
 

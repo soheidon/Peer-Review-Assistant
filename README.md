@@ -62,4 +62,6 @@ pip install -e .
 
 - [SPEC.md](SPEC.md) — 全体仕様
 - [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) — 実装フェーズ別仕様
-- [docs/](docs/) — 機能別詳細仕様
+- [docs/SPEC_CLI.md](docs/SPEC_CLI.md) — Python CLI 詳細仕様
+- [docs/SPEC_PROJECT_STRUCTURE.md](docs/SPEC_PROJECT_STRUCTURE.md) — リポジトリ・作業フォルダ構成
+- [docs/implementation_logs/](docs/implementation_logs/) — 実装ログ

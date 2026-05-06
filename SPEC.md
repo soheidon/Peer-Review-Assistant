@@ -28,6 +28,7 @@ docs/SPEC_GUI.md                Tauri GUI仕様
 docs/SPEC_CLI.md                Python CLI仕様
 docs/SPEC_LLM.md                LLM接続・実行仕様
 docs/SPEC_CITATION_DB.md        文献DB照合仕様
+docs/SPEC_CITATION_EXTRACTION.md 引用文献・本文中引用抽出仕様
 docs/SPEC_REVIEW_OUTPUT.md      査読コメント出力仕様
 docs/SPEC_SECURITY.md           セキュリティ・守秘義務仕様
 docs/SPEC_PROJECT_STRUCTURE.md  ディレクトリ・ファイル構成仕様

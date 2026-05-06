@@ -574,6 +574,8 @@ Aim / Objective が独立していない場合：
 
 # Phase 3. 引用文献・本文中引用抽出
 
+> 詳細仕様は [docs/SPEC_CITATION_EXTRACTION.md](docs/SPEC_CITATION_EXTRACTION.md) を参照。
+
 ## 3.1 目的
 
 前処理済み原稿から References を1件ずつ分割し、本文中引用との対応候補を作成する。

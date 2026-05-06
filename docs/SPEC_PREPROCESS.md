@@ -202,11 +202,22 @@ pra-cli preprocess-sections --project <project_folder>
 {
   "section_count": 8,
   "sections": [
-    {"name": "abstract", "heading": "Abstract", "start_paragraph": 1, "end_paragraph": 2},
-    {"name": "introduction", "heading": "Introduction", "start_paragraph": 3, "end_paragraph": 5}
+    {"name": "abstract", "heading": "Abstract", "level": 1, "parent_section": null, "start_paragraph": 1, "end_paragraph": 2},
+    {"name": "procedure", "heading": "Procedure", "level": 2, "parent_section": "methods", "start_paragraph": 10, "end_paragraph": 12},
+    {"name": "introduction", "heading": "Introduction", "level": 1, "parent_section": null, "start_paragraph": 3, "end_paragraph": 5}
   ]
 }
 ```
+
+| フィールド | 型 | 説明 |
+|---|---|---|
+| `section_count` | int | セクション総数 |
+| `sections[].name` | string | 分類された標準セクション名 |
+| `sections[].heading` | string\|null | 元の見出しテキスト |
+| `sections[].level` | int\|null | 見出しレベル（0=Title, 1=Heading 1, 2=Heading 2, 3=Heading 3, null=preamble） |
+| `sections[].parent_section` | string\|null | 親セクションの `name`（上位レベルの見出しがない場合は null） |
+| `sections[].start_paragraph` | int | セクション先頭段落のインデックス |
+| `sections[].end_paragraph` | int | セクション末尾段落のインデックス |
 
 ### 3.6 エラーコード
 

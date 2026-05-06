@@ -523,6 +523,8 @@ def preprocess_sections(project_dir):
             {
                 "name": s["name"],
                 "heading": s["heading"],
+                "level": s["level"],
+                "parent_section": s["parent_section"],
                 "start_paragraph": s["start_paragraph"],
                 "end_paragraph": s["end_paragraph"],
             }
@@ -554,6 +556,102 @@ def preprocess_sections(project_dir):
          task="preprocess-sections",
          section_count=result["section_count"],
          message="Section splitting complete.")
+
+
+@main.command()
+@click.option("--project", "project_dir", required=True,
+              type=click.Path(file_okay=False, writable=True),
+              help="Path to the project working folder.")
+def extract_citations(project_dir):
+    """Extract and split references, find in-text citation markers."""
+    from peer_review_assistant.citations import (
+        split_references,
+        extract_in_text_citations,
+        build_citation_contexts,
+    )
+
+    emit("progress", task="extract-citations", step="validate", percent=0)
+
+    proj_path = os.path.join(project_dir, "project.json")
+    if not os.path.isfile(proj_path):
+        error("NO_PROJECT", "project.json not found. Run init-project first.")
+
+    refs_path = os.path.join(project_dir, "sections", "references.txt")
+    if not os.path.isfile(refs_path):
+        error("NO_REFERENCES",
+              "sections/references.txt not found. Run preprocess-sections first.")
+
+    ps_path = os.path.join(project_dir, "paragraph_sentence_map.json")
+    if not os.path.isfile(ps_path):
+        error("NO_PARAGRAPH_SENTENCE_MAP",
+              "paragraph_sentence_map.json not found. "
+              "Run preprocess-numbering first.")
+
+    section_map_path = os.path.join(project_dir, "sections", "section_map.json")
+    if not os.path.isfile(section_map_path):
+        error("NO_SECTION_MAP",
+              "section_map.json not found. Run preprocess-sections first.")
+
+    emit("progress", task="extract-citations", step="load", percent=20)
+
+    with open(refs_path, "r", encoding="utf-8") as f:
+        references_text = f.read()
+
+    with open(ps_path, "r", encoding="utf-8") as f:
+        paragraph_sentence_map = json.load(f)
+
+    with open(section_map_path, "r", encoding="utf-8") as f:
+        section_map = json.load(f)
+
+    emit("progress", task="extract-citations", step="split_references", percent=40)
+
+    references_split = split_references(references_text)
+
+    emit("progress", task="extract-citations", step="extract_citations", percent=60)
+
+    in_text_citations = extract_in_text_citations(
+        paragraph_sentence_map, section_map)
+
+    emit("progress", task="extract-citations", step="build_contexts", percent=75)
+
+    citation_contexts = build_citation_contexts(
+        references_split, in_text_citations, paragraph_sentence_map, section_map)
+
+    emit("progress", task="extract-citations", step="save", percent=85)
+
+    citations_dir = os.path.join(project_dir, "citations")
+    os.makedirs(citations_dir, exist_ok=True)
+
+    for name, data in [
+        ("references_split.json", references_split),
+        ("in_text_citations.json", in_text_citations),
+        ("citation_contexts.json", citation_contexts),
+    ]:
+        path = os.path.join(citations_dir, name)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+
+    emit("progress", task="extract-citations", step="update_status", percent=95)
+
+    log_path = os.path.join(project_dir, "logs", "preprocess.log")
+    now = datetime.now(JST).isoformat()
+    log_entry = (f"[{now}] extract-citations: "
+                 f"references={references_split['total_references']}, "
+                 f"citations={in_text_citations['total_citations']}\n")
+    with open(log_path, "a", encoding="utf-8") as f:
+        f.write(log_entry)
+
+    with open(proj_path, "r", encoding="utf-8") as f:
+        proj = json.load(f)
+    proj["updated_at"] = datetime.now(JST).isoformat()
+    with open(proj_path, "w", encoding="utf-8") as f:
+        json.dump(proj, f, indent=2, ensure_ascii=False)
+
+    emit("done",
+         task="extract-citations",
+         reference_count=references_split["total_references"],
+         citation_count=in_text_citations["total_citations"],
+         message="Citation extraction complete.")
 
 
 if __name__ == "__main__":

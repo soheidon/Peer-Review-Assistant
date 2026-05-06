@@ -112,16 +112,27 @@ def _classify_section(heading_text):
     return None
 
 
+def _heading_level(style):
+    """Map Word style name to integer heading level."""
+    mapping = {"Title": 0, "Heading 1": 1, "Heading 2": 2, "Heading 3": 3}
+    return mapping.get(style)
+
+
 def split_sections(paragraphs):
     """Split paragraphs into sections based on heading styles.
+
+    Tracks heading hierarchy via a stack so sub-sections (e.g. Heading 2
+    under Heading 1) receive a parent_section reference.
 
     Args:
         paragraphs: list of dicts with index, text, style
 
     Returns:
-        dict with section_count, sections (list of {name, heading, paragraphs[]})
+        dict with section_count, sections (list of {name, heading, level,
+        parent_section, start_paragraph, end_paragraph, paragraphs[]})
     """
     heading_styles = {"Title", "Heading 1", "Heading 2", "Heading 3"}
+    heading_stack = []
 
     sections = []
     current_section = {
@@ -129,6 +140,8 @@ def split_sections(paragraphs):
         "heading": None,
         "paragraphs": [],
         "start_paragraph": 0,
+        "level": None,
+        "parent_section": None,
     }
 
     for para in paragraphs:
@@ -139,12 +152,29 @@ def split_sections(paragraphs):
 
         if is_heading and current_section["paragraphs"]:
             sections.append(current_section)
+
+            level = _heading_level(style)
             section_name = _classify_section(text) or _safe_section_name(text)
+
+            # Pop ancestors at same or higher level to find parent
+            while heading_stack and heading_stack[-1]["level"] >= level:
+                heading_stack.pop()
+
+            parent_section = heading_stack[-1]["name"] if heading_stack else None
+
+            heading_stack.append({
+                "level": level,
+                "name": section_name,
+                "heading": text.strip(),
+            })
+
             current_section = {
                 "name": section_name,
                 "heading": text.strip(),
                 "paragraphs": [],
                 "start_paragraph": para["index"],
+                "level": level,
+                "parent_section": parent_section,
             }
         else:
             current_section["paragraphs"].append(para)

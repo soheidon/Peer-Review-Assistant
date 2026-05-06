@@ -191,19 +191,117 @@ def chat_completion(provider, messages, max_tokens=1024, temperature=0.0):
 
 ---
 
-## 6. Phase 6以降の拡張予定
+## 6. Phase 6A: Structure Check (実装済み)
 
-Phase 6では、以下の機能が `llm/__init__.py` に追加される。
+### 6.1 CLI コマンド
 
-- プロンプトテンプレートシステム
-- 5種類のチェック（構造・表現・方法統計・引用・独創性）ごとの専用プロンプト
-- 応答の構造化パース（JSONスキーマ強制）
-- リトライ・フォールバックロジック
-- マルチLLM並列実行（reviewer1/2/3 同時実行）
+```bash
+pra-cli run-check \
+  --project <project_folder> \
+  --check structure \
+  --slot reviewer1 \
+  --provider openai \
+  --base-url https://api.openai.com/v1 \
+  --model gpt-4o \
+  --api-key sk-xxxxxxxx
+```
+
+現在 `--check structure` のみ許可。それ以外は `CHECK_NOT_IMPLEMENTED` エラー。
+
+### 6.2 入力
+
+| ファイル | 必須 | 説明 |
+|---|---|---|
+| `project.json` | yes | プロジェクトメタデータ |
+| `manuscript_full.json` | yes | 全段落構造 |
+| `sections/abstract.txt` | no | Abstract テキスト |
+| `sections/introduction.txt` | no | Introduction テキスト |
+| `sections/aim_objective.txt` | no | Aim/Objective テキスト |
+| `sections/methods.txt` | no | Methods テキスト |
+| `sections/results.txt` | no | Results テキスト |
+| `sections/discussion.txt` | no | Discussion テキスト |
+| `sections/conclusion.txt` | no | Conclusion テキスト |
+| `sections/section_map.json` | no | セクション階層情報 |
+
+### 6.3 プロンプト
+
+`llm/prompts.py` の `build_structure_check_messages()` で生成。
+
+**System prompt**: 7項目の構造チェック指示（IMRaD構成、Abstract整合性、研究ギャップ、Aim/Objective明確性、Methods-Results対応、Discussion過剰解釈、Conclusion過剰主張）。JSON形式での出力を強制。
+
+**User message**: セクション一覧（階層付き）+ 各セクションの本文。120K文字上限で切り詰め。
+
+### 6.4 JSON応答パース
+
+`llm/json_repair.py` の `parse_llm_json()` で以下の手順で抽出:
+
+1. 全体を直接 `json.loads` 試行
+2. ```` ```json ... ``` ```` ブロックから抽出
+3. ```` ``` ... ``` ```` 汎用ブロックから抽出  
+4. 最も外側の `{ ... }` を抽出
+
+### 6.5 出力
+
+`outputs/structure/{slot}.raw.json`:
+
+```json
+{
+  "check_name": "structure",
+  "source": "reviewer1",
+  "status": "done",
+  "generated_at": "2026-05-07T12:00:00+09:00",
+  "model": "gpt-4o-2024-08-06",
+  "summary": "Overall assessment...",
+  "findings": [
+    {
+      "finding_id": "structure_reviewer1_001",
+      "severity": "major",
+      "category": "Structure",
+      "location": {
+        "section": "Introduction",
+        "paragraph_start": 3,
+        "paragraph_end": 5,
+        "text_excerpt": "..."
+      },
+      "issue": "The research gap is not clearly articulated.",
+      "suggested_comment": "Lines 45-72: Please clarify...",
+      "confidence": "high"
+    }
+  ]
+}
+```
+
+### 6.6 エラーコード
+
+| コード | 条件 |
+|---|---|
+| `NO_PROJECT` | project.json が存在しない |
+| `CHECK_NOT_IMPLEMENTED` | structure 以外のチェックが指定された |
+| `NO_API_KEY` | APIキー未指定（--api-keyも環境変数もなし） |
+| `NO_MANUSCRIPT_JSON` | manuscript_full.json が存在しない |
+| `LLM_CONNECTION_FAILED` | LLM呼び出し失敗（ネットワーク、認証等） |
+| `LLM_INVALID_JSON` | LLM応答からJSONを抽出できなかった |
+
+### 6.7 ログ
+
+`logs/llm_calls.log` に追記。APIキーは先頭4文字+末尾4文字のみ記録（`key=sk-a...B1cD`）。
 
 ---
 
-## 7. 関連文書
+## 7. Phase 6B-6E 拡張予定
+
+Phase 6A完了後、以下のチェックを順次追加:
+
+- expression check（表現・文法・学術英語）
+- methods_stats check（方法・統計）
+- citation check（引用妥当性）
+- originality check（独創性・類似性）
+
+各チェックは `run-check --check <name>` で実行され、プロンプトは `llm/prompts.py` に追加される。
+
+---
+
+## 8. 関連文書
 
 - [SPEC.md](../SPEC.md) — 全体仕様（セクション10）
 - [IMPLEMENTATION_PLAN.md](../IMPLEMENTATION_PLAN.md) — Phase 5-6 実装計画

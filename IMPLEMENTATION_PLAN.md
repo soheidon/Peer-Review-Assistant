@@ -1022,6 +1022,9 @@ outputs/structure/manual.raw.json
 
 # Phase 7. 各チェック項目内マージ
 
+> Phase 7A (structure merge) 実装ログ: [logs/2026-05-07_phase7a-structure-merge.md](../logs/2026-05-07_phase7a-structure-merge.md)
+> 詳細仕様は [docs/SPEC_LLM.md](docs/SPEC_LLM.md) Section 6 および [SPEC.md](../SPEC.md) Section 14 を参照。
+
 ## 7.1 目的
 
 LLM01、LLM02、LLM03、手入力結果をチェック項目ごとに統合し、査読コメント候補を作成する。

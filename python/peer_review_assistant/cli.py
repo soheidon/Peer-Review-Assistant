@@ -124,7 +124,7 @@ def init_project(project_dir):
     emit("progress", task="init-project", step="create_logs", percent=40)
 
     # Empty log files
-    log_files = ["preprocess.log", "llm_calls.log", "citation_db.log", "errors.log"]
+    log_files = ["preprocess.log", "llm_calls.log", "citation_db.log", "errors.log", "merge.log"]
     for lf in log_files:
         path = os.path.join(project_dir, "logs", lf)
         with open(path, "w", encoding="utf-8") as f:
@@ -793,6 +793,300 @@ def test_llm(slot, provider, base_url, model, api_key):
              code="LLM_CONNECTION_FAILED",
              message=result["error"] or "Unknown error",
              latency_ms=result.get("latency_ms"))
+
+
+_VALID_CHECKS = {"structure"}
+
+
+@main.command()
+@click.option("--project", "project_dir", required=True,
+              type=click.Path(file_okay=False, writable=True),
+              help="Path to the project working folder.")
+@click.option("--check", "check_name", required=True,
+              help="Check type. Currently only 'structure' is supported.")
+@click.option("--slot", required=True,
+              help="LLM slot name (summary, reviewer1, reviewer2, reviewer3).")
+@click.option("--provider", required=True,
+              help="Provider name (e.g., openai, deepseek).")
+@click.option("--base-url", required=True,
+              help="Base URL for the chat completions endpoint.")
+@click.option("--model", required=True,
+              help="Model name.")
+@click.option("--api-key", default=None,
+              help="API key. Falls back to PRA_LLM_KEY_<SLOT> env var.")
+def run_check(project_dir, check_name, slot, provider, base_url, model, api_key):
+    """Run an LLM review check on the manuscript."""
+    from peer_review_assistant.llm import LLMProvider, chat_completion
+    from peer_review_assistant.llm.prompts import build_structure_check_messages
+    from peer_review_assistant.llm.json_repair import parse_llm_json
+
+    emit("progress", task="run-check", step="validate", percent=0,
+         check=check_name, slot=slot)
+
+    # Gate: only structure check is implemented (check before project for fast failure)
+    if check_name not in _VALID_CHECKS:
+        error("CHECK_NOT_IMPLEMENTED",
+              f"Check '{check_name}' is not implemented. "
+              f"Available: {', '.join(sorted(_VALID_CHECKS))}")
+
+    # Validate project
+    proj_path = os.path.join(project_dir, "project.json")
+    if not os.path.isfile(proj_path):
+        error("NO_PROJECT", "project.json not found. Run init-project first.")
+
+    # Resolve API key
+    if not api_key:
+        env_var = f"PRA_LLM_KEY_{slot.upper()}"
+        api_key = os.environ.get(env_var)
+    if not api_key:
+        error("NO_API_KEY",
+              f"No API key provided. Use --api-key or set "
+              f"PRA_LLM_KEY_{slot.upper()} environment variable.")
+
+    key_info = f"key={api_key[:4]}...{api_key[-4:]}" if len(api_key) > 8 else "key=****"
+
+    # Load inputs
+    emit("progress", task="run-check", step="load_inputs", percent=20,
+         check=check_name, slot=slot)
+
+    manuscript_path = os.path.join(project_dir, "manuscript_full.json")
+    if not os.path.isfile(manuscript_path):
+        error("NO_MANUSCRIPT_JSON",
+              "manuscript_full.json not found. Run preprocess-docx first.")
+
+    with open(manuscript_path, "r", encoding="utf-8") as f:
+        manuscript_data = json.load(f)
+
+    # Load section texts
+    section_texts = {}
+    sections_dir = os.path.join(project_dir, "sections")
+    section_names = ["abstract", "introduction", "aim_objective", "methods",
+                     "results", "discussion", "conclusion"]
+    for name in section_names:
+        path = os.path.join(sections_dir, f"{name}.txt")
+        if os.path.isfile(path):
+            with open(path, "r", encoding="utf-8") as f:
+                content = f.read().strip()
+                if content:
+                    section_texts[name] = content
+
+    # Load section_map for hierarchy info
+    section_map = None
+    section_map_path = os.path.join(project_dir, "sections", "section_map.json")
+    if os.path.isfile(section_map_path):
+        with open(section_map_path, "r", encoding="utf-8") as f:
+            section_map = json.load(f)
+
+    # Build prompt
+    emit("progress", task="run-check", step="building_prompt", percent=40,
+         check=check_name, slot=slot)
+
+    messages = build_structure_check_messages(manuscript_data, section_texts, section_map)
+
+    # Call LLM
+    emit("progress", task="run-check", step="calling_llm", percent=60,
+         check=check_name, slot=slot, model=model, provider=provider)
+
+    prov = LLMProvider(
+        name=slot,
+        provider=provider,
+        base_url=base_url,
+        model=model,
+        api_key=api_key,
+    )
+
+    result = chat_completion(prov, messages, max_tokens=4096, temperature=0.0)
+
+    if not result["ok"]:
+        _log_llm_call(project_dir, slot, check_name, model, key_info,
+                      success=False, error=result.get("error"), latency_ms=result.get("latency_ms"))
+        error("LLM_CONNECTION_FAILED",
+              f"LLM call failed for {slot}: {result.get('error', 'Unknown error')}")
+
+    emit("progress", task="run-check", step="parsing_response", percent=80,
+         check=check_name, slot=slot,
+         latency_ms=result.get("latency_ms"),
+         usage=result.get("usage"))
+
+    # Parse JSON response
+    parsed = parse_llm_json(result["content"])
+    if parsed is None:
+        _log_llm_call(project_dir, slot, check_name, model, key_info,
+                      success=False, error="LLM_INVALID_JSON", latency_ms=result.get("latency_ms"))
+        error("LLM_INVALID_JSON",
+              "Failed to parse LLM response as JSON. The model may not have returned valid JSON.")
+
+    # Build output
+    now = datetime.now(JST)
+    findings = parsed.get("findings", [])
+    for i, finding in enumerate(findings):
+        if "finding_id" not in finding:
+            finding["finding_id"] = f"structure_{slot}_{i + 1:03d}"
+
+    output = {
+        "check_name": "structure",
+        "source": slot,
+        "status": "done",
+        "generated_at": now.isoformat(),
+        "model": result.get("model"),
+        "summary": parsed.get("summary", ""),
+        "findings": findings,
+    }
+
+    # Save output
+    emit("progress", task="run-check", step="save_output", percent=90,
+         check=check_name, slot=slot)
+
+    out_dir = os.path.join(project_dir, "outputs", check_name)
+    os.makedirs(out_dir, exist_ok=True)
+    out_path = os.path.join(out_dir, f"{slot}.raw.json")
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(output, f, indent=2, ensure_ascii=False)
+
+    # Update task_status.json
+    status_path = os.path.join(project_dir, "status", "task_status.json")
+    if os.path.isfile(status_path):
+        with open(status_path, "r", encoding="utf-8") as f:
+            task_status = json.load(f)
+        task_status["checks"][check_name][slot] = "done"
+        with open(status_path, "w", encoding="utf-8") as f:
+            json.dump(task_status, f, indent=2, ensure_ascii=False)
+
+    # Log LLM call
+    _log_llm_call(project_dir, slot, check_name, model, key_info,
+                  success=True, latency_ms=result.get("latency_ms"),
+                  usage=result.get("usage"))
+
+    # Update project.json timestamp
+    with open(proj_path, "r", encoding="utf-8") as f:
+        proj = json.load(f)
+    proj["updated_at"] = now.isoformat()
+    with open(proj_path, "w", encoding="utf-8") as f:
+        json.dump(proj, f, indent=2, ensure_ascii=False)
+
+    finding_count = len(findings)
+    emit("done",
+         task="run-check",
+         check=check_name,
+         slot=slot,
+         model=result.get("model"),
+         finding_count=finding_count,
+         latency_ms=result.get("latency_ms"),
+         message=f"Structure check complete ({finding_count} findings).")
+
+
+def _log_llm_call(project_dir, slot, check_name, model, key_info,
+                  success, error=None, latency_ms=None, usage=None):
+    """Append a timestamped entry to logs/llm_calls.log. Never logs API key."""
+    log_path = os.path.join(project_dir, "logs", "llm_calls.log")
+    now = datetime.now(JST).isoformat()
+    status = "ok" if success else f"failed: {error}"
+    usage_str = ""
+    if usage:
+        usage_str = (f" prompt_tokens={usage.get('prompt_tokens', '?')}"
+                     f" completion_tokens={usage.get('completion_tokens', '?')}"
+                     f" total_tokens={usage.get('total_tokens', '?')}")
+    latency_str = f" latency={latency_ms}ms" if latency_ms else ""
+    entry = (f"[{now}] run-check slot={slot} check={check_name} "
+             f"model={model} {key_info} {status}{latency_str}{usage_str}\n")
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    with open(log_path, "a", encoding="utf-8") as f:
+        f.write(entry)
+
+
+@main.command(name="merge-section")
+@click.option("--project", "project_dir", required=True,
+              type=click.Path(file_okay=False, writable=True),
+              help="Path to the project working folder.")
+@click.option("--check", "check_name", required=True,
+              help="Check type. Currently only 'structure' is supported.")
+def merge_section_cmd(project_dir, check_name):
+    """Merge individual reviewer raw.json files into merged.section.json."""
+    from peer_review_assistant.merge import merge_section, _build_markdown
+
+    emit("progress", task="merge-section", step="validate", percent=0,
+         check=check_name)
+
+    # Gate: only structure is implemented
+    if check_name not in _VALID_CHECKS:
+        error("CHECK_NOT_IMPLEMENTED",
+              f"Check '{check_name}' is not implemented. "
+              f"Available: {', '.join(sorted(_VALID_CHECKS))}")
+
+    # Validate project
+    proj_path = os.path.join(project_dir, "project.json")
+    if not os.path.isfile(proj_path):
+        error("NO_PROJECT", "project.json not found. Run init-project first.")
+
+    emit("progress", task="merge-section", step="load", percent=20,
+         check=check_name)
+
+    try:
+        result = merge_section(check_name, project_dir)
+    except FileNotFoundError:
+        error("NO_RAW_CHECK_RESULTS",
+              f"No done raw.json files found in outputs/{check_name}/. "
+              f"Run run-check --check {check_name} first.")
+
+    emit("progress", task="merge-section", step="merge", percent=50,
+         check=check_name,
+         sources=result["source_count"],
+         total_findings=result["total_findings"],
+         merged_count=result["merged_count"])
+
+    # Update timestamps
+    now = datetime.now(JST)
+    result["merged"]["generated_at"] = now.isoformat()
+
+    emit("progress", task="merge-section", step="save", percent=80,
+         check=check_name)
+
+    out_dir = os.path.join(project_dir, "outputs", check_name)
+    os.makedirs(out_dir, exist_ok=True)
+
+    json_path = os.path.join(out_dir, "merged.section.json")
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(result["merged"], f, indent=2, ensure_ascii=False)
+
+    md_content = _build_markdown(result["merged"])
+    md_path = os.path.join(out_dir, "merged.section.md")
+    with open(md_path, "w", encoding="utf-8") as f:
+        f.write(md_content)
+
+    # Update task_status.json
+    status_path = os.path.join(project_dir, "status", "task_status.json")
+    if os.path.isfile(status_path):
+        with open(status_path, "r", encoding="utf-8") as f:
+            task_status = json.load(f)
+        task_status["checks"][check_name]["merged"] = "done"
+        with open(status_path, "w", encoding="utf-8") as f:
+            json.dump(task_status, f, indent=2, ensure_ascii=False)
+
+    # Append merge.log
+    log_path = os.path.join(project_dir, "logs", "merge.log")
+    entry = (f"[{now.isoformat()}] merge-section check={check_name} "
+             f"sources={result['source_count']} "
+             f"findings={result['total_findings']} "
+             f"merged={result['merged_count']} "
+             f"conflicts={len(result['merged'].get('conflicts', []))}\n")
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    with open(log_path, "a", encoding="utf-8") as f:
+        f.write(entry)
+
+    # Update project.json
+    with open(proj_path, "r", encoding="utf-8") as f:
+        proj = json.load(f)
+    proj["updated_at"] = now.isoformat()
+    with open(proj_path, "w", encoding="utf-8") as f:
+        json.dump(proj, f, indent=2, ensure_ascii=False)
+
+    emit("done",
+         task="merge-section",
+         check=check_name,
+         sources=result["source_count"],
+         total_findings=result["total_findings"],
+         merged_count=result["merged_count"],
+         message=f"Section merge complete ({result['merged_count']} comments).")
 
 
 if __name__ == "__main__":

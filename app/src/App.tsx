@@ -20,6 +20,9 @@ function App() {
   const [sectionsDone, setSectionsDone] = useState(false);
   const [citationExtractionDone, setCitationExtractionDone] = useState(false);
   const [crossrefDone, setCrossrefDone] = useState(false);
+  const [structureCheckResults, setStructureCheckResults] = useState<Record<string, string>>({});
+  const [structureMergeDone, setStructureMergeDone] = useState(false);
+  const [structureMergeRunning, setStructureMergeRunning] = useState(false);
 
   const defaultSlots = [
     { name: "summary", provider: "", baseUrl: "", model: "", apiKey: "" },
@@ -392,6 +395,89 @@ function App() {
     }
   };
 
+  const runStructureCheck = async (slotName: string) => {
+    const slot = llmSlots.find((s) => s.name === slotName);
+    if (!slot) return;
+
+    if (!projectPath.trim()) {
+      addLog({ event: "error", message: "Please create a project first." });
+      return;
+    }
+    if (!slot.provider.trim() || !slot.baseUrl.trim() || !slot.model.trim() || !slot.apiKey.trim()) {
+      addLog({ event: "error", message: `${slotName}: Please configure provider, base URL, model, and API key in API Settings.` });
+      return;
+    }
+
+    setStructureCheckResults((prev) => ({ ...prev, [slotName]: "running" }));
+    addLog({ event: "info", message: `Running structure check with ${slotName}...` });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const cmd = Command.create("pra-cli", [
+        "run-check",
+        "--project", projectPath,
+        "--check", "structure",
+        "--slot", slotName,
+        "--provider", slot.provider,
+        "--base-url", slot.baseUrl,
+        "--model", slot.model,
+        "--api-key", slot.apiKey,
+      ]);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+
+      if (output.code === 0) {
+        setStructureCheckResults((prev) => ({ ...prev, [slotName]: "done" }));
+      } else {
+        setStructureCheckResults((prev) => ({ ...prev, [slotName]: "failed" }));
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog({ event: "error", message: msg });
+      setStructureCheckResults((prev) => ({ ...prev, [slotName]: "failed" }));
+    }
+  };
+
+  const runMergeStructure = async () => {
+    if (!projectPath.trim()) {
+      addLog({ event: "error", message: "Please create a project first." });
+      return;
+    }
+    if (llmSlots.filter((s) => s.name.startsWith("reviewer")).every(
+      (s) => structureCheckResults[s.name] !== "done"
+    )) {
+      addLog({ event: "error", message: "At least one reviewer must complete a structure check first." });
+      return;
+    }
+
+    setStructureMergeRunning(true);
+    addLog({ event: "info", message: "Merging structure check results..." });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const cmd = Command.create("pra-cli", [
+        "merge-section",
+        "--project", projectPath,
+        "--check", "structure",
+      ]);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+
+      if (output.code === 0) {
+        setStructureMergeDone(true);
+        setStructureMergeRunning(false);
+      } else {
+        setStructureMergeRunning(false);
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog({ event: "error", message: msg });
+      setStructureMergeRunning(false);
+    }
+  };
+
   const logLineStyle = (entry: LogEntry): React.CSSProperties => {
     let color = "#555";
     if (entry.event === "done" || entry.event === "healthcheck" || entry.status === "ok")
@@ -561,6 +647,54 @@ function App() {
             Crossref DB Check
           </button>
           {crossrefDone && <span className="status-chip ok">Done</span>}
+        </div>
+      </section>
+
+      <section className="panel">
+        <h2>Review Checks</h2>
+        <div className="row">
+          <span className="llm-slot-label">Structure</span>
+          {llmSlots.filter((s) => s.name.startsWith("reviewer")).map((slot) => (
+            <div key={slot.name} style={{ display: "flex", gap: 4, alignItems: "center" }}>
+              <button
+                onClick={() => runStructureCheck(slot.name)}
+                disabled={!crossrefDone || structureCheckResults[slot.name] === "running"}
+              >
+                {slot.name}
+              </button>
+              {structureCheckResults[slot.name] && structureCheckResults[slot.name] !== "running" && (
+                <span className={`status-chip ${structureCheckResults[slot.name] === "done" ? "ok" : "err"}`}>
+                  {structureCheckResults[slot.name] === "done" ? "Done" : "Failed"}
+                </span>
+              )}
+              {structureCheckResults[slot.name] === "running" && (
+                <span className="status-chip" style={{ backgroundColor: "#eee", color: "#555" }}>
+                  Running...
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+        <div className="row">
+          <button
+            onClick={runMergeStructure}
+            disabled={
+              !crossrefDone ||
+              structureMergeDone ||
+              structureMergeRunning ||
+              llmSlots.filter((s) => s.name.startsWith("reviewer")).every(
+                (s) => structureCheckResults[s.name] !== "done"
+              )
+            }
+          >
+            Merge Structure Results
+          </button>
+          {structureMergeDone && <span className="status-chip ok">Merged</span>}
+          {structureMergeRunning && (
+            <span className="status-chip" style={{ backgroundColor: "#eee", color: "#555" }}>
+              Merging...
+            </span>
+          )}
         </div>
       </section>
 

@@ -654,5 +654,146 @@ def extract_citations(project_dir):
          message="Citation extraction complete.")
 
 
+@main.command()
+@click.option("--project", "project_dir", required=True,
+              type=click.Path(file_okay=False, writable=True),
+              help="Path to the project working folder.")
+def citation_db_crossref(project_dir):
+    """Verify references against Crossref API."""
+    from peer_review_assistant.citations.db_verify import verify_crossref
+
+    emit("progress", task="citation-db-crossref", step="validate", percent=0)
+
+    proj_path = os.path.join(project_dir, "project.json")
+    if not os.path.isfile(proj_path):
+        error("NO_PROJECT", "project.json not found. Run init-project first.")
+
+    refs_path = os.path.join(project_dir, "citations", "references_split.json")
+    if not os.path.isfile(refs_path):
+        error("NO_REFERENCES_SPLIT",
+              "citations/references_split.json not found. "
+              "Run extract-citations first.")
+
+    emit("progress", task="citation-db-crossref", step="load", percent=20)
+
+    with open(refs_path, "r", encoding="utf-8") as f:
+        references_split = json.load(f)
+
+    emit("progress", task="citation-db-crossref", step="verify", percent=40,
+         reference_count=references_split["total_references"])
+
+    result = verify_crossref(references_split)
+
+    emit("progress", task="citation-db-crossref", step="save", percent=85)
+
+    citations_dir = os.path.join(project_dir, "citations")
+    os.makedirs(citations_dir, exist_ok=True)
+
+    # db_crossref_results.json — full results
+    crossref_path = os.path.join(citations_dir, "db_crossref_results.json")
+    with open(crossref_path, "w", encoding="utf-8") as f:
+        json.dump(result, f, indent=2, ensure_ascii=False)
+
+    # db_verified_references.json — matched only
+    verified = {
+        "items": [it for it in result["items"] if it["status"] == "matched"],
+    }
+    verified_path = os.path.join(citations_dir, "db_verified_references.json")
+    with open(verified_path, "w", encoding="utf-8") as f:
+        json.dump(verified, f, indent=2, ensure_ascii=False)
+
+    # db_unmatched_references.json — unmatched + errors
+    unmatched = {
+        "items": [it for it in result["items"] if it["status"] != "matched"],
+    }
+    unmatched_path = os.path.join(citations_dir, "db_unmatched_references.json")
+    with open(unmatched_path, "w", encoding="utf-8") as f:
+        json.dump(unmatched, f, indent=2, ensure_ascii=False)
+
+    emit("progress", task="citation-db-crossref", step="update_status", percent=95)
+
+    log_path = os.path.join(project_dir, "logs", "citation_db.log")
+    now = datetime.now(JST).isoformat()
+    log_entry = (f"[{now}] citation-db-crossref: "
+                 f"matched={result['matched_count']}, "
+                 f"unmatched={result['unmatched_count']}\n")
+    with open(log_path, "a", encoding="utf-8") as f:
+        f.write(log_entry)
+
+    # Update task_status.json
+    status_path = os.path.join(project_dir, "status", "task_status.json")
+    if os.path.isfile(status_path):
+        with open(status_path, "r", encoding="utf-8") as f:
+            task_status = json.load(f)
+        task_status["citation_db"] = "done"
+        with open(status_path, "w", encoding="utf-8") as f:
+            json.dump(task_status, f, indent=2, ensure_ascii=False)
+
+    with open(proj_path, "r", encoding="utf-8") as f:
+        proj = json.load(f)
+    proj["updated_at"] = datetime.now(JST).isoformat()
+    with open(proj_path, "w", encoding="utf-8") as f:
+        json.dump(proj, f, indent=2, ensure_ascii=False)
+
+    emit("done",
+         task="citation-db-crossref",
+         matched=result["matched_count"],
+         unmatched=result["unmatched_count"],
+         message="Crossref verification complete.")
+
+
+@main.command()
+@click.option("--slot", required=True,
+              help="LLM slot name (summary, reviewer1, reviewer2, reviewer3).")
+@click.option("--provider", required=True,
+              help="Provider name (e.g., openai, anthropic, deepseek, openrouter).")
+@click.option("--base-url", required=True,
+              help="Base URL for the chat completions endpoint.")
+@click.option("--model", required=True,
+              help="Model name (e.g., gpt-4o, claude-opus-4-7).")
+@click.option("--api-key", default=None,
+              help="API key. Falls back to PRA_LLM_KEY_<SLOT> env var.")
+def test_llm(slot, provider, base_url, model, api_key):
+    """Test connection to an LLM endpoint."""
+    from peer_review_assistant.llm import LLMProvider, test_connection
+
+    if not api_key:
+        env_var = f"PRA_LLM_KEY_{slot.upper()}"
+        api_key = os.environ.get(env_var)
+    if not api_key:
+        error("NO_API_KEY",
+              f"No API key provided. Use --api-key or set "
+              f"PRA_LLM_KEY_{slot.upper()} environment variable.")
+
+    emit("progress", task="test-llm", step="connect", percent=30,
+         slot=slot, provider=provider, model=model)
+
+    prov = LLMProvider(
+        name=slot,
+        provider=provider,
+        base_url=base_url,
+        model=model,
+        api_key=api_key,
+    )
+
+    result = test_connection(prov)
+
+    if result["ok"]:
+        emit("done",
+             task="test-llm",
+             slot=slot,
+             model=result["model"],
+             latency_ms=result["latency_ms"],
+             response_sample=result["response_sample"],
+             message=f"Connection to {slot} ({model}) successful.")
+    else:
+        emit("error",
+             task="test-llm",
+             slot=slot,
+             code="LLM_CONNECTION_FAILED",
+             message=result["error"] or "Unknown error",
+             latency_ms=result.get("latency_ms"))
+
+
 if __name__ == "__main__":
     main()

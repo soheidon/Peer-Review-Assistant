@@ -676,6 +676,8 @@ citations/
 
 # Phase 4. 文献DB照合
 
+> 詳細仕様は [docs/SPEC_CITATION_DB.md](docs/SPEC_CITATION_DB.md) を参照。
+
 ## 4.1 目的
 
 References の各文献について、PubMed、Semantic Scholar、Crossref、OpenAlex を使い、実在性と書誌情報の正確性を確認する。
@@ -790,6 +792,8 @@ logs/
 ---
 
 # Phase 5. API設定・LLM接続
+
+> 詳細仕様は [docs/SPEC_LLM.md](docs/SPEC_LLM.md) を参照。
 
 ## 5.1 目的
 

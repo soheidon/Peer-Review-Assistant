@@ -1,1 +1,181 @@
-"""LLM API integration."""
+"""LLM provider abstraction and connection testing.
+
+Supports any OpenAI-compatible chat completions API endpoint.
+"""
+
+import json
+import time
+import urllib.request
+import urllib.error
+
+
+class LLMProvider:
+    """Configuration for one LLM endpoint."""
+
+    def __init__(self, name, provider, base_url, model, api_key):
+        self.name = name
+        self.provider = provider
+        self.base_url = base_url.rstrip("/")
+        self.model = model
+        self.api_key = api_key
+
+
+def chat_completion(provider, messages, max_tokens=1024, temperature=0.0):
+    """Send a chat completion request.
+
+    Uses OpenAI-compatible API format: POST {base_url}/chat/completions
+
+    Args:
+        provider: LLMProvider instance
+        messages: list of {"role": str, "content": str} dicts
+        max_tokens: int
+        temperature: float
+
+    Returns:
+        dict with keys: ok (bool), content (str|null), model (str|null),
+            usage (dict|null), error (str|null), latency_ms (int)
+    """
+    url = f"{provider.base_url}/chat/completions"
+    body = {
+        "model": provider.model,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+    }
+
+    t0 = time.time()
+    status, resp_body = _http_post(url, provider.api_key, body)
+    latency_ms = int((time.time() - t0) * 1000)
+
+    if status is None:
+        return {
+            "ok": False,
+            "content": None,
+            "model": None,
+            "usage": None,
+            "error": "Connection failed: network error or timeout",
+            "latency_ms": latency_ms,
+        }
+
+    if resp_body is None:
+        return {
+            "ok": False,
+            "content": None,
+            "model": None,
+            "usage": None,
+            "error": f"HTTP {status}: empty response",
+            "latency_ms": latency_ms,
+        }
+
+    try:
+        data = json.loads(resp_body)
+    except json.JSONDecodeError:
+        return {
+            "ok": False,
+            "content": None,
+            "model": None,
+            "usage": None,
+            "error": "Invalid JSON in response",
+            "latency_ms": latency_ms,
+        }
+
+    if status == 401 or status == 403:
+        return {
+            "ok": False,
+            "content": None,
+            "model": None,
+            "usage": None,
+            "error": "Authentication failed. Check your API key.",
+            "latency_ms": latency_ms,
+        }
+
+    if status != 200:
+        error_msg = data.get("error", {}).get("message", f"HTTP {status}")
+        return {
+            "ok": False,
+            "content": None,
+            "model": None,
+            "usage": None,
+            "error": str(error_msg),
+            "latency_ms": latency_ms,
+        }
+
+    choices = data.get("choices", [])
+    if not choices:
+        return {
+            "ok": False,
+            "content": None,
+            "model": data.get("model"),
+            "usage": data.get("usage"),
+            "error": "No choices in response",
+            "latency_ms": latency_ms,
+        }
+
+    content = choices[0].get("message", {}).get("content", "")
+
+    return {
+        "ok": True,
+        "content": content,
+        "model": data.get("model"),
+        "usage": data.get("usage"),
+        "error": None,
+        "latency_ms": latency_ms,
+    }
+
+
+def test_connection(provider):
+    """Test an LLM connection with a minimal ping.
+
+    Args:
+        provider: LLMProvider instance
+
+    Returns:
+        dict with keys: ok (bool), model (str|null),
+            response_sample (str|null), latency_ms (int), error (str|null)
+    """
+    result = chat_completion(
+        provider,
+        messages=[{"role": "user", "content": "Hello"}],
+        max_tokens=50,
+    )
+
+    return {
+        "ok": result["ok"],
+        "model": result["model"],
+        "response_sample": result["content"][:200] if result["content"] else None,
+        "latency_ms": result["latency_ms"],
+        "error": result["error"],
+    }
+
+
+def _http_post(url, api_key, body_dict):
+    """POST JSON to an API endpoint.
+
+    Returns:
+        (status_code, body) tuple. status_code is None on network failure.
+        body is response text or None.
+    """
+    json_data = json.dumps(body_dict).encode("utf-8")
+
+    req = urllib.request.Request(
+        url,
+        data=json_data,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "User-Agent": "PeerReviewAssistant/0.1",
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return (resp.status, resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        try:
+            body = e.read().decode("utf-8")
+        except Exception:
+            body = None
+        return (e.code, body)
+    except (urllib.error.URLError, OSError) as e:
+        return (None, str(e))

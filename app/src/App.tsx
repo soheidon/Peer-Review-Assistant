@@ -18,6 +18,17 @@ function App() {
   const [preprocessDone, setPreprocessDone] = useState(false);
   const [numberingDone, setNumberingDone] = useState(false);
   const [sectionsDone, setSectionsDone] = useState(false);
+  const [citationExtractionDone, setCitationExtractionDone] = useState(false);
+  const [crossrefDone, setCrossrefDone] = useState(false);
+
+  const defaultSlots = [
+    { name: "summary", provider: "", baseUrl: "", model: "", apiKey: "" },
+    { name: "reviewer1", provider: "", baseUrl: "", model: "", apiKey: "" },
+    { name: "reviewer2", provider: "", baseUrl: "", model: "", apiKey: "" },
+    { name: "reviewer3", provider: "", baseUrl: "", model: "", apiKey: "" },
+  ];
+  const [llmSlots, setLlmSlots] = useState(defaultSlots);
+  const [llmTestResults, setLlmTestResults] = useState<Record<string, string>>({});
 
   const addLog = (entry: LogEntry) => {
     setLogs((prev) => [...prev, entry]);
@@ -287,6 +298,100 @@ function App() {
     }
   };
 
+  const runExtractCitations = async () => {
+    setCitationExtractionDone(false);
+    addLog({ event: "info", message: "Extracting citations..." });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const cmd = Command.create("pra-cli", [
+        "extract-citations",
+        "--project",
+        projectPath,
+      ]);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+      if (output.code === 0) setCitationExtractionDone(true);
+    } catch (e: unknown) {
+      addLog({ event: "error", message: e instanceof Error ? e.message : String(e) });
+    }
+  };
+
+  const runCrossrefDb = async () => {
+    setCrossrefDone(false);
+    addLog({ event: "info", message: "Checking Crossref database..." });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const cmd = Command.create("pra-cli", [
+        "citation-db-crossref",
+        "--project",
+        projectPath,
+      ]);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+      if (output.code === 0) setCrossrefDone(true);
+    } catch (e: unknown) {
+      addLog({ event: "error", message: e instanceof Error ? e.message : String(e) });
+    }
+  };
+
+  const updateSlot = (slotName: string, field: string, value: string) => {
+    setLlmSlots((prev) =>
+      prev.map((s) => (s.name === slotName ? { ...s, [field]: value } : s))
+    );
+  };
+
+  const testLlmSlot = async (slotName: string) => {
+    const slot = llmSlots.find((s) => s.name === slotName);
+    if (!slot) return;
+
+    if (!slot.provider.trim() || !slot.baseUrl.trim() || !slot.model.trim()) {
+      addLog({ event: "error", message: `${slotName}: Please fill in provider, base URL, and model.` });
+      return;
+    }
+    if (!slot.apiKey.trim()) {
+      addLog({ event: "error", message: `${slotName}: Please enter an API key.` });
+      return;
+    }
+
+    setLlmTestResults((prev) => ({ ...prev, [slotName]: "testing" }));
+    addLog({ event: "info", message: `Testing LLM connection for ${slotName}...` });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const cmd = Command.create("pra-cli", [
+        "test-llm",
+        "--slot", slotName,
+        "--provider", slot.provider,
+        "--base-url", slot.baseUrl,
+        "--model", slot.model,
+        "--api-key", slot.apiKey,
+      ]);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+
+      if (output.code === 0) {
+        setLlmTestResults((prev) => ({ ...prev, [slotName]: "ok" }));
+      } else {
+        setLlmTestResults((prev) => ({ ...prev, [slotName]: "error" }));
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog({ event: "error", message: msg });
+      setLlmTestResults((prev) => ({ ...prev, [slotName]: "error" }));
+    }
+  };
+
+  const testAllLlm = async () => {
+    for (const slot of llmSlots) {
+      await testLlmSlot(slot.name);
+    }
+  };
+
   const logLineStyle = (entry: LogEntry): React.CSSProperties => {
     let color = "#555";
     if (entry.event === "done" || entry.event === "healthcheck" || entry.status === "ok")
@@ -330,6 +435,68 @@ function App() {
         <div className="row">
           <button onClick={createProject}>Create New Project</button>
           {projectCreated && <span className="status-chip ok">Created</span>}
+        </div>
+      </section>
+
+      <section className="panel">
+        <h2>API Settings</h2>
+        {llmSlots.map((slot) => (
+          <div key={slot.name} className="llm-slot-row">
+            <div className="llm-slot-header">
+              <span className="llm-slot-label">{slot.name}</span>
+              {llmTestResults[slot.name] && llmTestResults[slot.name] !== "testing" && (
+                <span className={`status-chip ${llmTestResults[slot.name] === "ok" ? "ok" : "err"}`}>
+                  {llmTestResults[slot.name] === "ok" ? "OK" : "Error"}
+                </span>
+              )}
+              {llmTestResults[slot.name] === "testing" && (
+                <span className="status-chip" style={{ backgroundColor: "#eee", color: "#555" }}>
+                  Testing...
+                </span>
+              )}
+            </div>
+            <div className="llm-slot-fields">
+              <input
+                type="text"
+                value={slot.provider}
+                onChange={(e) => updateSlot(slot.name, "provider", e.target.value)}
+                placeholder="Provider (e.g., openai, deepseek)"
+                className="llm-input"
+              />
+              <input
+                type="text"
+                value={slot.baseUrl}
+                onChange={(e) => updateSlot(slot.name, "baseUrl", e.target.value)}
+                placeholder="Base URL"
+                className="llm-input llm-input-wide"
+              />
+              <input
+                type="text"
+                value={slot.model}
+                onChange={(e) => updateSlot(slot.name, "model", e.target.value)}
+                placeholder="Model"
+                className="llm-input"
+              />
+              <input
+                type="password"
+                value={slot.apiKey}
+                onChange={(e) => updateSlot(slot.name, "apiKey", e.target.value)}
+                placeholder="API Key"
+                className="llm-input"
+              />
+              <button
+                onClick={() => testLlmSlot(slot.name)}
+                disabled={llmTestResults[slot.name] === "testing"}
+              >
+                Test
+              </button>
+            </div>
+          </div>
+        ))}
+        <div className="row">
+          <button onClick={testAllLlm} disabled={llmSlots.some((s) => !s.provider.trim() || !s.baseUrl.trim() || !s.model.trim() || !s.apiKey.trim())}>
+            Test All Connections
+          </button>
         </div>
       </section>
 
@@ -382,6 +549,18 @@ function App() {
             Split Sections
           </button>
           {sectionsDone && <span className="status-chip ok">Done</span>}
+        </div>
+        <div className="row">
+          <button onClick={runExtractCitations} disabled={!sectionsDone}>
+            Extract Citations
+          </button>
+          {citationExtractionDone && <span className="status-chip ok">Done</span>}
+        </div>
+        <div className="row">
+          <button onClick={runCrossrefDb} disabled={!citationExtractionDone}>
+            Crossref DB Check
+          </button>
+          {crossrefDone && <span className="status-chip ok">Done</span>}
         </div>
       </section>
 

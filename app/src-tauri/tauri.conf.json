@@ -1,0 +1,38 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicedoc/open-tauri/main/schemas/config.schema.json",
+  "productName": "Peer Review Assistant",
+  "version": "0.1.0",
+  "identifier": "com.peerreviewassistant.app",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Peer Review Assistant / 査読アシスタント",
+        "width": 900,
+        "height": 700,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "plugins": {
+    "shell": {
+      "open": true,
+      "scope": [
+        {
+          "name": "pra-cli",
+          "cmd": "pra-cli",
+          "args": true
+        }
+      ]
+    }
+  }
+}

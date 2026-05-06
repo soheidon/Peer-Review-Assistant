@@ -1,0 +1,136 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: #1a1a2e;
+  color: #e0e0e0;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  padding: 16px;
+}
+
+.container {
+  max-width: 800px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+header h1 {
+  font-size: 22px;
+  color: #fff;
+}
+
+.subtitle {
+  font-size: 13px;
+  color: #888;
+}
+
+.panel {
+  background: #16213e;
+  border: 1px solid #0f3460;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.panel h2 {
+  font-size: 14px;
+  color: #aaa;
+  margin-bottom: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.path-input {
+  flex: 1;
+  padding: 6px 10px;
+  background: #0f3460;
+  border: 1px solid #1a1a4e;
+  border-radius: 4px;
+  color: #e0e0e0;
+  font-size: 13px;
+}
+
+button {
+  padding: 6px 16px;
+  background: #e94560;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+button:hover {
+  background: #d63851;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.clear-btn {
+  background: #333;
+  padding: 4px 10px;
+  font-size: 11px;
+}
+
+.clear-btn:hover {
+  background: #555;
+}
+
+.status-chip {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+.status-chip.ok {
+  background: #1a4a1a;
+  color: #4f4;
+}
+
+.status-chip.err {
+  background: #4a1a1a;
+  color: #f44;
+}
+
+.log-panel {
+  flex: 1;
+}
+
+.log-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.log-area {
+  background: #0d1117;
+  border: 1px solid #0f3460;
+  border-radius: 4px;
+  padding: 10px;
+  max-height: 400px;
+  overflow-y: auto;
+  font-family: monospace;
+}
+
+.log-area pre {
+  white-space: pre-wrap;
+  word-break: break-all;
+}

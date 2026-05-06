@@ -339,7 +339,7 @@ def _normalize(text):
     for ch in text:
         if ch.isalnum() or ch.isspace():
             result.append(ch)
-    return " ".join(result.split())
+    return " ".join("".join(result).split())
 
 
 def _jaccard(text1, text2):

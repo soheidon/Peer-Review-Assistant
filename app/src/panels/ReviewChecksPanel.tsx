@@ -1,3 +1,5 @@
+import { slotDisplayName } from "../slotLabels";
+
 interface LlmSlot {
   name: string;
   provider: string;
@@ -30,12 +32,6 @@ interface ReviewChecksPanelProps {
   onNavigateToSettings: () => void;
   statusMessage: {text: string; type: "ok" | "error" | "info"} | null;
 }
-
-const REVIEWER_LABELS: Record<string, string> = {
-  reviewer1: "評価者1",
-  reviewer2: "評価者2",
-  reviewer3: "評価者3",
-};
 
 export default function ReviewChecksPanel({
   crossrefDone,
@@ -86,7 +82,7 @@ export default function ReviewChecksPanel({
                 onClick={() => onCheck(slot.name)}
                 disabled={!crossrefDone || isRunning || !allReviewersConfigured}
               >
-                {isRunning ? `${runningLabel}中...` : REVIEWER_LABELS[slot.name] || slot.name}
+                {isRunning ? `${runningLabel}中...` : slotDisplayName(slot.name)}
               </button>
               {result && result !== "running" && (
                 <span className={`status-chip ${result === "done" ? "ok" : "err"}`}>

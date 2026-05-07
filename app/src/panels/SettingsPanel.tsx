@@ -1,3 +1,5 @@
+import { SLOT_LABELS, SLOT_DESCRIPTIONS } from "../slotLabels";
+
 interface LlmSlot {
   name: string;
   provider: string;
@@ -13,13 +15,6 @@ interface SettingsPanelProps {
   onTestSlot: (slotName: string) => void;
   onTestAll: () => void;
 }
-
-const SLOT_LABELS: Record<string, string> = {
-  summary: "Summary",
-  reviewer1: "評価者1",
-  reviewer2: "評価者2",
-  reviewer3: "評価者3",
-};
 
 export default function SettingsPanel({
   llmSlots,
@@ -52,6 +47,11 @@ export default function SettingsPanel({
                 <span className="status-chip running">接続確認中...</span>
               )}
             </div>
+            {SLOT_DESCRIPTIONS[slot.name] && (
+              <div className="disabled-reason" style={{ marginBottom: 4 }}>
+                {SLOT_DESCRIPTIONS[slot.name]}
+              </div>
+            )}
             <div className="llm-slot-fields">
               <input
                 type="text"

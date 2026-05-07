@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { slotDisplayName } from "./slotLabels";
 import Sidebar from "./Sidebar";
 import ProgressBar from "./ProgressBar";
 import ProjectPanel from "./panels/ProjectPanel";
@@ -725,17 +726,18 @@ function App() {
     const slot = llmSlots.find((s) => s.name === slotName);
     if (!slot) return;
 
+    const label = slotDisplayName(slotName);
     if (!slot.provider.trim() || !slot.baseUrl.trim() || !slot.model.trim()) {
-      addLog({ event: "error", message: `${slotName}: Please fill in provider, base URL, and model.` });
+      addLog({ event: "error", message: `${label}: プロバイダ、Base URL、モデルを入力してください。` });
       return;
     }
     if (!slot.apiKey.trim()) {
-      addLog({ event: "error", message: `${slotName}: Please enter an API key.` });
+      addLog({ event: "error", message: `${label}: APIキーを入力してください。` });
       return;
     }
 
     setLlmTestResults((prev) => ({ ...prev, [slotName]: "testing" }));
-    addLog({ event: "info", message: `Testing LLM connection for ${slotName}...` });
+    addLog({ event: "info", message: `${label} の接続をテスト中...` });
 
     try {
       const { Command } = await import("@tauri-apps/plugin-shell");
@@ -779,13 +781,13 @@ function App() {
       return;
     }
     if (!slot.provider.trim() || !slot.baseUrl.trim() || !slot.model.trim() || !slot.apiKey.trim()) {
-      addLog({ event: "error", message: `${slotName}: Please configure provider, base URL, model, and API key in API Settings.` });
+      addLog({ event: "error", message: `${slotDisplayName(slotName)}: API設定が不完全です。「設定」画面を確認してください。` });
       return;
     }
 
     setStructureCheckResults((prev) => ({ ...prev, [slotName]: "running" }));
     setStatusMessage(null);
-    addLog({ event: "info", message: `Running structure check with ${slotName}...` });
+    addLog({ event: "info", message: `${slotDisplayName(slotName)} で構成チェックを実行中...` });
 
     try {
       const { Command } = await import("@tauri-apps/plugin-shell");
@@ -805,16 +807,16 @@ function App() {
 
       if (output.code === 0) {
         setStructureCheckResults((prev) => ({ ...prev, [slotName]: "done" }));
-        setStatusMessage({text: `構成チェック(${slotName})が完了しました。`, type: "ok"});
+        setStatusMessage({text: `構成チェック（${slotDisplayName(slotName)}）が完了しました。`, type: "ok"});
       } else {
         setStructureCheckResults((prev) => ({ ...prev, [slotName]: "failed" }));
-        setStatusMessage({text: `構成チェック(${slotName})に失敗しました。`, type: "error"});
+        setStatusMessage({text: `構成チェック（${slotDisplayName(slotName)}）に失敗しました。`, type: "error"});
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       addLog({ event: "error", message: msg });
       setStructureCheckResults((prev) => ({ ...prev, [slotName]: "failed" }));
-      setStatusMessage({text: `構成チェック(${slotName})でエラーが発生しました。`, type: "error"});
+      setStatusMessage({text: `構成チェック（${slotDisplayName(slotName)}）でエラーが発生しました。`, type: "error"});
     }
   };
 
@@ -827,13 +829,13 @@ function App() {
       return;
     }
     if (!slot.provider.trim() || !slot.baseUrl.trim() || !slot.model.trim() || !slot.apiKey.trim()) {
-      addLog({ event: "error", message: `${slotName}: Please configure provider, base URL, model, and API key in API Settings.` });
+      addLog({ event: "error", message: `${slotDisplayName(slotName)}: API設定が不完全です。「設定」画面を確認してください。` });
       return;
     }
 
     setExpressionCheckResults((prev) => ({ ...prev, [slotName]: "running" }));
     setStatusMessage(null);
-    addLog({ event: "info", message: `Running expression check with ${slotName}...` });
+    addLog({ event: "info", message: `${slotDisplayName(slotName)} で表現チェックを実行中...` });
 
     try {
       const { Command } = await import("@tauri-apps/plugin-shell");
@@ -853,16 +855,16 @@ function App() {
 
       if (output.code === 0) {
         setExpressionCheckResults((prev) => ({ ...prev, [slotName]: "done" }));
-        setStatusMessage({text: `表現チェック(${slotName})が完了しました。`, type: "ok"});
+        setStatusMessage({text: `表現チェック（${slotDisplayName(slotName)}）が完了しました。`, type: "ok"});
       } else {
         setExpressionCheckResults((prev) => ({ ...prev, [slotName]: "failed" }));
-        setStatusMessage({text: `表現チェック(${slotName})に失敗しました。`, type: "error"});
+        setStatusMessage({text: `表現チェック（${slotDisplayName(slotName)}）に失敗しました。`, type: "error"});
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       addLog({ event: "error", message: msg });
       setExpressionCheckResults((prev) => ({ ...prev, [slotName]: "failed" }));
-      setStatusMessage({text: `表現チェック(${slotName})でエラーが発生しました。`, type: "error"});
+      setStatusMessage({text: `表現チェック（${slotDisplayName(slotName)}）でエラーが発生しました。`, type: "error"});
     }
   };
 
@@ -875,13 +877,13 @@ function App() {
       return;
     }
     if (!slot.provider.trim() || !slot.baseUrl.trim() || !slot.model.trim() || !slot.apiKey.trim()) {
-      addLog({ event: "error", message: `${slotName}: Please configure provider, base URL, model, and API key in API Settings.` });
+      addLog({ event: "error", message: `${slotDisplayName(slotName)}: API設定が不完全です。「設定」画面を確認してください。` });
       return;
     }
 
     setMethodsStatsCheckResults((prev) => ({ ...prev, [slotName]: "running" }));
     setStatusMessage(null);
-    addLog({ event: "info", message: `Running methods/stats check with ${slotName}...` });
+    addLog({ event: "info", message: `${slotDisplayName(slotName)} で方法・統計チェックを実行中...` });
 
     try {
       const { Command } = await import("@tauri-apps/plugin-shell");
@@ -901,16 +903,16 @@ function App() {
 
       if (output.code === 0) {
         setMethodsStatsCheckResults((prev) => ({ ...prev, [slotName]: "done" }));
-        setStatusMessage({text: `方法・統計チェック(${slotName})が完了しました。`, type: "ok"});
+        setStatusMessage({text: `方法・統計チェック（${slotDisplayName(slotName)}）が完了しました。`, type: "ok"});
       } else {
         setMethodsStatsCheckResults((prev) => ({ ...prev, [slotName]: "failed" }));
-        setStatusMessage({text: `方法・統計チェック(${slotName})に失敗しました。`, type: "error"});
+        setStatusMessage({text: `方法・統計チェック（${slotDisplayName(slotName)}）に失敗しました。`, type: "error"});
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       addLog({ event: "error", message: msg });
       setMethodsStatsCheckResults((prev) => ({ ...prev, [slotName]: "failed" }));
-      setStatusMessage({text: `方法・統計チェック(${slotName})でエラーが発生しました。`, type: "error"});
+      setStatusMessage({text: `方法・統計チェック（${slotDisplayName(slotName)}）でエラーが発生しました。`, type: "error"});
     }
   };
 

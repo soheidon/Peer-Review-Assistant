@@ -274,6 +274,19 @@ function CardList({
 
 /* ── Individual Reference Card ────────────────────────────────────────── */
 
+/** Strip reference number prefix from author text (e.g. "52.\tFisher" → "Fisher"). */
+function stripRefNumber(text: string): string {
+  return text.replace(/^\d+\.?\s*/, "").trim();
+}
+
+/** One row in the comparison table. */
+interface FieldRow {
+  label: string;
+  candidate: string;
+  manuscript: string;
+  mismatch?: boolean;
+}
+
 function ReferenceCard({
   card,
   tabKey,
@@ -289,70 +302,143 @@ function ReferenceCard({
 
   const hasWarnings = card.warnings.length > 0;
   const hasMismatches = card.metadata_mismatches.length > 0;
-  const hasCandidate = card.correct_candidate !== null;
-  const hasOriginalText = card.original_text.length > 0;
+  const candidate = card.correct_candidate;
+
+  // Build comparison rows: label, candidate value, manuscript value
+  const rows: FieldRow[] = [
+    {
+      label: "著者",
+      candidate: candidate?.authors?.length
+        ? candidate.authors.join(", ")
+        : "—",
+      manuscript: card.authors.length
+        ? stripRefNumber(card.authors.join("; "))
+        : "—",
+    },
+    {
+      label: "年",
+      candidate: candidate?.year != null ? String(candidate.year) : "—",
+      manuscript: card.year != null ? String(card.year) : "—",
+    },
+    {
+      label: "タイトル",
+      candidate: candidate?.title || "—",
+      manuscript: card.title || "—",
+    },
+    {
+      label: "雑誌名",
+      candidate: candidate?.journal || "—",
+      manuscript: card.journal || "—",
+    },
+    {
+      label: "書名",
+      candidate: "—", // not in data model yet
+      manuscript: "—",
+    },
+    {
+      label: "編者",
+      candidate: "—", // not in data model yet
+      manuscript: "—",
+    },
+    {
+      label: "出版社",
+      candidate: "—", // not in data model yet
+      manuscript: "—",
+    },
+    {
+      label: "巻",
+      candidate: candidate?.volume || "—",
+      manuscript: card.volume || "—",
+    },
+    {
+      label: "号",
+      candidate: candidate?.issue || "—",
+      manuscript: card.issue || "—",
+    },
+    {
+      label: "ページ",
+      candidate: candidate?.pages || "—",
+      manuscript: card.pages || "—",
+    },
+    {
+      label: "DOI",
+      candidate: candidate?.doi || "—",
+      manuscript: card.doi || "—",
+    },
+    {
+      label: "URL",
+      candidate: "—", // not in data model yet
+      manuscript: "—",
+    },
+    {
+      label: "文献種別",
+      candidate: candidate?.type || "—",
+      manuscript: "—",
+    },
+  ];
+
+  // Flag DOI row if the candidate DOI is suspiciously short (truncation indicator)
+  if (candidate?.doi && card.doi) {
+    const doiRow = rows.find((r) => r.label === "DOI");
+    if (doiRow) {
+      const candLen = candidate.doi!.length;
+      const msLen = card.doi.length;
+      if (candLen < msLen || candLen < 20) {
+        doiRow.mismatch = true;
+      }
+    }
+  }
 
   return (
     <div className={`ref-card ${statusClass}`}>
-      {/* Row 1: metadata bar (2-column) */}
-      <div className="ref-card-meta">
-        <div className="ref-card-meta-left">
-          <span className="ref-card-id">{card.reference_id}</span>
-          <span className={`ref-status ${statusClass}`}>{statusLabel}</span>
-          {card.best_source_db && (
-            <span className="ref-source">
-              最良候補DB: {card.best_source_db}
-            </span>
-          )}
-          {card.confidence && (
-            <span className="ref-confidence">
-              信頼度: {confidenceLabel}
-            </span>
-          )}
+      {/* Header bar: reference ID + status */}
+      <div className="ref-card-header">
+        <span className="ref-card-id">{card.reference_id}</span>
+        <span className={`ref-status ${statusClass}`}>{statusLabel}</span>
+        {card.best_source_db && (
+          <span className="ref-source">
+            最良候補DB: {card.best_source_db}
+          </span>
+        )}
+        {card.confidence && (
+          <span className="ref-confidence">
+            信頼度: {confidenceLabel}
+          </span>
+        )}
+      </div>
+
+      {/* Side-by-side comparison */}
+      <div className="ref-compare">
+        {/* Candidate (left) */}
+        <div className="ref-compare-col ref-compare-candidate">
+          <div className="ref-compare-col-header">正しい文献情報候補</div>
+          {rows.map((row) => (
+            <div
+              key={row.label}
+              className={`ref-compare-row ${row.mismatch ? "mismatch" : ""}`}
+            >
+              <span className="ref-compare-label">{row.label}</span>
+              <span className="ref-compare-value">{row.candidate}</span>
+            </div>
+          ))}
         </div>
-        <div className="ref-card-meta-right">
-          {card.authors.length > 0 && (
-            <span>著者: {card.authors.join("; ")}</span>
-          )}
-          {card.year && <span>年: {card.year}</span>}
-          {card.journal && <span>雑誌名: {card.journal}</span>}
-          {card.volume && <span>巻: {card.volume}</span>}
-          {card.issue && <span>号: {card.issue}</span>}
-          {card.pages && <span>ページ: {card.pages}</span>}
-          {card.doi && (
-            <span className="ref-doi">DOI: {card.doi}</span>
-          )}
+
+        {/* Manuscript (right) */}
+        <div className="ref-compare-col ref-compare-manuscript">
+          <div className="ref-compare-col-header">原稿に記載された文献情報</div>
+          {rows.map((row) => (
+            <div
+              key={row.label}
+              className={`ref-compare-row ${row.mismatch ? "mismatch" : ""}`}
+            >
+              <span className="ref-compare-label">{row.label}</span>
+              <span className="ref-compare-value">{row.manuscript}</span>
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* Row 2: title (full width) */}
-      {card.title && (
-        <div className="ref-card-title">
-          タイトル: {card.title}
-        </div>
-      )}
-
-      {/* Row 3+: correct candidate */}
-      {hasCandidate && (
-        <div className="ref-card-section">
-          <div className="ref-card-section-label">正しい文献情報候補：</div>
-          <div className="ref-card-section-content">
-            <CandidateText candidate={card.correct_candidate!} />
-          </div>
-        </div>
-      )}
-
-      {/* Row 4: original manuscript reference */}
-      {hasOriginalText && (
-        <div className="ref-card-section">
-          <div className="ref-card-section-label">原稿に記載された文献情報：</div>
-          <div className="ref-card-section-content ref-card-original">
-            {card.original_text}
-          </div>
-        </div>
-      )}
-
-      {/* Row 5: warnings */}
+      {/* Warnings */}
       {hasWarnings && (
         <div className="ref-card-section">
           <div className="ref-card-section-label">注意点：</div>
@@ -364,7 +450,7 @@ function ReferenceCard({
         </div>
       )}
 
-      {/* Row 6: metadata mismatches */}
+      {/* Metadata mismatches */}
       {hasMismatches && (
         <div className="ref-card-section">
           <div className="ref-card-section-label">書誌情報の不一致：</div>
@@ -404,56 +490,4 @@ function ReferenceCard({
       )}
     </div>
   );
-}
-
-/* ── Candidate text formatter ─────────────────────────────────────────── */
-
-function CandidateText({
-  candidate,
-}: {
-  candidate: NonNullable<ViewerCard["correct_candidate"]>;
-}) {
-  const parts: string[] = [];
-
-  // Authors
-  if (candidate.authors.length > 0) {
-    parts.push(candidate.authors.join(", "));
-  }
-
-  // Year
-  if (candidate.year) {
-    parts.push(`(${candidate.year})`);
-  }
-
-  // Title
-  if (candidate.title) {
-    parts.push(`${candidate.title}.`);
-  }
-
-  // Journal
-  if (candidate.journal) {
-    let journalStr = candidate.journal;
-    if (candidate.volume) {
-      journalStr += `, ${candidate.volume}`;
-      if (candidate.issue) {
-        journalStr += `(${candidate.issue})`;
-      }
-    }
-    if (candidate.pages) {
-      journalStr += `, ${candidate.pages}`;
-    }
-    parts.push(journalStr + ".");
-  }
-
-  // DOI
-  if (candidate.doi) {
-    parts.push(`https://doi.org/${candidate.doi}`);
-  }
-
-  // Source DB
-  if (candidate.source_db) {
-    parts.push(`[${candidate.source_db}]`);
-  }
-
-  return <span>{parts.join(" ")}</span>;
 }

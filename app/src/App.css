@@ -937,30 +937,15 @@ button:disabled {
   border-left: 3px solid #c42b1c;
 }
 
-/* Card row 1: metadata bar (2-column) */
-.ref-card-meta {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px 16px;
-  margin-bottom: 6px;
+/* Card header bar (ref ID + status) */
+.ref-card-header {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
   padding-bottom: 6px;
   border-bottom: 1px solid #eee;
-}
-
-.ref-card-meta-left {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.ref-card-meta-right {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  align-items: center;
-  font-size: 11px;
-  color: #555;
 }
 
 .ref-card-id {
@@ -979,11 +964,81 @@ button:disabled {
   color: #666;
 }
 
-.ref-doi {
-  font-family: "Cascadia Code", "Consolas", monospace;
+/* ── Side-by-side comparison layout ───────────────────────────────────── */
+
+.ref-compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  border: 1px solid #e5e5e5;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.ref-compare-col {
+  min-width: 0;
+}
+
+.ref-compare-col:first-child {
+  border-right: 1px solid #e5e5e5;
+}
+
+.ref-compare-col-header {
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  background: #f5f5f5;
+  border-bottom: 1px solid #e5e5e5;
+  color: #555;
+}
+
+.ref-compare-row {
+  display: flex;
+  padding: 3px 10px;
+  font-size: 11px;
+  line-height: 1.4;
+  border-bottom: 1px solid #f5f5f5;
+}
+
+.ref-compare-row:last-child {
+  border-bottom: none;
+}
+
+.ref-compare-label {
+  width: 64px;
+  min-width: 64px;
+  font-weight: 600;
+  color: #888;
   font-size: 10px;
-  color: #0078d4;
-  word-break: break-all;
+  padding-top: 1px;
+}
+
+.ref-compare-value {
+  flex: 1;
+  color: #333;
+  word-break: break-word;
+  font-family: "Cascadia Code", "Consolas", monospace;
+  font-size: 11px;
+}
+
+/* Highlight mismatching rows */
+.ref-compare-row.mismatch {
+  background: #fff8e1;
+}
+
+.ref-compare-row.mismatch .ref-compare-value {
+  color: #c42b1c;
+}
+
+/* Responsive: stack vertically on narrow screens */
+@media (max-width: 720px) {
+  .ref-compare {
+    grid-template-columns: 1fr;
+  }
+  .ref-compare-col:first-child {
+    border-right: none;
+    border-bottom: 1px solid #e5e5e5;
+  }
 }
 
 /* Status badges within card */

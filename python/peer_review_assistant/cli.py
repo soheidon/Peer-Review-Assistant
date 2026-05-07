@@ -809,6 +809,179 @@ def citation_db_crossref(project_dir):
 
 
 @main.command()
+@click.option("--project", "project_dir", required=True,
+              type=click.Path(file_okay=False, writable=True),
+              help="Path to the project working folder.")
+def citation_db_pubmed(project_dir):
+    """Verify references against PubMed / NCBI E-utilities."""
+    from peer_review_assistant.citations.db_pubmed import verify_pubmed
+
+    emit("progress", task="citation-db-pubmed", step="validate", percent=0)
+
+    proj_path = os.path.join(project_dir, "project.json")
+    if not os.path.isfile(proj_path):
+        error("NO_PROJECT", "project.json not found. Run init-project first.")
+
+    refs_path = os.path.join(project_dir, "citations", "references_split.json")
+    if not os.path.isfile(refs_path):
+        error("NO_REFERENCES_SPLIT",
+              "citations/references_split.json not found. "
+              "Run extract-citations first.")
+
+    # Check API key
+    api_key = _get_env("NCBI_API_KEY").strip()
+    if not api_key:
+        error("NCBI_API_KEY_MISSING",
+              "NCBI_API_KEY environment variable is not set.")
+
+    emit("progress", task="citation-db-pubmed", step="load", percent=20)
+
+    with open(refs_path, "r", encoding="utf-8") as f:
+        references_split = json.load(f)
+
+    emit("progress", task="citation-db-pubmed", step="verify", percent=40,
+         reference_count=references_split["total_references"])
+
+    try:
+        result = verify_pubmed(references_split)
+    except RuntimeError as e:
+        error("NCBI_API_KEY_MISSING", str(e))
+    except Exception as e:
+        error("CITATION_DB_ERROR",
+              f"PubMed verification failed: {e}")
+
+    emit("progress", task="citation-db-pubmed", step="save", percent=85)
+
+    citations_dir = os.path.join(project_dir, "citations")
+    os.makedirs(citations_dir, exist_ok=True)
+
+    # db_pubmed_results.json — full results
+    pubmed_path = os.path.join(citations_dir, "db_pubmed_results.json")
+    with open(pubmed_path, "w", encoding="utf-8") as f:
+        json.dump(result, f, indent=2, ensure_ascii=False)
+
+    # db_pubmed_unmatched.json — unmatched only
+    unmatched = {
+        "items": [it for it in result["items"] if it["status"] != "matched"],
+    }
+    unmatched_path = os.path.join(citations_dir, "db_pubmed_unmatched.json")
+    with open(unmatched_path, "w", encoding="utf-8") as f:
+        json.dump(unmatched, f, indent=2, ensure_ascii=False)
+
+    # db_verified_references.json — merge PubMed + Crossref matched
+    _merge_verified_references(citations_dir, result)
+
+    emit("progress", task="citation-db-pubmed", step="update_status", percent=95)
+
+    # Log
+    log_path = os.path.join(project_dir, "logs", "citation_db.log")
+    now = datetime.now(JST).isoformat()
+    log_entry = (f"[{now}] citation-db-pubmed: "
+                 f"matched={result['matched_count']}, "
+                 f"unmatched={result['unmatched_count']}\n")
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    with open(log_path, "a", encoding="utf-8") as f:
+        f.write(log_entry)
+
+    # Update task_status.json
+    status_path = os.path.join(project_dir, "status", "task_status.json")
+    if os.path.isfile(status_path):
+        with open(status_path, "r", encoding="utf-8") as f:
+            task_status = json.load(f)
+        # Set citation_db to done or partial based on crossref existence
+        if "crossref" in str(task_status.get("citation_db", "")):
+            task_status["citation_db"] = "done"
+        else:
+            task_status["citation_db"] = "partial"
+        with open(status_path, "w", encoding="utf-8") as f:
+            json.dump(task_status, f, indent=2, ensure_ascii=False)
+
+    with open(proj_path, "r", encoding="utf-8") as f:
+        proj = json.load(f)
+    proj["updated_at"] = datetime.now(JST).isoformat()
+    with open(proj_path, "w", encoding="utf-8") as f:
+        json.dump(proj, f, indent=2, ensure_ascii=False)
+
+    emit("done",
+         task="citation-db-pubmed",
+         matched=result["matched_count"],
+         unmatched=result["unmatched_count"],
+         message="PubMed verification complete.")
+
+
+def _merge_verified_references(citations_dir, pubmed_result):
+    """Merge PubMed results into the existing db_verified_references.json.
+
+    Combines Crossref matched (if present) with PubMed matched into a
+    consolidated db_verified_references.json. Each reference appears once
+    with its best match from either source.
+    """
+    verified_path = os.path.join(citations_dir, "db_verified_references.json")
+
+    # Load existing verified (Crossref) if present, normalizing to sources format
+    existing_items = {}
+    if os.path.isfile(verified_path):
+        with open(verified_path, "r", encoding="utf-8") as f:
+            existing = json.load(f)
+        for item in existing.get("items", []):
+            ref_id = item["reference_id"]
+            # Normalize: ensure sources list exists
+            if "sources" not in item:
+                # Convert legacy format (db_source + crossref_result at top level)
+                db_source = item.pop("db_source", "Crossref")
+                crossref_result = item.pop("crossref_result", None)
+                comparison = item.pop("comparison", None)
+                status = item.pop("status", "matched")
+                method = item.pop("method", "unknown")
+                # Reconstruct as sources format
+                item["status"] = status
+                item["method"] = method
+                item["sources"] = [{
+                    "db_source": db_source,
+                }]
+                if db_source == "Crossref":
+                    item["sources"][0]["crossref_result"] = crossref_result
+                else:
+                    item["sources"][0]["pubmed_result"] = crossref_result
+                if comparison:
+                    item["sources"][0]["comparison"] = comparison
+            existing_items[ref_id] = item
+
+    # Add PubMed matched items
+    for item in pubmed_result["items"]:
+        if item["status"] != "matched":
+            continue
+        ref_id = item["reference_id"]
+        if ref_id in existing_items:
+            # Already verified by Crossref — add PubMed as secondary source
+            existing = existing_items[ref_id]
+            existing.setdefault("sources", [])
+            source_keys = [s.get("db_source") for s in existing["sources"]]
+            if "PubMed" not in source_keys:
+                existing["sources"].append({
+                    "db_source": "PubMed",
+                    "pubmed_result": item.get("pubmed_result"),
+                    "comparison": item.get("comparison"),
+                })
+            # Update status if we have more info now
+            if existing.get("status") != "matched":
+                existing["status"] = "matched"
+        else:
+            # New PubMed match — add as primary
+            item["sources"] = [{
+                "db_source": "PubMed",
+                "pubmed_result": item.get("pubmed_result"),
+                "comparison": item.get("comparison"),
+            }]
+            existing_items[ref_id] = item
+
+    # Write consolidated
+    verified = {"items": list(existing_items.values())}
+    with open(verified_path, "w", encoding="utf-8") as f:
+        json.dump(verified, f, indent=2, ensure_ascii=False)
+
+
+@main.command()
 @click.option("--slot", required=True,
               help="LLM slot name (summary, reviewer1, reviewer2, reviewer3).")
 @click.option("--provider", required=True,

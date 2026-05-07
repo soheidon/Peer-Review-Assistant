@@ -981,6 +981,67 @@ def _merge_verified_references(citations_dir, pubmed_result):
         json.dump(verified, f, indent=2, ensure_ascii=False)
 
 
+@main.command(name="citation-db-unmatched-report")
+@click.option("--project", "project_dir", required=True,
+              type=click.Path(file_okay=False, writable=True),
+              help="Path to the project working folder.")
+def citation_db_unmatched_report_cmd(project_dir):
+    """Generate unmatched references review report from DB results."""
+    from peer_review_assistant.citations.unmatched_report import generate_reports
+
+    emit("progress", task="unmatched-report", step="validate", percent=0)
+
+    proj_path = os.path.join(project_dir, "project.json")
+    if not os.path.isfile(proj_path):
+        error("NO_PROJECT", "project.json not found. Run init-project first.")
+
+    refs_path = os.path.join(project_dir, "citations", "references_split.json")
+    if not os.path.isfile(refs_path):
+        error("NO_REFERENCES_SPLIT",
+              "citations/references_split.json not found. "
+              "Run extract-citations first.")
+
+    emit("progress", task="unmatched-report", step="classify", percent=30)
+
+    try:
+        summary = generate_reports(project_dir)
+    except Exception as e:
+        error("CITATION_DB_ERROR",
+              f"Failed to generate unmatched report: {e}")
+
+    emit("progress", task="unmatched-report", step="save", percent=80)
+
+    # Log
+    log_path = os.path.join(project_dir, "logs", "citation_db.log")
+    now = datetime.now(JST).isoformat()
+    log_entry = (
+        f"[{now}] citation-db-unmatched-report: "
+        f"verified={summary['total_verified']}, "
+        f"suspicious={summary['suspicious_matches']}, "
+        f"unmatched={summary['unmatched']}\n"
+    )
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    with open(log_path, "a", encoding="utf-8") as f:
+        f.write(log_entry)
+
+    with open(proj_path, "r", encoding="utf-8") as f:
+        proj = json.load(f)
+    proj["updated_at"] = datetime.now(JST).isoformat()
+    with open(proj_path, "w", encoding="utf-8") as f:
+        json.dump(proj, f, indent=2, ensure_ascii=False)
+
+    emit("done",
+         task="unmatched-report",
+         total_verified=summary["total_verified"],
+         suspicious=summary["suspicious_matches"],
+         unmatched=summary["unmatched"],
+         total=summary["total"],
+         message=(f"Unmatched report complete: "
+                  f"{summary['total_verified']} verified, "
+                  f"{summary['suspicious_matches']} suspicious, "
+                  f"{summary['unmatched']} unmatched."))
+
+
 @main.command()
 @click.option("--slot", required=True,
               help="LLM slot name (summary, reviewer1, reviewer2, reviewer3).")

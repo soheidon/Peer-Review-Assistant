@@ -1030,6 +1030,33 @@ button:disabled {
   color: #c42b1c;
 }
 
+/* ── 3-column layout (with LLM candidate) ────────────────────────────── */
+
+.ref-compare.ref-compare-llm {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+.ref-compare-llm .ref-compare-col:nth-child(2) {
+  border-right: 1px solid #e5e5e5;
+}
+
+.ref-llm-confidence {
+  font-size: 10px;
+  color: #888;
+  font-weight: 400;
+  margin-left: 4px;
+}
+
+/* LLM flag badges */
+.ref-llm-flag {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: #e8f0fe;
+  color: #1a73e8;
+  font-weight: 600;
+}
+
 /* Responsive: stack vertically on narrow screens */
 @media (max-width: 720px) {
   .ref-compare {
@@ -1038,6 +1065,19 @@ button:disabled {
   .ref-compare-col:first-child {
     border-right: none;
     border-bottom: 1px solid #e5e5e5;
+  }
+}
+
+@media (max-width: 1024px) {
+  .ref-compare.ref-compare-llm {
+    grid-template-columns: 1fr;
+  }
+  .ref-compare-llm .ref-compare-col {
+    border-right: none;
+    border-bottom: 1px solid #e5e5e5;
+  }
+  .ref-compare-llm .ref-compare-col:last-child {
+    border-bottom: none;
   }
 }
 

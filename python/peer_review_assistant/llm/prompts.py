@@ -297,3 +297,137 @@ Use null for paragraph_start/paragraph_end if you cannot determine specific para
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_message},
     ]
+
+
+def build_repair_references_messages(target_refs):
+    """Build system + user messages for LLM-based reference re-parsing.
+
+    The LLM re-reads raw reference text and extracts structured fields.
+    It does NOT search databases — it only structures what the human wrote.
+
+    Args:
+        target_refs: list of dicts with reference_id, raw_text, parsed, status
+
+    Returns:
+        list of {"role": str, "content": str} messages
+    """
+    system_prompt = """You are a bibliographic data extraction specialist. Your task is to read raw reference text from an academic manuscript and extract structured bibliographic fields.
+
+## What to do
+
+For each reference, carefully read the raw text and extract as many fields as possible. Do NOT invent or guess — if a field is not present in the text, set it to null.
+
+## Publication type detection
+
+Identify the publication type from these cues:
+- **journal_article**: Has journal name, volume(issue), pages. Usually ends with "volume, pages" pattern.
+- **book**: Has publisher name in parentheses, no journal/volume/issue. Often ends with "(Publisher)".
+- **edited_book**: Has "ed." or "eds." after author names. Has publisher.
+- **book_chapter**: Has "In:" followed by editor names and book title.
+- **report**: Contains "report", "technical report", "working paper", "bulletin".
+- **government_document**: Contains ministry/government names, "census", "statistics", government URLs.
+- **web_document**: Has a URL and looks like a web page/article, not a journal paper.
+- **conference_paper**: Contains "proceedings", "conference", "symposium", "presented at".
+- **manual**: Contains "manual", "guideline", "guide", "version X.X".
+- **other**: Doesn't fit any of the above.
+
+## URL separation
+
+If the reference text contains a URL (http/https), extract it into the "url" field. The URL should NOT be part of the title.
+
+## Book title vs article title
+
+- For books: use "book_title" field, leave "title" null
+- For journal articles: use "title" field, leave "book_title" null
+- For book chapters: "title" = chapter title, "book_title" = book title
+
+## Publisher extraction
+
+Look for publisher names often in parentheses at the end: "(Oxford)", "(University of Chicago Press)", "(Routledge)".
+
+## Editor extraction
+
+Look for "ed." or "eds." markers. Editor names should be extracted separately from authors.
+
+## DOI flagging
+
+If the reference looks like a journal article (has journal name, volume, pages) but has no DOI, set possible_missing_doi to true.
+
+## Output format
+
+Respond ONLY with a JSON object containing a "references" array:
+
+```json
+{
+  "references": [
+    {
+      "reference_id": "R001",
+      "parsed": {
+        "authors": ["Surname, GivenName"],
+        "year": 2020,
+        "title": "Article title",
+        "journal": "Journal Name",
+        "book_title": null,
+        "editor": [],
+        "publisher": null,
+        "volume": "10",
+        "issue": "2",
+        "pages": "100-120",
+        "doi": "10.xxxx/xxxxx",
+        "url": null,
+        "isbn": null,
+        "publication_type": "journal_article"
+      },
+      "flags": {
+        "possible_missing_doi": false,
+        "contains_url": false,
+        "likely_book": false,
+        "likely_report_or_government_document": false,
+        "needs_human_review": false
+      },
+      "warnings": [],
+      "confidence": "high"
+    }
+  ]
+}
+```
+
+## Confidence levels
+
+- **high**: All major fields clearly present in the text (authors, year, title, journal/publisher)
+- **medium**: Some fields clear, some ambiguous or partially extracted
+- **low**: Text is ambiguous, poorly formatted, or incomplete
+
+## Important rules
+
+1. Preserve original author name formatting as much as possible
+2. Year should be an integer (not string), or null if not found
+3. DOI should NOT have trailing punctuation (periods, commas, semicolons)
+4. If the text is ambiguous between book and journal article, explain in warnings
+5. Set needs_human_review: true if the text is very ambiguous or incomplete
+6. Do NOT include the reference number prefix in author names (e.g., "52.\\tFisher" -> "Fisher")
+7. For Japanese author names, preserve the original order and separators
+8. Always include the reference_id matching the input
+9. Respond ONLY with the JSON object — no markdown, no explanation outside the JSON"""
+
+    user_parts = ["# References to Re-parse\n"]
+    user_parts.append(
+        "Below are reference texts from the manuscript's reference list. "
+        "Parse each one into structured bibliographic data.\n"
+    )
+
+    for ref in target_refs:
+        rid = ref["reference_id"]
+        raw = ref.get("raw_text", "")
+        status = ref.get("status", "unknown")
+        parse_conf = ref.get("parse_confidence", "low")
+
+        user_parts.append(f"## {rid} (current status: {status}, parse: {parse_conf})")
+        user_parts.append(f"```\n{raw}\n```\n")
+
+    user_message = "\n".join(user_parts)
+
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_message},
+    ]

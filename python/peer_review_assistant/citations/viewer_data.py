@@ -38,6 +38,14 @@ def generate_viewer_data(project_dir):
     pubmed_results = _load_json_opt(pubmed_path)
     verified_results = _load_json_opt(verified_path)
 
+    # Load LLM repair data if available
+    llm_repair_path = os.path.join(citations_dir, "references_repaired_llm.json")
+    llm_repair_data = _load_json_opt(llm_repair_path)
+    llm_map = {}
+    if llm_repair_data:
+        for it in llm_repair_data.get("items", []):
+            llm_map[it["reference_id"]] = it
+
     # Build lookup maps
     cr_map = _build_map(crossref_results)
     pm_map = _build_map(pubmed_results)
@@ -78,7 +86,7 @@ def generate_viewer_data(project_dir):
         cr_item = cr_map.get(rid)
         pm_item = pm_map.get(rid)
 
-        card = _build_card(ref, cr_item, pm_item, suspicious_ids, verified_ids)
+        card = _build_card(ref, cr_item, pm_item, suspicious_ids, verified_ids, llm_map)
 
         # Crossref matched count
         if cr_item and cr_item.get("status") == "matched":
@@ -92,6 +100,8 @@ def generate_viewer_data(project_dir):
         cards[rid] = card
 
         # Tab categorization
+        if card.get("llm_candidate"):
+            tab_repaired.append(rid)
         if rid in suspicious_ids:
             tab_suspicious.append(rid)
         elif card["status"] == "verified":
@@ -133,9 +143,10 @@ def generate_viewer_data(project_dir):
 
 # ── card builder ─────────────────────────────────────────────────────────
 
-def _build_card(ref, cr_item, pm_item, suspicious_ids, verified_ids):
+def _build_card(ref, cr_item, pm_item, suspicious_ids, verified_ids, llm_map):
     """Build a single ViewerCard dict for a reference."""
     rid = ref["reference_id"]
+    llm_item = llm_map.get(rid) if llm_map else None
     parsed = ref.get("parsed", {})
 
     # Determine status
@@ -231,6 +242,8 @@ def _build_card(ref, cr_item, pm_item, suspicious_ids, verified_ids):
         "crossref_method": crossref_method,
         "pubmed_status": pubmed_status,
         "pubmed_method": pubmed_method,
+        "llm_candidate": _build_llm_candidate(llm_item),
+        "llm_flags": llm_item.get("flags", {}) if llm_item else None,
     }
 
 
@@ -242,6 +255,31 @@ def _load_json_opt(path):
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
     return None
+
+
+def _build_llm_candidate(llm_item):
+    """Build LLM candidate data dict from a repair_llm item."""
+    if not llm_item:
+        return None
+    parsed = llm_item.get("parsed", {})
+    return {
+        "title": parsed.get("title"),
+        "book_title": parsed.get("book_title"),
+        "authors": parsed.get("authors") or [],
+        "year": parsed.get("year"),
+        "journal": parsed.get("journal"),
+        "volume": parsed.get("volume"),
+        "issue": parsed.get("issue"),
+        "pages": parsed.get("pages"),
+        "doi": parsed.get("doi"),
+        "url": parsed.get("url"),
+        "publisher": parsed.get("publisher"),
+        "editor": parsed.get("editor"),
+        "isbn": parsed.get("isbn"),
+        "type": parsed.get("publication_type"),
+        "confidence": llm_item.get("confidence"),
+        "warnings": llm_item.get("warnings") or [],
+    }
 
 
 def _build_map(results):

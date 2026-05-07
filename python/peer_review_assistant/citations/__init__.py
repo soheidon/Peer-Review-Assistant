@@ -13,9 +13,27 @@ _VOL_ISSUE_PAGES_RE = re.compile(
     r"(\d+)\s*\((\d+)\)\s*,?\s*(\d+[–\-]\d+|\d+)"
 )
 
-_DOI_RE = re.compile(r"\b(10\.\d{4,}/[^\s,.]+)")
+_DOI_CLEAN_RE = re.compile(r"[.,;)\]\)\'\"»]+$")
+
+_DOI_RE = re.compile(r"\b(10\.\d{4,}/[^\s]+)")
 
 _PMID_RE = re.compile(r"\bPMID:?\s*(\d{8})\b", re.IGNORECASE)
+
+
+def _clean_doi(raw):
+    """Strip trailing punctuation that is not part of the DOI.
+
+    DOIs can contain internal periods, slashes, hyphens, parentheses etc.
+    but a period/comma/semicolon at the very end of the match is typically
+    sentence/reference-list punctuation, not part of the identifier.
+    """
+    doi = raw.strip()
+    # Repeatedly strip trailing characters that are reference-list delimiters
+    prev = None
+    while prev != doi:
+        prev = doi
+        doi = _DOI_CLEAN_RE.sub("", doi)
+    return doi
 
 
 def split_references(references_text):
@@ -65,7 +83,7 @@ def _parse_reference_line(line):
 
     doi_m = _DOI_RE.search(rest)
     if doi_m:
-        result["doi"] = doi_m.group(1)
+        result["doi"] = _clean_doi(doi_m.group(1))
 
     pmid_m = _PMID_RE.search(rest)
     if pmid_m:

@@ -33,6 +33,9 @@ function App() {
   const [crossrefDone, setCrossrefDone] = useState(false);
   const [viewerDataReady, setViewerDataReady] = useState(false);
   const [viewerDataGenerating, setViewerDataGenerating] = useState(false);
+  const [viewerDataVersion, setViewerDataVersion] = useState(0);
+  const [llmRepairDone, setLlmRepairDone] = useState(false);
+  const [llmRepairGenerating, setLlmRepairGenerating] = useState(false);
   const [structureCheckResults, setStructureCheckResults] = useState<Record<string, string>>({});
   const [structureMergeDone, setStructureMergeDone] = useState(false);
   const [structureMergeRunning, setStructureMergeRunning] = useState(false);
@@ -271,7 +274,8 @@ function App() {
         if (hasSections) setSectionsDone(true);
         if (await checkFile("citations/references_split.json")) setCitationExtractionDone(true);
         if (await checkFile("citations/db_verified_references.json")) setCrossrefDone(true);
-        if (await checkFile("citations/viewer_data.json")) setViewerDataReady(true);
+        if (await checkFile("citations/citation_viewer_data.json")) setViewerDataReady(true);
+        if (await checkFile("citations/references_repaired_llm.json")) setLlmRepairDone(true);
 
         // Check merge results
         if (await checkFile("outputs/structure/merged.section.json")) setStructureMergeDone(true);
@@ -704,6 +708,7 @@ function App() {
       if (output.stderr) addLog({ event: "stderr", message: output.stderr });
       if (output.code === 0) {
         setViewerDataReady(true);
+        setViewerDataVersion((v) => v + 1);
         setStatusMessage({text: "文献確認データを作成しました。", type: "ok"});
       } else {
         setStatusMessage({text: "文献確認データ作成に失敗しました。", type: "error"});
@@ -713,6 +718,50 @@ function App() {
       setStatusMessage({text: "文献確認データ作成でエラーが発生しました。", type: "error"});
     } finally {
       setViewerDataGenerating(false);
+    }
+  };
+
+  const runLlmRepair = async (slotName: string) => {
+    if (!projectPath.trim()) {
+      addLog({ event: "error", message: "Please create a project first." });
+      return;
+    }
+
+    const slot = llmSlots.find((s) => s.name === slotName);
+    if (!slot || !slot.provider.trim() || !slot.baseUrl.trim() || !slot.model.trim()) {
+      addLog({ event: "error", message: `LLM slot ${slotName} is not configured.` });
+      return;
+    }
+
+    setLlmRepairGenerating(true);
+    setStatusMessage(null);
+    addLog({ event: "info", message: `Running LLM reference repair on ${slotDisplayName(slotName)}...` });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const cmd = Command.create("pra-cli", [
+        "repair-references-llm",
+        "--project", projectPath,
+        "--slot", slotName,
+        "--provider", slot.provider,
+        "--base-url", slot.baseUrl,
+        "--model", slot.model,
+        "--api-key", slot.apiKey,
+      ]);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+      if (output.code === 0) {
+        setLlmRepairDone(true);
+        setStatusMessage({text: `LLM文献再パースが完了しました (${slotDisplayName(slotName)})。文献確認データを再作成してください。`, type: "ok"});
+      } else {
+        setStatusMessage({text: "LLM文献再パースに失敗しました。", type: "error"});
+      }
+    } catch (e: unknown) {
+      addLog({ event: "error", message: e instanceof Error ? e.message : String(e) });
+      setStatusMessage({text: "LLM文献再パースでエラーが発生しました。", type: "error"});
+    } finally {
+      setLlmRepairGenerating(false);
     }
   };
 
@@ -1242,7 +1291,12 @@ function App() {
               crossrefDone={crossrefDone}
               viewerDataReady={viewerDataReady}
               viewerDataGenerating={viewerDataGenerating}
+              viewerDataVersion={viewerDataVersion}
               onViewerData={runViewerData}
+              llmRepairDone={llmRepairDone}
+              llmRepairGenerating={llmRepairGenerating}
+              onLlmRepair={runLlmRepair}
+              llmSlots={llmSlots}
               statusMessage={statusMessage}
             />
           )}

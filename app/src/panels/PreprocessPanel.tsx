@@ -222,7 +222,9 @@ export default function PreprocessPanel({
             onClick={onViewerData}
             disabled={!crossrefDone || viewerDataGenerating}
           >
-            {viewerDataGenerating ? "作成中..." : "文献確認データ作成"}
+            {viewerDataGenerating
+              ? (viewerDataReady ? "再作成中..." : "作成中...")
+              : (viewerDataReady ? "文献確認データを再作成" : "文献確認データ作成")}
           </button>
           {viewerDataGenerating && <span className="status-chip running">作成中...</span>}
           {viewerDataReady && !viewerDataGenerating && <span className="status-chip ok">作成済</span>}

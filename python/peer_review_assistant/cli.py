@@ -1148,6 +1148,103 @@ def citation_viewer_data_cmd(project_dir):
                   f"{s['suspicious']} suspicious."))
 
 
+@main.command(name="repair-references-llm")
+@click.option("--project", "project_dir", required=True,
+              type=click.Path(file_okay=False, writable=True),
+              help="Path to the project working folder.")
+@click.option("--slot", required=True,
+              help="LLM slot name (summary, reviewer1, reviewer2, reviewer3).")
+@click.option("--provider", required=True,
+              help="Provider name (e.g., openai, anthropic, deepseek, openrouter).")
+@click.option("--base-url", required=True,
+              help="Base URL for the chat completions endpoint.")
+@click.option("--model", required=True,
+              help="Model name.")
+@click.option("--api-key", default=None,
+              help="API key. Falls back to PRA_LLM_KEY_<SLOT> env var.")
+def repair_references_llm_cmd(project_dir, slot, provider, base_url, model, api_key):
+    """Use LLM to re-parse unmatched/suspicious reference text into structured fields."""
+    from peer_review_assistant.llm import LLMProvider
+    from peer_review_assistant.citations.repair_llm import generate_llm_repairs
+
+    emit("progress", task="repair-references-llm", step="validate", percent=0,
+         slot=slot)
+
+    # Validate project
+    proj_path = os.path.join(project_dir, "project.json")
+    if not os.path.isfile(proj_path):
+        error("NO_PROJECT", "project.json not found. Run init-project first.")
+
+    refs_path = os.path.join(project_dir, "citations", "references_split.json")
+    if not os.path.isfile(refs_path):
+        error("NO_REFERENCES_SPLIT",
+              "citations/references_split.json not found. "
+              "Run extract-citations first.")
+
+    # Resolve API key
+    if not api_key:
+        env_var = f"PRA_LLM_KEY_{slot.upper()}"
+        api_key = os.environ.get(env_var)
+    if not api_key:
+        error("NO_API_KEY",
+              f"No API key provided. Use --api-key or set "
+              f"PRA_LLM_KEY_{slot.upper()} environment variable.")
+
+    key_info = f"key={api_key[:4]}...{api_key[-4:]}" if len(api_key) > 8 else "key=****"
+
+    emit("progress", task="repair-references-llm", step="load_inputs", percent=20,
+         slot=slot, provider=provider, model=model)
+
+    prov = LLMProvider(
+        name=slot,
+        provider=provider,
+        base_url=base_url,
+        model=model,
+        api_key=api_key,
+    )
+
+    emit("progress", task="repair-references-llm", step="calling_llm", percent=40,
+         slot=slot, model=model)
+
+    try:
+        summary = generate_llm_repairs(project_dir, prov)
+    except Exception as e:
+        error("REPAIR_LLM_FAILED",
+              f"LLM reference repair failed: {e}")
+
+    emit("progress", task="repair-references-llm", step="saving", percent=90,
+         slot=slot)
+
+    # Log
+    log_path = os.path.join(project_dir, "logs", "citation_db.log")
+    now = datetime.now(JST).isoformat()
+    log_entry = (
+        f"[{now}] repair-references-llm ({slot}): "
+        f"processed={summary['total_processed']}, "
+        f"repaired={summary['repaired']}, "
+        f"with_url={summary.get('with_url', 0)}, "
+        f"likely_book={summary.get('likely_book', 0)}, "
+        f"missing_doi={summary.get('possible_missing_doi', 0)}\n"
+    )
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    with open(log_path, "a", encoding="utf-8") as lf:
+        lf.write(log_entry)
+
+    # Update project.json
+    proj_path = os.path.join(project_dir, "project.json")
+    with open(proj_path, "r", encoding="utf-8") as f:
+        proj = json.load(f)
+    proj["updated_at"] = datetime.now(JST).isoformat()
+    with open(proj_path, "w", encoding="utf-8") as f:
+        json.dump(proj, f, indent=2, ensure_ascii=False)
+
+    emit("done",
+         task="repair-references-llm",
+         slot=slot,
+         **{k: v for k, v in summary.items() if k != "message"},
+         message=summary["message"])
+
+
 @main.command()
 @click.option("--slot", required=True,
               help="LLM slot name (summary, reviewer1, reviewer2, reviewer3).")

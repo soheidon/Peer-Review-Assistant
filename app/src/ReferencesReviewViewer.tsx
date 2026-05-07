@@ -39,6 +39,25 @@ interface ViewerCard {
   crossref_method: string | null;
   pubmed_status: string | null;
   pubmed_method: string | null;
+  llm_candidate: {
+    title: string | null;
+    book_title: string | null;
+    authors: string[];
+    year: number | null;
+    journal: string | null;
+    volume: string | null;
+    issue: string | null;
+    pages: string | null;
+    doi: string | null;
+    url: string | null;
+    publisher: string | null;
+    editor: string[] | null;
+    isbn: string | null;
+    type: string | null;
+    confidence: string | null;
+    warnings: string[];
+  } | null;
+  llm_flags: Record<string, boolean> | null;
 }
 
 interface ViewerSummary {
@@ -72,6 +91,27 @@ const TABS = [
   { key: "crossref", label: "Crossref" },
   { key: "pubmed", label: "PubMed" },
 ];
+
+const TYPE_LABELS: Record<string, string> = {
+  journal_article: "雑誌論文",
+  book: "書籍",
+  edited_book: "編著本",
+  book_chapter: "章",
+  report: "報告書",
+  government_document: "政府文書",
+  web_document: "Web文書",
+  conference_paper: "会議録",
+  manual: "マニュアル",
+  other: "その他",
+};
+
+const FLAG_LABELS: Record<string, string> = {
+  possible_missing_doi: "DOI欠落の可能性",
+  contains_url: "URL含む",
+  likely_book: "書籍の可能性",
+  likely_report_or_government_document: "報告書・政府文書の可能性",
+  needs_human_review: "要確認",
+};
 
 const REASON_LABELS: Record<string, string> = {
   book_or_chapter: "書籍・章",
@@ -284,6 +324,7 @@ interface FieldRow {
   label: string;
   candidate: string;
   manuscript: string;
+  llm?: string;
   mismatch?: boolean;
 }
 
@@ -303,8 +344,11 @@ function ReferenceCard({
   const hasWarnings = card.warnings.length > 0;
   const hasMismatches = card.metadata_mismatches.length > 0;
   const candidate = card.correct_candidate;
+  const llm = card.llm_candidate;
 
-  // Build comparison rows: label, candidate value, manuscript value
+  const hasLlm = llm != null;
+
+  // Build comparison rows: label, candidate value, manuscript value, llm value
   const rows: FieldRow[] = [
     {
       label: "著者",
@@ -314,66 +358,79 @@ function ReferenceCard({
       manuscript: card.authors.length
         ? stripRefNumber(card.authors.join("; "))
         : "—",
+      llm: llm?.authors?.length ? llm.authors.join(", ") : undefined,
     },
     {
       label: "年",
       candidate: candidate?.year != null ? String(candidate.year) : "—",
       manuscript: card.year != null ? String(card.year) : "—",
+      llm: llm?.year != null ? String(llm.year) : undefined,
     },
     {
       label: "タイトル",
       candidate: candidate?.title || "—",
       manuscript: card.title || "—",
+      llm: llm?.title || undefined,
     },
     {
       label: "雑誌名",
       candidate: candidate?.journal || "—",
       manuscript: card.journal || "—",
+      llm: llm?.journal || undefined,
     },
     {
       label: "書名",
-      candidate: "—", // not in data model yet
+      candidate: candidate?.title || "—",
       manuscript: "—",
+      llm: llm?.book_title || undefined,
     },
     {
       label: "編者",
-      candidate: "—", // not in data model yet
+      candidate: "—",
       manuscript: "—",
+      llm: llm?.editor?.length ? llm.editor.join(", ") : undefined,
     },
     {
       label: "出版社",
-      candidate: "—", // not in data model yet
+      candidate: "—",
       manuscript: "—",
+      llm: llm?.publisher || undefined,
     },
     {
       label: "巻",
       candidate: candidate?.volume || "—",
       manuscript: card.volume || "—",
+      llm: llm?.volume || undefined,
     },
     {
       label: "号",
       candidate: candidate?.issue || "—",
       manuscript: card.issue || "—",
+      llm: llm?.issue || undefined,
     },
     {
       label: "ページ",
       candidate: candidate?.pages || "—",
       manuscript: card.pages || "—",
+      llm: llm?.pages || undefined,
     },
     {
       label: "DOI",
       candidate: candidate?.doi || "—",
       manuscript: card.doi || "—",
+      llm: llm?.doi || undefined,
     },
     {
       label: "URL",
-      candidate: "—", // not in data model yet
+      candidate: "—",
       manuscript: "—",
+      llm: llm?.url || undefined,
     },
     {
       label: "文献種別",
       candidate: candidate?.type || "—",
       manuscript: "—",
+      llm: llm?.type ? (TYPE_LABELS[llm.type] || llm.type) : undefined,
     },
   ];
 
@@ -408,7 +465,7 @@ function ReferenceCard({
       </div>
 
       {/* Side-by-side comparison */}
-      <div className="ref-compare">
+      <div className={`ref-compare ${hasLlm ? "ref-compare-llm" : ""}`}>
         {/* Candidate (left) */}
         <div className="ref-compare-col ref-compare-candidate">
           <div className="ref-compare-col-header">正しい文献情報候補</div>
@@ -423,7 +480,7 @@ function ReferenceCard({
           ))}
         </div>
 
-        {/* Manuscript (right) */}
+        {/* Manuscript (middle) */}
         <div className="ref-compare-col ref-compare-manuscript">
           <div className="ref-compare-col-header">原稿に記載された文献情報</div>
           {rows.map((row) => (
@@ -436,7 +493,58 @@ function ReferenceCard({
             </div>
           ))}
         </div>
+
+        {/* LLM candidate (right) */}
+        {hasLlm && (
+          <div className="ref-compare-col ref-compare-llm">
+            <div className="ref-compare-col-header">
+              LLM補正候補
+              {llm.confidence && (
+                <span className="ref-llm-confidence">
+                  ({CONFIDENCE_LABELS[llm.confidence] || llm.confidence})
+                </span>
+              )}
+            </div>
+            {rows.map((row) => (
+              <div
+                key={row.label}
+                className="ref-compare-row"
+              >
+                <span className="ref-compare-label">{row.label}</span>
+                <span className="ref-compare-value">{row.llm || "—"}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
+
+      {/* LLM flags */}
+      {card.llm_flags && Object.keys(card.llm_flags).length > 0 && (
+        <div className="ref-card-section">
+          <div className="ref-card-section-label">LLM判定:</div>
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 4 }}>
+            {Object.entries(card.llm_flags)
+              .filter(([, v]) => v)
+              .map(([k]) => (
+                <span key={k} className="ref-llm-flag">
+                  {FLAG_LABELS[k] || k}
+                </span>
+              ))}
+          </div>
+        </div>
+      )}
+
+      {/* LLM warnings */}
+      {llm?.warnings && llm.warnings.length > 0 && (
+        <div className="ref-card-section">
+          <div className="ref-card-section-label">LLM注意点:</div>
+          <ul className="ref-card-warning-list">
+            {llm.warnings.map((w, i) => (
+              <li key={i} className="ref-card-warning">{w}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Warnings */}
       {hasWarnings && (

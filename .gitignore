@@ -30,6 +30,9 @@ credentials.json
 
 # Workspaces (user data)
 workspaces/
+e2e_test_project/
+*_test_project/
+work/
 
 # Session logs (canonical copies in docs/implementation_logs/)
 logs/

@@ -1,10 +1,11 @@
 const MENU_ITEMS = [
-  { key: "project", label: "プロジェクト", icon: "📁" },
-  { key: "preprocess", label: "前処理", icon: "⚙️" },
-  { key: "citations", label: "文献確認", icon: "📚" },
-  { key: "review", label: "査読チェック", icon: "✓" },
-  { key: "results", label: "結果", icon: "📄" },
-  { key: "settings", label: "設定", icon: "🔧" },
+  { key: "project",    label: "プロジェクト",   icon: "📁" },
+  { key: "settings",   label: "設定・投稿先",   icon: "🔧" },
+  { key: "preprocess", label: "前処理",         icon: "⚙️" },
+  { key: "sections",   label: "本文分割",       icon: "📋" },
+  { key: "citations",  label: "文献確認",       icon: "📚" },
+  { key: "review",     label: "査読チェック",   icon: "✓" },
+  { key: "results",    label: "結果",           icon: "📄" },
 ];
 
 interface SidebarProps {

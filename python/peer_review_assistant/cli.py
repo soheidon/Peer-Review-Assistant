@@ -590,6 +590,13 @@ def preprocess_sections(project_dir):
             parts = []
             if sec["heading"]:
                 parts.append(sec["heading"])
+            # Include parent section's own body text (before children)
+            parent_txt_path = os.path.join(sections_dir, f"{sec['name']}.txt")
+            if os.path.isfile(parent_txt_path):
+                with open(parent_txt_path, "r", encoding="utf-8") as pf:
+                    parent_text = pf.read().strip()
+                    if parent_text:
+                        parts.append(parent_text)
             for child in children:
                 child_heading = child.get("heading")
                 if child_heading:

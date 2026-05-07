@@ -8,6 +8,7 @@ import CitationReviewPanel from "./panels/CitationReviewPanel";
 import ReviewChecksPanel from "./panels/ReviewChecksPanel";
 import ResultsPanel from "./panels/ResultsPanel";
 import SettingsPanel from "./panels/SettingsPanel";
+import SectionViewerPanel from "./panels/SectionViewerPanel";
 
 interface LogEntry {
   event: string;
@@ -61,6 +62,13 @@ function App() {
   const [crossrefSummary, setCrossrefSummary] = useState("");
   const [logExpanded, setLogExpanded] = useState(true);
   const [logHeight, setLogHeight] = useState<"small"|"medium"|"large">("small");
+
+  // Phase A: settings configured state
+  const [settingsConfigured, setSettingsConfigured] = useState(false);
+
+  // Phase B Step 1: preprocess-all state
+  const [preprocessAllRunning, setPreprocessAllRunning] = useState(false);
+  const [preprocessAllStep, setPreprocessAllStep] = useState("");
 
   // Auto-clear status message after 8 seconds
   useEffect(() => {
@@ -448,6 +456,72 @@ function App() {
     }
   };
 
+  const runPreprocessAll = async () => {
+    if (!projectPath.trim()) {
+      addLog({ event: "error", message: "プロジェクトを作成してください。" });
+      return;
+    }
+
+    setPreprocessAllRunning(true);
+    setStatusMessage(null);
+
+    const steps = [
+      { key: "preprocess-docx", label: "抽出中... (1/4)", done: "抽出完了", doneLabel: "docx本文抽出完了" },
+      { key: "preprocess-numbering", label: "段落・文番号作成中... (2/4)", done: "番号作成完了", doneLabel: "段落・文番号作成完了" },
+      { key: "preprocess-sections", label: "セクション分割中... (3/4)", done: "セクション分割完了", doneLabel: "セクション分割完了" },
+      { key: "extract-citations", label: "引用文献抽出中... (4/4)", done: "引用文献抽出完了", doneLabel: "引用文献抽出完了" },
+    ];
+
+    const setDone = (key: string) => {
+      if (key === "preprocess-docx") setPreprocessDone(true);
+      else if (key === "preprocess-numbering") setNumberingDone(true);
+      else if (key === "preprocess-sections") setSectionsDone(true);
+      else if (key === "extract-citations") setCitationExtractionDone(true);
+    };
+
+    try {
+      for (const step of steps) {
+        setPreprocessAllStep(step.label);
+        addLog({ event: "info", message: `Running ${step.key}...` });
+
+        const { Command } = await import("@tauri-apps/plugin-shell");
+        const cmd = Command.create("pra-cli", [
+          step.key,
+          "--project",
+          projectPath,
+        ]);
+        const output = await cmd.execute();
+        parseOutput(output.stdout);
+        if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+
+        if (output.code !== 0) {
+          setStatusMessage({
+            text: `${step.key} が失敗しました（終了コード: ${output.code}）。処理を中断します。`,
+            type: "error",
+          });
+          return;
+        }
+        setDone(step.key);
+        addLog({ event: "info", message: `${step.done}` });
+      }
+
+      setPreprocessAllStep("");
+      setStatusMessage({
+        text: "前処理が完了しました。「本文分割」または「文献確認」メニューに進んでください。",
+        type: "ok",
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog({ event: "error", message: msg });
+      setStatusMessage({
+        text: "前処理でエラーが発生しました。処理を中断します。",
+        type: "error",
+      });
+    } finally {
+      setPreprocessAllRunning(false);
+    }
+  };
+
   const preprocessSource = async () => {
     if (!projectPath.trim()) {
       addLog({ event: "error", message: "Please create a project first." });
@@ -679,6 +753,7 @@ function App() {
 
       if (output.code === 0) {
         setLlmTestResults((prev) => ({ ...prev, [slotName]: "ok" }));
+        setSettingsConfigured(true);
       } else {
         setLlmTestResults((prev) => ({ ...prev, [slotName]: "error" }));
       }
@@ -1048,13 +1123,14 @@ function App() {
 
   const stepToView: Record<string, string> = {
     project: "project",
+    settings: "settings",
     input: "project",
     preprocess: "preprocess",
+    sections: "sections",
     citations: "preprocess",
     db_check: "preprocess",
     cite_review: "citations",
     review: "review",
-    merge: "review",
     output: "results",
   };
 
@@ -1067,11 +1143,16 @@ function App() {
     projectPath,
     sourceAttached,
     preprocessDone,
+    numberingDone,
+    sectionsDone,
     citationExtractionDone,
     crossrefDone,
     viewerDataReady,
     structureMergeDone,
+    expressionMergeDone,
+    methodsStatsMergeDone,
     finalMergeDone,
+    settingsConfigured,
     onStepClick: handleStepClick,
   };
 
@@ -1132,12 +1213,23 @@ function App() {
               viewerDataReady={viewerDataReady}
               preprocessResults={preprocessResults}
               crossrefSummary={crossrefSummary}
+              onPreprocessAll={runPreprocessAll}
+              preprocessAllRunning={preprocessAllRunning}
+              preprocessAllStep={preprocessAllStep}
               onPreprocess={preprocessSource}
               onNumbering={runNumbering}
               onSections={runSections}
               onExtractCitations={runExtractCitations}
               onCrossrefDb={runCrossrefDb}
               onViewerData={runViewerData}
+              statusMessage={statusMessage}
+            />
+          )}
+
+          {activeView === "sections" && (
+            <SectionViewerPanel
+              projectPath={projectPath}
+              sectionsDone={sectionsDone}
               statusMessage={statusMessage}
             />
           )}

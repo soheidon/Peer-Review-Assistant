@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 interface PreprocessPanelProps {
   projectPath: string;
   sourceAttached: boolean;
@@ -15,6 +17,9 @@ interface PreprocessPanelProps {
   viewerDataReady: boolean;
   preprocessResults: Record<string, string>;
   crossrefSummary: string;
+  onPreprocessAll: () => void;
+  preprocessAllRunning: boolean;
+  preprocessAllStep: string;
   onPreprocess: () => void;
   onNumbering: () => void;
   onSections: () => void;
@@ -47,6 +52,9 @@ export default function PreprocessPanel({
   viewerDataReady,
   preprocessResults,
   crossrefSummary,
+  onPreprocessAll,
+  preprocessAllRunning,
+  preprocessAllStep,
   onPreprocess,
   onNumbering,
   onSections,
@@ -55,6 +63,10 @@ export default function PreprocessPanel({
   onViewerData,
   statusMessage,
 }: PreprocessPanelProps) {
+  const [showDetail, setShowDetail] = useState(false);
+
+  const allDone = preprocessDone && numberingDone && sectionsDone && citationExtractionDone;
+
   return (
     <div>
       {statusMessage && (
@@ -66,75 +78,119 @@ export default function PreprocessPanel({
       <section className="panel">
         <h2>前処理パイプライン</h2>
 
-        {/* Step 1: docx本文抽出 */}
+        {/* Master button: runs all 4 preprocess steps sequentially */}
         <div className="row">
           <button
-            onClick={onPreprocess}
-            disabled={!sourceAttached || preprocessRunning}
+            onClick={onPreprocessAll}
+            disabled={!sourceAttached || preprocessAllRunning}
           >
-            {preprocessRunning ? "抽出中..." : "docx本文抽出"}
+            {preprocessAllRunning
+              ? preprocessAllStep || "前処理中..."
+              : "本文・引用文献を前処理"}
           </button>
-          {statusChip(preprocessRunning, preprocessDone)}
-          {preprocessResults.preprocess && (
-            <span className="preprocess-info">{preprocessResults.preprocess}</span>
-          )}
+          {preprocessAllRunning && <span className="status-chip running">実行中...</span>}
+          {allDone && !preprocessAllRunning && <span className="status-chip ok">完了</span>}
+          {!allDone && !preprocessAllRunning && <span className="status-chip unrun">未実行</span>}
         </div>
         {!sourceAttached && (
           <div className="disabled-reason">先にプロジェクトに原稿を取り込んでください</div>
         )}
-        {sourceAttached && !preprocessDone && !preprocessRunning && (
-          <div className="disabled-reason">「docx本文抽出」をクリックしてください</div>
+        {sourceAttached && !allDone && !preprocessAllRunning && (
+          <div className="disabled-reason">「本文・引用文献を前処理」をクリックしてください（4ステップを順に実行します）</div>
+        )}
+        {allDone && (
+          <div style={{ fontSize: "11px", color: "#107c10", marginTop: 4 }}>
+            前処理が完了しました。「本文分割」または「文献確認」メニューに進んでください。
+          </div>
         )}
 
-        {/* Step 2: 段落・文番号作成 */}
-        <div className="row">
+        {/* Collapsible detail: individual buttons for dev/debug use */}
+        <div style={{ marginTop: 8 }}>
           <button
-            onClick={onNumbering}
-            disabled={!preprocessDone || numberingRunning}
+            onClick={() => setShowDetail((v) => !v)}
+            className="clear-btn"
+            style={{ fontSize: "11px" }}
           >
-            {numberingRunning ? "作成中..." : "段落・文番号作成"}
+            詳細操作 {showDetail ? "▲" : "▼"}
           </button>
-          {statusChip(numberingRunning, numberingDone)}
-          {preprocessResults.numbering && (
-            <span className="preprocess-info">{preprocessResults.numbering}</span>
-          )}
         </div>
-        {!preprocessDone && !numberingRunning && (
-          <div className="disabled-reason">先にdocx本文抽出を実行してください</div>
-        )}
 
-        {/* Step 3: セクション分割 */}
-        <div className="row">
-          <button
-            onClick={onSections}
-            disabled={!preprocessDone || sectionsRunning}
-          >
-            {sectionsRunning ? "分割中..." : "セクション分割"}
-          </button>
-          {statusChip(sectionsRunning, sectionsDone)}
-          {preprocessResults.sections && (
-            <span className="preprocess-info">{preprocessResults.sections}</span>
-          )}
-        </div>
-        {!preprocessDone && !sectionsRunning && (
-          <div className="disabled-reason">先にdocx本文抽出を実行してください</div>
-        )}
+        {showDetail && (
+          <div style={{
+            marginTop: 8,
+            padding: "10px 12px",
+            background: "#f8f8f8",
+            border: "1px solid #e0e0e0",
+            borderRadius: 4,
+          }}>
+            {/* Step 1: docx本文抽出 */}
+            <div className="row">
+              <button
+                onClick={onPreprocess}
+                disabled={!sourceAttached || preprocessRunning}
+              >
+                {preprocessRunning ? "抽出中..." : "docx本文抽出"}
+              </button>
+              {statusChip(preprocessRunning, preprocessDone)}
+              {preprocessResults.preprocess && (
+                <span className="preprocess-info">{preprocessResults.preprocess}</span>
+              )}
+            </div>
+            {!sourceAttached && (
+              <div className="disabled-reason">先にプロジェクトに原稿を取り込んでください</div>
+            )}
 
-        {/* Step 4: 引用文献抽出 */}
-        <div className="row">
-          <button
-            onClick={onExtractCitations}
-            disabled={!sectionsDone || citationExtractionRunning}
-          >
-            {citationExtractionRunning ? "抽出中..." : "引用文献抽出"}
-          </button>
-          {statusChip(citationExtractionRunning, citationExtractionDone)}
-          {preprocessResults.citations && (
-            <span className="preprocess-info">{preprocessResults.citations}</span>
-          )}
-        </div>
-        {!sectionsDone && !citationExtractionRunning && (
-          <div className="disabled-reason">先にセクション分割を実行してください</div>
+            {/* Step 2: 段落・文番号作成 */}
+            <div className="row">
+              <button
+                onClick={onNumbering}
+                disabled={!preprocessDone || numberingRunning}
+              >
+                {numberingRunning ? "作成中..." : "段落・文番号作成"}
+              </button>
+              {statusChip(numberingRunning, numberingDone)}
+              {preprocessResults.numbering && (
+                <span className="preprocess-info">{preprocessResults.numbering}</span>
+              )}
+            </div>
+            {!preprocessDone && !numberingRunning && (
+              <div className="disabled-reason">先にdocx本文抽出を実行してください</div>
+            )}
+
+            {/* Step 3: セクション分割 */}
+            <div className="row">
+              <button
+                onClick={onSections}
+                disabled={!preprocessDone || sectionsRunning}
+              >
+                {sectionsRunning ? "分割中..." : "セクション分割"}
+              </button>
+              {statusChip(sectionsRunning, sectionsDone)}
+              {preprocessResults.sections && (
+                <span className="preprocess-info">{preprocessResults.sections}</span>
+              )}
+            </div>
+            {!preprocessDone && !sectionsRunning && (
+              <div className="disabled-reason">先にdocx本文抽出を実行してください</div>
+            )}
+
+            {/* Step 4: 引用文献抽出 */}
+            <div className="row">
+              <button
+                onClick={onExtractCitations}
+                disabled={!sectionsDone || citationExtractionRunning}
+              >
+                {citationExtractionRunning ? "抽出中..." : "引用文献抽出"}
+              </button>
+              {statusChip(citationExtractionRunning, citationExtractionDone)}
+              {preprocessResults.citations && (
+                <span className="preprocess-info">{preprocessResults.citations}</span>
+              )}
+            </div>
+            {!sectionsDone && !citationExtractionRunning && (
+              <div className="disabled-reason">先にセクション分割を実行してください</div>
+            )}
+          </div>
         )}
       </section>
 
@@ -183,11 +239,9 @@ export default function PreprocessPanel({
       {/* Next step suggestion */}
       <div className="next-step">
         {!sourceAttached && "次: 「プロジェクト」メニューから原稿を取り込んでください"}
-        {sourceAttached && !preprocessDone && "次: docx本文抽出を実行してください"}
-        {preprocessDone && !numberingDone && "次: 段落・文番号作成を実行してください"}
-        {preprocessDone && numberingDone && !sectionsDone && "次: セクション分割を実行してください"}
-        {sectionsDone && !citationExtractionDone && "次: 引用文献抽出を実行してください"}
-        {citationExtractionDone && !crossrefDone && "次: Crossref照合を実行してください"}
+        {sourceAttached && !allDone && !preprocessAllRunning && "次: 「本文・引用文献を前処理」をクリックしてください（4ステップを順に実行）"}
+        {preprocessAllRunning && `前処理実行中: ${preprocessAllStep}`}
+        {allDone && !crossrefDone && "次: Crossref照合を実行してください"}
         {crossrefDone && !viewerDataReady && "次: 文献確認データ作成を実行してください"}
         {viewerDataReady && "前処理完了。「文献確認」メニューに進んでください"}
       </div>

@@ -2,24 +2,30 @@ interface ProgressBarProps {
   projectPath: string;
   sourceAttached: boolean;
   preprocessDone: boolean;
+  numberingDone: boolean;
+  sectionsDone: boolean;
   citationExtractionDone: boolean;
   crossrefDone: boolean;
   viewerDataReady: boolean;
   structureMergeDone: boolean;
+  expressionMergeDone: boolean;
+  methodsStatsMergeDone: boolean;
   finalMergeDone: boolean;
+  settingsConfigured: boolean;
   onStepClick?: (viewKey: string) => void;
 }
 
 const STAGES = [
-  { key: "project", label: "プロジェクト作成", done: (p: ProgressBarProps) => !!p.projectPath },
-  { key: "input", label: "入力ファイル", done: (p: ProgressBarProps) => p.sourceAttached },
-  { key: "preprocess", label: "前処理", done: (p: ProgressBarProps) => p.preprocessDone },
-  { key: "citations", label: "文献抽出", done: (p: ProgressBarProps) => p.citationExtractionDone },
-  { key: "db_check", label: "DB照合", done: (p: ProgressBarProps) => p.crossrefDone },
-  { key: "cite_review", label: "文献確認", done: (p: ProgressBarProps) => p.viewerDataReady },
-  { key: "review", label: "査読チェック", done: (p: ProgressBarProps) => p.structureMergeDone },
-  { key: "merge", label: "マージ", done: (p: ProgressBarProps) => p.structureMergeDone },
-  { key: "output", label: "最終出力", done: (p: ProgressBarProps) => p.finalMergeDone },
+  { key: "project",    label: "プロジェクト作成", done: (p: ProgressBarProps) => !!p.projectPath },
+  { key: "settings",   label: "設定",             done: (p: ProgressBarProps) => p.settingsConfigured },
+  { key: "input",      label: "入力ファイル",     done: (p: ProgressBarProps) => p.sourceAttached },
+  { key: "preprocess", label: "前処理",           done: (p: ProgressBarProps) => p.preprocessDone },
+  { key: "sections",   label: "本文分割確認",     done: (p: ProgressBarProps) => p.sectionsDone },
+  { key: "citations",  label: "文献抽出",         done: (p: ProgressBarProps) => p.citationExtractionDone },
+  { key: "db_check",   label: "DB照合",           done: (p: ProgressBarProps) => p.crossrefDone },
+  { key: "cite_review",label: "文献確認",         done: (p: ProgressBarProps) => p.viewerDataReady },
+  { key: "review",     label: "査読チェック",     done: (p: ProgressBarProps) => p.structureMergeDone },
+  { key: "output",     label: "最終出力",         done: (p: ProgressBarProps) => p.finalMergeDone },
 ];
 
 export default function ProgressBar(props: ProgressBarProps) {

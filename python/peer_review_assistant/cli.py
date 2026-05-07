@@ -1230,7 +1230,12 @@ def final_merge_cmd(project_dir):
     # Append merge.log
     now = datetime.now(JST)
     log_path = os.path.join(project_dir, "logs", "merge.log")
-    log_entry = (f"[{now.isoformat()}] final-merge check=structure "
+    expr_path = os.path.join(project_dir, "outputs", "expression",
+                              "merged.section.json")
+    checks_used = ["structure"]
+    if os.path.isfile(expr_path):
+        checks_used.append("expression")
+    log_entry = (f"[{now.isoformat()}] final-merge checks={','.join(checks_used)} "
                  f"comments={result['total_comments']} "
                  f"major={result['major_count']} "
                  f"minor={result['minor_count']} "

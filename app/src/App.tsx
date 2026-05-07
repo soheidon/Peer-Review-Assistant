@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import Sidebar from "./Sidebar";
 import ProgressBar from "./ProgressBar";
-import HomePanel from "./panels/HomePanel";
 import ProjectPanel from "./panels/ProjectPanel";
 import PreprocessPanel from "./panels/PreprocessPanel";
 import CitationReviewPanel from "./panels/CitationReviewPanel";
@@ -16,7 +15,7 @@ interface LogEntry {
 }
 
 function App() {
-  const [activeView, setActiveView] = useState("home");
+  const [activeView, setActiveView] = useState("project");
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [projectPath, setProjectPath] = useState("");
   const [healthcheckStatus, setHealthcheckStatus] = useState<string | null>(null);
@@ -61,6 +60,7 @@ function App() {
   const [preprocessResults, setPreprocessResults] = useState<Record<string, string>>({});
   const [crossrefSummary, setCrossrefSummary] = useState("");
   const [logExpanded, setLogExpanded] = useState(true);
+  const [logHeight, setLogHeight] = useState<"small"|"medium"|"large">("small");
 
   // Auto-clear status message after 8 seconds
   useEffect(() => {
@@ -84,6 +84,24 @@ function App() {
   };
 
   const clearLogs = () => setLogs([]);
+
+  const copyLogs = async () => {
+    const text = logs.map((e) => JSON.stringify(e)).join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      setStatusMessage({text: "ログをクリップボードにコピーしました。", type: "info"});
+    } catch {
+      setStatusMessage({text: "クリップボードへのコピーに失敗しました。", type: "error"});
+    }
+  };
+
+  const cycleLogHeight = () => {
+    setLogHeight((prev) =>
+      prev === "small" ? "medium" : prev === "medium" ? "large" : "small"
+    );
+  };
+
+  const logHeightPx = { small: 150, medium: 300, large: 500 }[logHeight];
 
   const parseOutput = (stdout: string) => {
     const lines = stdout.trim().split("\n");
@@ -198,14 +216,16 @@ function App() {
     });
     if (!selected || typeof selected !== "string") return;
 
-    const projJsonPath = `${selected.replace(/\\/g, "/")}/project.json`;
+    const base = selected.replace(/\\/g, "/");
+    const projJsonPath = `${base}/project.json`;
     try {
       const { invoke } = await import("@tauri-apps/api/core");
       const raw = await invoke<string>("read_text_file", { path: projJsonPath });
       const proj = JSON.parse(raw);
       setProjectPath(selected);
       setProjectCreated(true);
-      // Restore source info from project.json
+
+      // Restore source info
       if (proj.source) {
         if (proj.source.docx_path) {
           setDocxPath(proj.source.original_docx_path || proj.source.docx_path);
@@ -218,14 +238,51 @@ function App() {
           setSourceAttached(true);
         }
       }
+
+      // Restore preprocess state
       if (proj.preprocess) {
         if (proj.preprocess.status === "done") setPreprocessDone(true);
       }
+
+      // Restore pipeline state from generated files
+      try {
+        const files: string[] = [];
+        try { files.push(await invoke<string>("read_text_file", { path: `${base}/manuscript_full.json` })); } catch {}
+        if (files.length > 0 || proj.preprocess?.status === "done") {
+          setPreprocessDone(true);
+        }
+
+        // Check for generated output files to infer pipeline progress
+        const checkFile = async (p: string) => {
+          try { await invoke<string>("read_text_file", { path: `${base}/${p}` }); return true; } catch { return false; }
+        };
+
+        if (await checkFile("lines/paragraph_sentence_map.json")) setNumberingDone(true);
+        const hasSections = await checkFile("sections/introduction.txt");
+        if (hasSections) setSectionsDone(true);
+        if (await checkFile("citations/references_split.json")) setCitationExtractionDone(true);
+        if (await checkFile("citations/db_verified_references.json")) setCrossrefDone(true);
+        if (await checkFile("citations/viewer_data.json")) setViewerDataReady(true);
+
+        // Check merge results
+        if (await checkFile("outputs/structure/merged.section.json")) setStructureMergeDone(true);
+        if (await checkFile("outputs/expression/merged.section.json")) setExpressionMergeDone(true);
+        if (await checkFile("outputs/methods_stats/merged.section.json")) setMethodsStatsMergeDone(true);
+        if (await checkFile("outputs/final/final_review.md")) setFinalMergeDone(true);
+      } catch {
+        // If file checks fail, still proceed — the project is opened
+      }
+
       setStatusMessage({text: "既存プロジェクトを開きました。", type: "info"});
       addLog({event: "info", message: `Opened existing project: ${selected}`});
     } catch {
-      // No project.json — just set the path for new project creation
+      // No project.json — set the path but warn
       setProjectPath(selected);
+      setProjectCreated(false);
+      setStatusMessage({
+        text: "project.json が見つかりません。「新規プロジェクト作成」でプロジェクトを作成してください。",
+        type: "error",
+      });
     }
   };
 
@@ -296,8 +353,8 @@ function App() {
   };
 
   const validateInput = async () => {
-    if (!docxPath.trim() || !pdfPath.trim()) {
-      addLog({ event: "error", message: "Please select both docx and PDF files." });
+    if (!docxPath.trim()) {
+      addLog({ event: "error", message: "原稿docxを選択してください。" });
       return;
     }
 
@@ -308,13 +365,11 @@ function App() {
 
     try {
       const { Command } = await import("@tauri-apps/plugin-shell");
-      const cmd = Command.create("pra-cli", [
-        "validate-input",
-        "--docx",
-        docxPath,
-        "--pdf",
-        pdfPath,
-      ]);
+      const args = ["validate-input", "--docx", docxPath];
+      if (pdfPath.trim()) {
+        args.push("--pdf", pdfPath);
+      }
+      const cmd = Command.create("pra-cli", args);
       const output = await cmd.execute();
       parseOutput(output.stdout);
       if (output.stderr) {
@@ -338,7 +393,20 @@ function App() {
 
   const attachSource = async () => {
     if (!projectPath.trim()) {
-      addLog({ event: "error", message: "Please create a project first." });
+      addLog({ event: "error", message: "プロジェクトフォルダを選択してください。" });
+      return;
+    }
+
+    // Check that project.json exists before proceeding
+    const projJsonPath = `${projectPath.replace(/\\/g, "/")}/project.json`;
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke<string>("read_text_file", { path: projJsonPath });
+    } catch {
+      setStatusMessage({
+        text: "project.json が見つかりません。「新規プロジェクト作成」または「既存プロジェクトを開く」を実行してください。",
+        type: "error",
+      });
       return;
     }
 
@@ -349,15 +417,15 @@ function App() {
 
     try {
       const { Command } = await import("@tauri-apps/plugin-shell");
-      const cmd = Command.create("pra-cli", [
+      const args = [
         "attach-source",
-        "--project",
-        projectPath,
-        "--docx",
-        docxPath,
-        "--pdf",
-        pdfPath,
-      ]);
+        "--project", projectPath,
+        "--docx", docxPath,
+      ];
+      if (pdfPath.trim()) {
+        args.push("--pdf", pdfPath);
+      }
+      const cmd = Command.create("pra-cli", args);
       const output = await cmd.execute();
       parseOutput(output.stdout);
       if (output.stderr) {
@@ -366,6 +434,7 @@ function App() {
 
       if (output.code === 0) {
         setSourceAttached(true);
+        setProjectCreated(true);
         setStatusMessage({text: "docxとPDFをプロジェクトに取り込みました。", type: "ok"});
       } else {
         setStatusMessage({text: "プロジェクトへの取り込みに失敗しました。", type: "error"});
@@ -1021,23 +1090,6 @@ function App() {
         </div>
 
         <div className="app-content">
-          {activeView === "home" && (
-            <HomePanel
-              projectPath={projectPath}
-              healthcheckStatus={healthcheckStatus}
-              projectCreated={projectCreated}
-              sourceAttached={sourceAttached}
-              preprocessDone={preprocessDone}
-              citationExtractionDone={citationExtractionDone}
-              crossrefDone={crossrefDone}
-              viewerDataReady={viewerDataReady}
-              structureMergeDone={structureMergeDone}
-              finalMergeDone={finalMergeDone}
-              onRunHealthcheck={runHealthcheck}
-              statusMessage={statusMessage}
-            />
-          )}
-
           {activeView === "project" && (
             <ProjectPanel
               projectPath={projectPath}
@@ -1165,11 +1217,20 @@ function App() {
               )}
             </button>
             {logExpanded && (
-              <button onClick={clearLogs} className="clear-btn">ログを消去</button>
+              <div className="log-header-actions">
+                <button onClick={cycleLogHeight} className="clear-btn" title="ログ領域の高さを切り替え">
+                  {logHeight === "small" ? "▤ 小" : logHeight === "medium" ? "▤ 中" : "▤ 大"}
+                </button>
+                <button onClick={copyLogs} className="clear-btn">ログをコピー</button>
+                <button onClick={clearLogs} className="clear-btn">ログを消去</button>
+              </div>
             )}
           </div>
           {logExpanded && (
-            <div className="app-log-area">
+            <div
+              className="app-log-area"
+              style={{ maxHeight: logHeightPx }}
+            >
               {logs.length === 0 && (
                 <p className="log-empty-msg">
                   コマンドを実行するとログが表示されます。

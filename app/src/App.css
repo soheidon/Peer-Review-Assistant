@@ -121,14 +121,20 @@ body {
   padding: 6px 16px;
   max-height: 150px;
   overflow-y: auto;
+  overflow-x: auto;
   font-family: "Cascadia Code", "Consolas", monospace;
 }
 
 .log-line {
-  white-space: pre-wrap;
-  word-break: break-all;
+  white-space: pre;
   margin: 0;
   font-size: 11px;
+}
+
+.log-header-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
 }
 
 /* ── Sidebar ────────────────────────────────────────────────────────────── */

@@ -11,7 +11,7 @@ interface ProgressBarProps {
 }
 
 const STAGES = [
-  { key: "project", label: "プロジェクト", done: (p: ProgressBarProps) => !!p.projectPath },
+  { key: "project", label: "プロジェクト作成", done: (p: ProgressBarProps) => !!p.projectPath },
   { key: "input", label: "入力ファイル", done: (p: ProgressBarProps) => p.sourceAttached },
   { key: "preprocess", label: "前処理", done: (p: ProgressBarProps) => p.preprocessDone },
   { key: "citations", label: "文献抽出", done: (p: ProgressBarProps) => p.citationExtractionDone },

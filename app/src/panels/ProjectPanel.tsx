@@ -127,27 +127,37 @@ export default function ProjectPanel({
         <div className="row">
           <button
             onClick={onAttachSource}
-            disabled={!validationOk || !projectCreated || attachRunning}
+            disabled={!projectPath || !validationOk || attachRunning}
           >
             {attachRunning ? "取り込み中..." : "プロジェクトに取り込み"}
           </button>
           {attachRunning && <span className="status-chip running">実行中...</span>}
           {sourceAttached && !attachRunning && <span className="status-chip ok">取込済</span>}
         </div>
-        {!sourceAttached && !attachRunning && validationOk && projectCreated && (
+        {!sourceAttached && !attachRunning && !projectPath && (
+          <div className="disabled-reason">プロジェクトフォルダを選択してください</div>
+        )}
+        {!sourceAttached && !attachRunning && projectPath && !projectCreated && validationOk && (
+          <div className="disabled-reason">「新規プロジェクト作成」または「既存プロジェクトを開く」でプロジェクトを有効化してください</div>
+        )}
+        {!sourceAttached && !attachRunning && projectCreated && validationOk && (
           <div className="disabled-reason">「プロジェクトに取り込み」をクリックしてください</div>
         )}
-        {!validationOk && projectCreated && !attachRunning && (
+        {!sourceAttached && !attachRunning && !validationOk && docxPath.trim() && projectCreated && (
           <div className="disabled-reason">先に入力ファイルを確認してください</div>
         )}
-        {!projectCreated && (
-          <div className="disabled-reason">プロジェクトを先に作成または開いてください</div>
+        {!sourceAttached && !attachRunning && !validationOk && docxPath.trim() && !projectCreated && projectPath && (
+          <div className="disabled-reason">先に入力ファイルを確認し、プロジェクトを作成または開いてください</div>
+        )}
+        {!sourceAttached && !attachRunning && !docxPath.trim() && projectPath && (
+          <div className="disabled-reason">原稿docxを選択してください</div>
         )}
       </section>
 
       {/* Next step suggestion */}
       <div className="next-step">
-        {!projectCreated && "次: プロジェクトフォルダを選択し、「既存プロジェクトを開く」または「新規プロジェクト作成」してください"}
+        {!projectPath && "次: プロジェクトフォルダを選択し、「既存プロジェクトを開く」または「新規プロジェクト作成」してください"}
+        {projectPath && !projectCreated && "次: 「既存プロジェクトを開く」または「新規プロジェクト作成」でプロジェクトを有効化してください"}
         {projectCreated && !docxPath.trim() && "次: 原稿docxを選択してください（PDFは任意）"}
         {projectCreated && docxPath.trim() && !validationOk && "次: 入力ファイルを確認してください"}
         {projectCreated && validationOk && !sourceAttached && "次: プロジェクトに取り込んでください"}

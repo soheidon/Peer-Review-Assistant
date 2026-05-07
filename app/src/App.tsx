@@ -23,6 +23,7 @@ function App() {
   const [structureCheckResults, setStructureCheckResults] = useState<Record<string, string>>({});
   const [structureMergeDone, setStructureMergeDone] = useState(false);
   const [structureMergeRunning, setStructureMergeRunning] = useState(false);
+  const [expressionCheckResults, setExpressionCheckResults] = useState<Record<string, string>>({});
   const [finalMergeDone, setFinalMergeDone] = useState(false);
   const [finalMergeRunning, setFinalMergeRunning] = useState(false);
   const [selectedResultFile, setSelectedResultFile] = useState("final_review.md");
@@ -444,6 +445,50 @@ function App() {
     }
   };
 
+  const runExpressionCheck = async (slotName: string) => {
+    const slot = llmSlots.find((s) => s.name === slotName);
+    if (!slot) return;
+
+    if (!projectPath.trim()) {
+      addLog({ event: "error", message: "Please create a project first." });
+      return;
+    }
+    if (!slot.provider.trim() || !slot.baseUrl.trim() || !slot.model.trim() || !slot.apiKey.trim()) {
+      addLog({ event: "error", message: `${slotName}: Please configure provider, base URL, model, and API key in API Settings.` });
+      return;
+    }
+
+    setExpressionCheckResults((prev) => ({ ...prev, [slotName]: "running" }));
+    addLog({ event: "info", message: `Running expression check with ${slotName}...` });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const cmd = Command.create("pra-cli", [
+        "run-check",
+        "--project", projectPath,
+        "--check", "expression",
+        "--slot", slotName,
+        "--provider", slot.provider,
+        "--base-url", slot.baseUrl,
+        "--model", slot.model,
+        "--api-key", slot.apiKey,
+      ]);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+
+      if (output.code === 0) {
+        setExpressionCheckResults((prev) => ({ ...prev, [slotName]: "done" }));
+      } else {
+        setExpressionCheckResults((prev) => ({ ...prev, [slotName]: "failed" }));
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog({ event: "error", message: msg });
+      setExpressionCheckResults((prev) => ({ ...prev, [slotName]: "failed" }));
+    }
+  };
+
   const runMergeStructure = async () => {
     if (!projectPath.trim()) {
       addLog({ event: "error", message: "Please create a project first." });
@@ -740,6 +785,29 @@ function App() {
                 </span>
               )}
               {structureCheckResults[slot.name] === "running" && (
+                <span className="status-chip" style={{ backgroundColor: "#eee", color: "#555" }}>
+                  Running...
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+        <div className="row">
+          <span className="llm-slot-label">Expression</span>
+          {llmSlots.filter((s) => s.name.startsWith("reviewer")).map((slot) => (
+            <div key={slot.name} style={{ display: "flex", gap: 4, alignItems: "center" }}>
+              <button
+                onClick={() => runExpressionCheck(slot.name)}
+                disabled={!crossrefDone || expressionCheckResults[slot.name] === "running"}
+              >
+                {slot.name}
+              </button>
+              {expressionCheckResults[slot.name] && expressionCheckResults[slot.name] !== "running" && (
+                <span className={`status-chip ${expressionCheckResults[slot.name] === "done" ? "ok" : "err"}`}>
+                  {expressionCheckResults[slot.name] === "done" ? "Done" : "Failed"}
+                </span>
+              )}
+              {expressionCheckResults[slot.name] === "running" && (
                 <span className="status-chip" style={{ backgroundColor: "#eee", color: "#555" }}>
                   Running...
                 </span>

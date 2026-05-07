@@ -835,7 +835,7 @@ def test_llm(slot, provider, base_url, model, api_key):
              latency_ms=result.get("latency_ms"))
 
 
-_VALID_CHECKS = {"structure"}
+_VALID_CHECKS = {"structure", "expression"}
 
 
 @main.command()
@@ -857,7 +857,10 @@ _VALID_CHECKS = {"structure"}
 def run_check(project_dir, check_name, slot, provider, base_url, model, api_key):
     """Run an LLM review check on the manuscript."""
     from peer_review_assistant.llm import LLMProvider, chat_completion
-    from peer_review_assistant.llm.prompts import build_structure_check_messages
+    from peer_review_assistant.llm.prompts import (
+        build_structure_check_messages,
+        build_expression_check_messages,
+    )
     from peer_review_assistant.llm.json_repair import parse_llm_json
 
     emit("progress", task="run-check", step="validate", percent=0,
@@ -938,7 +941,10 @@ def run_check(project_dir, check_name, slot, provider, base_url, model, api_key)
     emit("progress", task="run-check", step="building_prompt", percent=40,
          check=check_name, slot=slot)
 
-    messages = build_structure_check_messages(manuscript_data, section_texts, section_map)
+    if check_name == "expression":
+        messages = build_expression_check_messages(manuscript_data, section_texts, section_map)
+    else:
+        messages = build_structure_check_messages(manuscript_data, section_texts, section_map)
 
     # Call LLM
     emit("progress", task="run-check", step="calling_llm", percent=60,
@@ -952,7 +958,10 @@ def run_check(project_dir, check_name, slot, provider, base_url, model, api_key)
         api_key=api_key,
     )
 
-    result = chat_completion(prov, messages, max_tokens=4096, temperature=0.0)
+    timeout = 120 if check_name == "expression" else 30
+    max_tokens = 8192 if check_name == "expression" else 4096
+    result = chat_completion(prov, messages, max_tokens=max_tokens, temperature=0.0,
+                             timeout_seconds=timeout)
 
     if not result["ok"]:
         _log_llm_call(project_dir, slot, check_name, model, key_info,
@@ -978,10 +987,10 @@ def run_check(project_dir, check_name, slot, provider, base_url, model, api_key)
     findings = parsed.get("findings", [])
     for i, finding in enumerate(findings):
         if "finding_id" not in finding:
-            finding["finding_id"] = f"structure_{slot}_{i + 1:03d}"
+            finding["finding_id"] = f"{check_name}_{slot}_{i + 1:03d}"
 
     output = {
-        "check_name": "structure",
+        "check_name": check_name,
         "source": slot,
         "status": "done",
         "generated_at": now.isoformat(),
@@ -1029,7 +1038,7 @@ def run_check(project_dir, check_name, slot, provider, base_url, model, api_key)
          model=result.get("model"),
          finding_count=finding_count,
          latency_ms=result.get("latency_ms"),
-         message=f"Structure check complete ({finding_count} findings).")
+         message=f"{check_name.title()} check complete ({finding_count} findings).")
 
 
 def _log_llm_call(project_dir, slot, check_name, model, key_info,

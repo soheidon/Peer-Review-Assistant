@@ -20,7 +20,8 @@ class LLMProvider:
         self.api_key = api_key
 
 
-def chat_completion(provider, messages, max_tokens=1024, temperature=0.0):
+def chat_completion(provider, messages, max_tokens=1024, temperature=0.0,
+                    timeout_seconds=30):
     """Send a chat completion request.
 
     Uses OpenAI-compatible API format: POST {base_url}/chat/completions
@@ -30,6 +31,7 @@ def chat_completion(provider, messages, max_tokens=1024, temperature=0.0):
         messages: list of {"role": str, "content": str} dicts
         max_tokens: int
         temperature: float
+        timeout_seconds: float, HTTP timeout (default 30)
 
     Returns:
         dict with keys: ok (bool), content (str|null), model (str|null),
@@ -44,7 +46,7 @@ def chat_completion(provider, messages, max_tokens=1024, temperature=0.0):
     }
 
     t0 = time.time()
-    status, resp_body = _http_post(url, provider.api_key, body)
+    status, resp_body = _http_post(url, provider.api_key, body, timeout_seconds)
     latency_ms = int((time.time() - t0) * 1000)
 
     if status is None:
@@ -53,7 +55,7 @@ def chat_completion(provider, messages, max_tokens=1024, temperature=0.0):
             "content": None,
             "model": None,
             "usage": None,
-            "error": "Connection failed: network error or timeout",
+            "error": f"Connection failed (timeout={timeout_seconds}s): {resp_body}" if resp_body else f"Connection failed (timeout={timeout_seconds}s): network error or timeout",
             "latency_ms": latency_ms,
         }
 
@@ -148,12 +150,12 @@ def test_connection(provider):
     }
 
 
-def _http_post(url, api_key, body_dict):
+def _http_post(url, api_key, body_dict, timeout_seconds=30):
     """POST JSON to an API endpoint.
 
     Returns:
         (status_code, body) tuple. status_code is None on network failure.
-        body is response text or None.
+        body is response text or error string.
     """
     json_data = json.dumps(body_dict).encode("utf-8")
 
@@ -169,7 +171,7 @@ def _http_post(url, api_key, body_dict):
     )
 
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=timeout_seconds) as resp:
             return (resp.status, resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         try:

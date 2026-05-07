@@ -1,3 +1,9 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Peer Review Assistant — App Styles
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Reset ──────────────────────────────────────────────────────────────── */
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -8,27 +14,176 @@ body {
   background: #f3f3f3;
   color: #1a1a1a;
   font-family: "Segoe UI", system-ui, sans-serif;
-  padding: 16px;
+  overflow: hidden;          /* sidebar + main fill viewport */
 }
 
-.container {
-  max-width: 800px;
-  margin: 0 auto;
+/* ── Shell layout ───────────────────────────────────────────────────────── */
+
+.app-layout {
+  display: flex;
+  height: 100vh;
+}
+
+.app-main {
+  flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  overflow-y: auto;
 }
 
-header h1 {
-  font-size: 20px;
-  color: #1a1a1a;
+.app-content {
+  flex: 1;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+/* ── Sidebar ────────────────────────────────────────────────────────────── */
+
+.sidebar {
+  width: 200px;
+  min-width: 200px;
+  background: #eef1f5;
+  border-right: 1px solid #d0d4da;
+  display: flex;
+  flex-direction: column;
+  user-select: none;
+}
+
+.sidebar-brand {
+  padding: 16px 14px 12px;
+  font-size: 16px;
+  font-weight: 700;
+  color: #0078d4;
+  letter-spacing: 1px;
+  border-bottom: 1px solid #d0d4da;
+}
+
+.sidebar-menu {
+  list-style: none;
+  padding: 8px 0;
+  flex: 1;
+}
+
+.sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #333;
+  border-left: 3px solid transparent;
+  transition: background 0.1s, border-color 0.1s;
+}
+
+.sidebar-item:hover {
+  background: #dce3ec;
+}
+
+.sidebar-item.active {
+  background: #d0e4f7;
+  border-left-color: #0078d4;
+  color: #0078d4;
   font-weight: 600;
 }
 
-.subtitle {
-  font-size: 12px;
-  color: #666;
+.sidebar-icon {
+  font-size: 15px;
+  width: 20px;
+  text-align: center;
 }
+
+.sidebar-label {
+  white-space: nowrap;
+}
+
+/* ── Progress Bar ───────────────────────────────────────────────────────── */
+
+.progress-bar {
+  display: flex;
+  align-items: center;
+  padding: 12px 24px;
+  background: #fff;
+  border-bottom: 1px solid #d9d9d9;
+  gap: 0;
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+
+.progress-step-wrapper {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.progress-line {
+  width: 24px;
+  height: 2px;
+  background: #d0d0d0;
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+
+.progress-line.done {
+  background: #107c10;
+}
+
+.progress-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.progress-circle {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+/* pending */
+.progress-step.pending .progress-circle {
+  background: #e5e5e5;
+  color: #888;
+  border: 2px solid #ccc;
+}
+
+/* active — first non-done */
+.progress-step.active .progress-circle {
+  background: #0078d4;
+  color: #fff;
+  border: 2px solid #0078d4;
+}
+
+/* done */
+.progress-step.done .progress-circle {
+  background: #dff6dd;
+  color: #107c10;
+  border: 2px solid #107c10;
+}
+
+.progress-label {
+  font-size: 11px;
+  color: #555;
+  white-space: nowrap;
+}
+
+.progress-step.done .progress-label {
+  color: #107c10;
+}
+
+.progress-step.active .progress-label {
+  color: #0078d4;
+  font-weight: 600;
+}
+
+/* ── Panels (shared) ───────────────────────────────────────────────────── */
 
 .panel {
   background: #ffffff;
@@ -46,6 +201,8 @@ header h1 {
   font-weight: 600;
 }
 
+/* ── Rows ───────────────────────────────────────────────────────────────── */
+
 .row {
   display: flex;
   gap: 8px;
@@ -56,6 +213,8 @@ header h1 {
 .row:last-child {
   margin-bottom: 0;
 }
+
+/* ── Inputs ─────────────────────────────────────────────────────────────── */
 
 .path-input {
   flex: 1;
@@ -72,6 +231,8 @@ header h1 {
   outline: none;
   border-color: #0078d4;
 }
+
+/* ── Buttons ────────────────────────────────────────────────────────────── */
 
 button {
   padding: 4px 14px;
@@ -106,6 +267,8 @@ button:disabled {
   height: 22px;
 }
 
+/* ── Status chips ───────────────────────────────────────────────────────── */
+
 .status-chip {
   font-size: 11px;
   padding: 1px 8px;
@@ -124,6 +287,8 @@ button:disabled {
   background: #fde7e9;
   color: #c42b1c;
 }
+
+/* ── Log ────────────────────────────────────────────────────────────────── */
 
 .log-panel {
   flex: 1;
@@ -154,6 +319,8 @@ button:disabled {
   white-space: pre-wrap;
   word-break: break-all;
 }
+
+/* ── LLM slots ──────────────────────────────────────────────────────────── */
 
 .llm-slot-row {
   margin-bottom: 10px;
@@ -209,6 +376,8 @@ button:disabled {
   width: 220px;
 }
 
+/* ── Results ────────────────────────────────────────────────────────────── */
+
 .result-content {
   margin-top: 8px;
   padding: 12px;
@@ -224,7 +393,66 @@ button:disabled {
   color: #1a1a1a;
 }
 
-/* ── References Review Viewer ─────────────────────────────────────────── */
+/* ── Home Panel ─────────────────────────────────────────────────────────── */
+
+.home-panel {
+  max-width: 640px;
+}
+
+.home-title {
+  font-size: 22px;
+  color: #1a1a1a;
+  font-weight: 600;
+}
+
+.home-subtitle {
+  font-size: 12px;
+  color: #888;
+  margin-top: 2px;
+  margin-bottom: 4px;
+}
+
+.home-project-path {
+  font-size: 13px;
+  font-family: "Cascadia Code", "Consolas", monospace;
+  color: #0078d4;
+  word-break: break-all;
+}
+
+.home-hint {
+  font-size: 12px;
+  color: #999;
+}
+
+.home-progress-text {
+  font-size: 13px;
+  color: #333;
+  margin-bottom: 8px;
+}
+
+.home-progress-bar-bg {
+  width: 100%;
+  height: 10px;
+  background: #e5e5e5;
+  border-radius: 5px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.home-progress-bar-fill {
+  height: 100%;
+  background: #0078d4;
+  border-radius: 5px;
+  transition: width 0.3s ease;
+}
+
+.home-next-step {
+  font-size: 12px;
+  color: #ca5010;
+  font-weight: 600;
+}
+
+/* ── References Review Viewer ───────────────────────────────────────────── */
 
 .viewer-panel {
   max-width: 100%;

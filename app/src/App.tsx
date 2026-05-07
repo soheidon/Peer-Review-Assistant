@@ -1,6 +1,15 @@
 import { useState, useEffect } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import ReferencesReviewViewer from "./ReferencesReviewViewer";
+import Sidebar from "./Sidebar";
+import ProgressBar from "./ProgressBar";
+import HomePanel from "./panels/HomePanel";
+import ProjectPanel from "./panels/ProjectPanel";
+import PreprocessPanel from "./panels/PreprocessPanel";
+import CitationReviewPanel from "./panels/CitationReviewPanel";
+import ReviewChecksPanel from "./panels/ReviewChecksPanel";
+import ResultsPanel from "./panels/ResultsPanel";
+import SettingsPanel from "./panels/SettingsPanel";
+import LogPanel from "./panels/LogPanel";
 
 interface LogEntry {
   event: string;
@@ -8,6 +17,7 @@ interface LogEntry {
 }
 
 function App() {
+  const [activeView, setActiveView] = useState("home");
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [projectPath, setProjectPath] = useState("");
   const [healthcheckStatus, setHealthcheckStatus] = useState<string | null>(null);
@@ -761,397 +771,143 @@ function App() {
     return { color, margin: 0, fontSize: "12px", fontFamily: "monospace" };
   };
 
+  const progressProps = {
+    projectPath,
+    sourceAttached,
+    preprocessDone,
+    citationExtractionDone,
+    crossrefDone,
+    viewerDataReady,
+    structureMergeDone,
+    finalMergeDone,
+  };
+
   return (
-    <div className="container">
-      <header>
-        <h1>Peer Review Assistant</h1>
-        <p className="subtitle">査読アシスタント v0.1.0</p>
-      </header>
-
-      <section className="panel">
-        <h2>System</h2>
-        <button onClick={runHealthcheck} disabled={healthcheckStatus === "running"}>
-          Python CLI healthcheck
-        </button>
-        {healthcheckStatus && healthcheckStatus !== "running" && (
-          <span className={`status-chip ${healthcheckStatus === "ok" ? "ok" : "err"}`}>
-            {healthcheckStatus === "ok" ? "OK" : "Error"}
-          </span>
-        )}
-      </section>
-
-      <section className="panel">
-        <h2>Project</h2>
-        <div className="row">
-          <input
-            type="text"
-            value={projectPath}
-            onChange={(e) => setProjectPath(e.target.value)}
-            placeholder="Select a project folder..."
-            className="path-input"
-          />
-          <button onClick={browseFolder}>Browse</button>
-        </div>
-        <div className="row">
-          <button onClick={createProject}>Create New Project</button>
-          {projectCreated && <span className="status-chip ok">Created</span>}
-        </div>
-      </section>
-
-      <section className="panel">
-        <h2>API Settings</h2>
-        {llmSlots.map((slot) => (
-          <div key={slot.name} className="llm-slot-row">
-            <div className="llm-slot-header">
-              <span className="llm-slot-label">{slot.name}</span>
-              {llmTestResults[slot.name] && llmTestResults[slot.name] !== "testing" && (
-                <span className={`status-chip ${llmTestResults[slot.name] === "ok" ? "ok" : "err"}`}>
-                  {llmTestResults[slot.name] === "ok" ? "OK" : "Error"}
-                </span>
-              )}
-              {llmTestResults[slot.name] === "testing" && (
-                <span className="status-chip" style={{ backgroundColor: "#eee", color: "#555" }}>
-                  Testing...
-                </span>
-              )}
-            </div>
-            <div className="llm-slot-fields">
-              <input
-                type="text"
-                value={slot.provider}
-                onChange={(e) => updateSlot(slot.name, "provider", e.target.value)}
-                placeholder="Provider (e.g., openai, deepseek)"
-                className="llm-input"
-              />
-              <input
-                type="text"
-                value={slot.baseUrl}
-                onChange={(e) => updateSlot(slot.name, "baseUrl", e.target.value)}
-                placeholder="Base URL"
-                className="llm-input llm-input-wide"
-              />
-              <input
-                type="text"
-                value={slot.model}
-                onChange={(e) => updateSlot(slot.name, "model", e.target.value)}
-                placeholder="Model"
-                className="llm-input"
-              />
-              <input
-                type="password"
-                value={slot.apiKey}
-                onChange={(e) => updateSlot(slot.name, "apiKey", e.target.value)}
-                placeholder="API Key"
-                className="llm-input"
-              />
-              <button
-                onClick={() => testLlmSlot(slot.name)}
-                disabled={llmTestResults[slot.name] === "testing"}
-              >
-                Test
-              </button>
-            </div>
-          </div>
-        ))}
-        <div className="row">
-          <button onClick={testAllLlm} disabled={llmSlots.some((s) => !s.provider.trim() || !s.baseUrl.trim() || !s.model.trim() || !s.apiKey.trim())}>
-            Test All Connections
-          </button>
-        </div>
-      </section>
-
-      <section className="panel">
-        <h2>Source</h2>
-        <div className="row">
-          <input
-            type="text"
-            value={docxPath}
-            onChange={(e) => setDocxPath(e.target.value)}
-            placeholder="Select manuscript .docx..."
-            className="path-input"
-          />
-          <button onClick={browseDocx}>Browse</button>
-        </div>
-        <div className="row">
-          <input
-            type="text"
-            value={pdfPath}
-            onChange={(e) => setPdfPath(e.target.value)}
-            placeholder="Select line-numbered PDF..."
-            className="path-input"
-          />
-          <button onClick={browsePdf}>Browse</button>
-        </div>
-        <div className="row">
-          <button onClick={validateInput}>Validate Input Files</button>
-          {validationOk && <span className="status-chip ok">Valid</span>}
-        </div>
-        <div className="row">
-          <button onClick={attachSource} disabled={!validationOk || !projectCreated}>
-            Attach to Project
-          </button>
-          {sourceAttached && <span className="status-chip ok">Attached</span>}
-        </div>
-        <div className="row">
-          <button onClick={preprocessSource} disabled={!sourceAttached}>
-            Preprocess docx
-          </button>
-          {preprocessDone && <span className="status-chip ok">Done</span>}
-        </div>
-        <div className="row">
-          <button onClick={runNumbering} disabled={!preprocessDone}>
-            Paragraph & Sentence Numbering
-          </button>
-          {numberingDone && <span className="status-chip ok">Done</span>}
-        </div>
-        <div className="row">
-          <button onClick={runSections} disabled={!preprocessDone}>
-            Split Sections
-          </button>
-          {sectionsDone && <span className="status-chip ok">Done</span>}
-        </div>
-        <div className="row">
-          <button onClick={runExtractCitations} disabled={!sectionsDone}>
-            Extract Citations
-          </button>
-          {citationExtractionDone && <span className="status-chip ok">Done</span>}
-        </div>
-        <div className="row">
-          <button onClick={runCrossrefDb} disabled={!citationExtractionDone}>
-            Crossref DB Check
-          </button>
-          {crossrefDone && <span className="status-chip ok">Done</span>}
-        </div>
-      </section>
-
-      <section className="panel viewer-panel">
-        <h2>References Review</h2>
-        <div className="row">
-          <button
-            onClick={runViewerData}
-            disabled={!crossrefDone || viewerDataGenerating}
-          >
-            Generate Viewer Data
-          </button>
-          {viewerDataGenerating && (
-            <span className="status-chip" style={{ backgroundColor: "#eee", color: "#555" }}>
-              Generating...
-            </span>
+    <div className="app-layout">
+      <Sidebar activeView={activeView} onNavigate={setActiveView} />
+      <div className="app-main">
+        <ProgressBar {...progressProps} />
+        <div className="app-content">
+          {activeView === "home" && (
+            <HomePanel
+              projectPath={projectPath}
+              healthcheckStatus={healthcheckStatus}
+              projectCreated={projectCreated}
+              sourceAttached={sourceAttached}
+              preprocessDone={preprocessDone}
+              citationExtractionDone={citationExtractionDone}
+              crossrefDone={crossrefDone}
+              viewerDataReady={viewerDataReady}
+              structureMergeDone={structureMergeDone}
+              finalMergeDone={finalMergeDone}
+              onRunHealthcheck={runHealthcheck}
+            />
           )}
-          {viewerDataReady && <span className="status-chip ok">Ready</span>}
-        </div>
-        {viewerDataReady && (
-          <ReferencesReviewViewer projectPath={projectPath} />
-        )}
-      </section>
 
-      <section className="panel">
-        <h2>Review Checks</h2>
-        <div className="row">
-          <span className="llm-slot-label">Structure</span>
-          {llmSlots.filter((s) => s.name.startsWith("reviewer")).map((slot) => (
-            <div key={slot.name} style={{ display: "flex", gap: 4, alignItems: "center" }}>
-              <button
-                onClick={() => runStructureCheck(slot.name)}
-                disabled={!crossrefDone || structureCheckResults[slot.name] === "running"}
-              >
-                {slot.name}
-              </button>
-              {structureCheckResults[slot.name] && structureCheckResults[slot.name] !== "running" && (
-                <span className={`status-chip ${structureCheckResults[slot.name] === "done" ? "ok" : "err"}`}>
-                  {structureCheckResults[slot.name] === "done" ? "Done" : "Failed"}
-                </span>
-              )}
-              {structureCheckResults[slot.name] === "running" && (
-                <span className="status-chip" style={{ backgroundColor: "#eee", color: "#555" }}>
-                  Running...
-                </span>
-              )}
-            </div>
-          ))}
-        </div>
-        <div className="row">
-          <span className="llm-slot-label">Expression</span>
-          {llmSlots.filter((s) => s.name.startsWith("reviewer")).map((slot) => (
-            <div key={slot.name} style={{ display: "flex", gap: 4, alignItems: "center" }}>
-              <button
-                onClick={() => runExpressionCheck(slot.name)}
-                disabled={!crossrefDone || expressionCheckResults[slot.name] === "running"}
-              >
-                {slot.name}
-              </button>
-              {expressionCheckResults[slot.name] && expressionCheckResults[slot.name] !== "running" && (
-                <span className={`status-chip ${expressionCheckResults[slot.name] === "done" ? "ok" : "err"}`}>
-                  {expressionCheckResults[slot.name] === "done" ? "Done" : "Failed"}
-                </span>
-              )}
-              {expressionCheckResults[slot.name] === "running" && (
-                <span className="status-chip" style={{ backgroundColor: "#eee", color: "#555" }}>
-                  Running...
-                </span>
-              )}
-            </div>
-          ))}
-        </div>
-        <div className="row">
-          <span className="llm-slot-label">Methods/Stats</span>
-          {llmSlots.filter((s) => s.name.startsWith("reviewer")).map((slot) => (
-            <div key={slot.name} style={{ display: "flex", gap: 4, alignItems: "center" }}>
-              <button
-                onClick={() => runMethodsStatsCheck(slot.name)}
-                disabled={!crossrefDone || methodsStatsCheckResults[slot.name] === "running"}
-              >
-                {slot.name}
-              </button>
-              {methodsStatsCheckResults[slot.name] && methodsStatsCheckResults[slot.name] !== "running" && (
-                <span className={`status-chip ${methodsStatsCheckResults[slot.name] === "done" ? "ok" : "err"}`}>
-                  {methodsStatsCheckResults[slot.name] === "done" ? "Done" : "Failed"}
-                </span>
-              )}
-              {methodsStatsCheckResults[slot.name] === "running" && (
-                <span className="status-chip" style={{ backgroundColor: "#eee", color: "#555" }}>
-                  Running...
-                </span>
-              )}
-            </div>
-          ))}
-        </div>
-        <div className="row">
-          <button
-            onClick={runMergeStructure}
-            disabled={
-              structureMergeDone ||
-              structureMergeRunning ||
-              llmSlots.filter((s) => s.name.startsWith("reviewer")).every(
-                (s) => structureCheckResults[s.name] !== "done"
-              )
-            }
-          >
-            Merge Structure Results
-          </button>
-          {structureMergeDone && <span className="status-chip ok">Merged</span>}
-          {structureMergeRunning && (
-            <span className="status-chip" style={{ backgroundColor: "#eee", color: "#555" }}>
-              Merging...
-            </span>
+          {activeView === "project" && (
+            <ProjectPanel
+              projectPath={projectPath}
+              projectCreated={projectCreated}
+              docxPath={docxPath}
+              pdfPath={pdfPath}
+              validationOk={validationOk}
+              sourceAttached={sourceAttached}
+              onProjectPathChange={setProjectPath}
+              onBrowseFolder={browseFolder}
+              onCreateProject={createProject}
+              onDocxPathChange={setDocxPath}
+              onBrowseDocx={browseDocx}
+              onPdfPathChange={setPdfPath}
+              onBrowsePdf={browsePdf}
+              onValidateInput={validateInput}
+              onAttachSource={attachSource}
+              onPreprocessSource={preprocessSource}
+            />
+          )}
+
+          {activeView === "preprocess" && (
+            <PreprocessPanel
+              preprocessDone={preprocessDone}
+              numberingDone={numberingDone}
+              sectionsDone={sectionsDone}
+              citationExtractionDone={citationExtractionDone}
+              crossrefDone={crossrefDone}
+              viewerDataGenerating={viewerDataGenerating}
+              viewerDataReady={viewerDataReady}
+              onNumbering={runNumbering}
+              onSections={runSections}
+              onExtractCitations={runExtractCitations}
+              onCrossrefDb={runCrossrefDb}
+              onViewerData={runViewerData}
+            />
+          )}
+
+          {activeView === "citations" && (
+            <CitationReviewPanel
+              projectPath={projectPath}
+              crossrefDone={crossrefDone}
+              viewerDataReady={viewerDataReady}
+              viewerDataGenerating={viewerDataGenerating}
+              onViewerData={runViewerData}
+            />
+          )}
+
+          {activeView === "review" && (
+            <ReviewChecksPanel
+              crossrefDone={crossrefDone}
+              llmSlots={llmSlots}
+              structureCheckResults={structureCheckResults}
+              expressionCheckResults={expressionCheckResults}
+              methodsStatsCheckResults={methodsStatsCheckResults}
+              structureMergeDone={structureMergeDone}
+              structureMergeRunning={structureMergeRunning}
+              expressionMergeDone={expressionMergeDone}
+              expressionMergeRunning={expressionMergeRunning}
+              methodsStatsMergeDone={methodsStatsMergeDone}
+              methodsStatsMergeRunning={methodsStatsMergeRunning}
+              finalMergeDone={finalMergeDone}
+              finalMergeRunning={finalMergeRunning}
+              onStructureCheck={runStructureCheck}
+              onExpressionCheck={runExpressionCheck}
+              onMethodsStatsCheck={runMethodsStatsCheck}
+              onMergeStructure={runMergeStructure}
+              onMergeExpression={runMergeExpression}
+              onMergeMethodsStats={runMergeMethodsStats}
+              onFinalMerge={runFinalMerge}
+            />
+          )}
+
+          {activeView === "results" && (
+            <ResultsPanel
+              projectPath={projectPath}
+              selectedResultFile={selectedResultFile}
+              resultFileContent={resultFileContent}
+              resultFileLoading={resultFileLoading}
+              onLoadResultFile={loadResultFile}
+              onReloadResults={reloadResults}
+              onOpenOutputFolder={openOutputFolder}
+            />
+          )}
+
+          {activeView === "settings" && (
+            <SettingsPanel
+              llmSlots={llmSlots}
+              llmTestResults={llmTestResults}
+              onUpdateSlot={updateSlot}
+              onTestSlot={testLlmSlot}
+              onTestAll={testAllLlm}
+            />
+          )}
+
+          {activeView === "log" && (
+            <LogPanel
+              logs={logs}
+              onClearLogs={clearLogs}
+              logLineStyle={logLineStyle}
+            />
           )}
         </div>
-        <div className="row">
-          <button
-            onClick={runMergeExpression}
-            disabled={
-              expressionMergeDone ||
-              expressionMergeRunning ||
-              llmSlots.filter((s) => s.name.startsWith("reviewer")).every(
-                (s) => expressionCheckResults[s.name] !== "done"
-              )
-            }
-          >
-            Merge Expression Results
-          </button>
-          {expressionMergeDone && <span className="status-chip ok">Merged</span>}
-          {expressionMergeRunning && (
-            <span className="status-chip" style={{ backgroundColor: "#eee", color: "#555" }}>
-              Merging...
-            </span>
-          )}
-        </div>
-        <div className="row">
-          <button
-            onClick={runMergeMethodsStats}
-            disabled={
-              methodsStatsMergeDone ||
-              methodsStatsMergeRunning ||
-              llmSlots.filter((s) => s.name.startsWith("reviewer")).every(
-                (s) => methodsStatsCheckResults[s.name] !== "done"
-              )
-            }
-          >
-            Merge Methods/Stats Results
-          </button>
-          {methodsStatsMergeDone && <span className="status-chip ok">Merged</span>}
-          {methodsStatsMergeRunning && (
-            <span className="status-chip" style={{ backgroundColor: "#eee", color: "#555" }}>
-              Merging...
-            </span>
-          )}
-        </div>
-        <div className="row">
-          <button
-            onClick={runFinalMerge}
-            disabled={!structureMergeDone || finalMergeDone || finalMergeRunning}
-          >
-            Generate Final Review
-          </button>
-          {finalMergeDone && <span className="status-chip ok">Generated</span>}
-          {finalMergeRunning && (
-            <span className="status-chip" style={{ backgroundColor: "#eee", color: "#555" }}>
-              Generating...
-            </span>
-          )}
-        </div>
-      </section>
-
-      <section className="panel">
-        <h2>Results</h2>
-        <div className="row">
-          {[
-            { file: "final_review.md", label: "Final Review" },
-            { file: "comments_to_authors.md", label: "Comments to Authors" },
-            { file: "confidential_comments_to_editor.md", label: "Confidential to Editor" },
-            { file: "recommendation.md", label: "Recommendation" },
-            { file: "audit_trail.json", label: "Audit Trail" },
-          ].map(({ file, label }) => (
-            <button
-              key={file}
-              onClick={() => loadResultFile(file)}
-              disabled={!projectPath.trim()}
-              style={
-                selectedResultFile === file
-                  ? { fontWeight: "bold", backgroundColor: "#d0e4f7" }
-                  : {}
-              }
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        <div className="row">
-          <button onClick={reloadResults} disabled={!projectPath.trim()}>
-            Reload Results
-          </button>
-          <button onClick={openOutputFolder} disabled={!projectPath.trim()}>
-            Open Output Folder
-          </button>
-          {resultFileLoading && (
-            <span className="status-chip" style={{ backgroundColor: "#eee", color: "#555" }}>
-              Loading...
-            </span>
-          )}
-        </div>
-        <pre className="result-content">
-          {resultFileContent || "Select a file to view results."}
-        </pre>
-      </section>
-
-      <section className="panel log-panel">
-        <div className="log-header">
-          <h2>Log</h2>
-          <button onClick={clearLogs} className="clear-btn">Clear</button>
-        </div>
-        <div className="log-area">
-          {logs.length === 0 && (
-            <p style={{ color: "#999", fontSize: "12px", fontFamily: "monospace" }}>
-              Ready. Click a command above.
-            </p>
-          )}
-          {logs.map((entry, i) => (
-            <pre key={i} style={logLineStyle(entry)}>
-              {JSON.stringify(entry)}
-            </pre>
-          ))}
-        </div>
-      </section>
+      </div>
     </div>
   );
 }

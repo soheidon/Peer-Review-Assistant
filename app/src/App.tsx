@@ -24,6 +24,8 @@ function App() {
   const [structureMergeDone, setStructureMergeDone] = useState(false);
   const [structureMergeRunning, setStructureMergeRunning] = useState(false);
   const [expressionCheckResults, setExpressionCheckResults] = useState<Record<string, string>>({});
+  const [expressionMergeDone, setExpressionMergeDone] = useState(false);
+  const [expressionMergeRunning, setExpressionMergeRunning] = useState(false);
   const [finalMergeDone, setFinalMergeDone] = useState(false);
   const [finalMergeRunning, setFinalMergeRunning] = useState(false);
   const [selectedResultFile, setSelectedResultFile] = useState("final_review.md");
@@ -528,6 +530,45 @@ function App() {
     }
   };
 
+  const runMergeExpression = async () => {
+    if (!projectPath.trim()) {
+      addLog({ event: "error", message: "Please create a project first." });
+      return;
+    }
+    if (llmSlots.filter((s) => s.name.startsWith("reviewer")).every(
+      (s) => expressionCheckResults[s.name] !== "done"
+    )) {
+      addLog({ event: "error", message: "At least one reviewer must complete an expression check first." });
+      return;
+    }
+
+    setExpressionMergeRunning(true);
+    addLog({ event: "info", message: "Merging expression check results..." });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const cmd = Command.create("pra-cli", [
+        "merge-section",
+        "--project", projectPath,
+        "--check", "expression",
+      ]);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+
+      if (output.code === 0) {
+        setExpressionMergeDone(true);
+        setExpressionMergeRunning(false);
+      } else {
+        setExpressionMergeRunning(false);
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog({ event: "error", message: msg });
+      setExpressionMergeRunning(false);
+    }
+  };
+
   const runFinalMerge = async () => {
     if (!projectPath.trim()) {
       addLog({ event: "error", message: "Please create a project first." });
@@ -830,6 +871,26 @@ function App() {
           </button>
           {structureMergeDone && <span className="status-chip ok">Merged</span>}
           {structureMergeRunning && (
+            <span className="status-chip" style={{ backgroundColor: "#eee", color: "#555" }}>
+              Merging...
+            </span>
+          )}
+        </div>
+        <div className="row">
+          <button
+            onClick={runMergeExpression}
+            disabled={
+              expressionMergeDone ||
+              expressionMergeRunning ||
+              llmSlots.filter((s) => s.name.startsWith("reviewer")).every(
+                (s) => expressionCheckResults[s.name] !== "done"
+              )
+            }
+          >
+            Merge Expression Results
+          </button>
+          {expressionMergeDone && <span className="status-chip ok">Merged</span>}
+          {expressionMergeRunning && (
             <span className="status-chip" style={{ backgroundColor: "#eee", color: "#555" }}>
               Merging...
             </span>

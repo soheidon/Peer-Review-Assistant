@@ -223,3 +223,348 @@ button:disabled {
   overflow-y: auto;
   color: #1a1a1a;
 }
+
+/* ── References Review Viewer ─────────────────────────────────────────── */
+
+.viewer-panel {
+  max-width: 100%;
+}
+
+.viewer-container {
+  margin-top: 8px;
+}
+
+/* Tabs */
+.viewer-tabs {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 0;
+  flex-wrap: wrap;
+  border-bottom: 2px solid #0078d4;
+}
+
+.viewer-tab {
+  padding: 6px 14px;
+  border: 1px solid #c0c0c0;
+  border-bottom: none;
+  border-radius: 4px 4px 0 0;
+  background: #f0f0f0;
+  cursor: pointer;
+  font-size: 12px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  height: 30px;
+}
+
+.viewer-tab:hover {
+  background: #e5e5e5;
+}
+
+.viewer-tab.active {
+  background: #fff;
+  border-color: #0078d4;
+  border-bottom: 2px solid #fff;
+  margin-bottom: -2px;
+  font-weight: 600;
+  color: #0078d4;
+}
+
+.viewer-tab-count {
+  font-size: 10px;
+  background: #d9d9d9;
+  color: #555;
+  padding: 0 5px;
+  border-radius: 8px;
+  font-weight: 400;
+}
+
+.viewer-tab.active .viewer-tab-count {
+  background: #0078d4;
+  color: #fff;
+}
+
+.viewer-tab-content {
+  background: #fff;
+  border: 1px solid #d9d9d9;
+  border-top: none;
+  border-radius: 0 0 4px 4px;
+  padding: 14px;
+  min-height: 100px;
+}
+
+/* Loading / Empty */
+.viewer-loading {
+  text-align: center;
+  padding: 40px;
+  color: #888;
+  font-size: 13px;
+}
+
+.viewer-empty {
+  text-align: center;
+  padding: 40px;
+  color: #999;
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+
+/* Summary tab */
+.viewer-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.viewer-stat {
+  background: #f8f8f8;
+  border: 1px solid #e5e5e5;
+  border-radius: 4px;
+  padding: 14px;
+  text-align: center;
+}
+
+.viewer-stat.verified {
+  border-left: 3px solid #107c10;
+}
+
+.viewer-stat.unmatched {
+  border-left: 3px solid #999;
+}
+
+.viewer-stat.suspicious {
+  border-left: 3px solid #eaa300;
+}
+
+.viewer-stat-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: #1a1a1a;
+}
+
+.viewer-stat-label {
+  font-size: 11px;
+  color: #666;
+  margin-top: 2px;
+}
+
+.viewer-breakdown {
+  grid-column: 1 / -1;
+  background: #fafafa;
+  border: 1px solid #e5e5e5;
+  border-radius: 4px;
+  padding: 12px 14px;
+}
+
+.viewer-breakdown-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #555;
+  margin-bottom: 8px;
+}
+
+.viewer-breakdown-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 0;
+  font-size: 12px;
+}
+
+.viewer-breakdown-label {
+  color: #333;
+}
+
+.viewer-breakdown-count {
+  color: #888;
+  font-weight: 600;
+}
+
+.viewer-generated-at {
+  grid-column: 1 / -1;
+  text-align: right;
+  font-size: 10px;
+  color: #aaa;
+}
+
+/* Card list */
+.viewer-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+/* Individual card */
+.ref-card {
+  background: #fff;
+  border: 1px solid #d9d9d9;
+  border-radius: 4px;
+  padding: 10px 14px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.ref-card.verified {
+  border-left: 3px solid #107c10;
+}
+
+.ref-card.unmatched {
+  border-left: 3px solid #a0a0a0;
+}
+
+.ref-card.suspicious {
+  border-left: 3px solid #eaa300;
+}
+
+.ref-card.error {
+  border-left: 3px solid #c42b1c;
+}
+
+/* Card row 1: metadata bar (2-column) */
+.ref-card-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 16px;
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #eee;
+}
+
+.ref-card-meta-left {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.ref-card-meta-right {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  font-size: 11px;
+  color: #555;
+}
+
+.ref-card-id {
+  font-weight: 700;
+  font-size: 12px;
+  color: #1a1a1a;
+}
+
+.ref-source {
+  font-size: 11px;
+  color: #666;
+}
+
+.ref-confidence {
+  font-size: 11px;
+  color: #666;
+}
+
+.ref-doi {
+  font-family: "Cascadia Code", "Consolas", monospace;
+  font-size: 10px;
+  color: #0078d4;
+  word-break: break-all;
+}
+
+/* Status badges within card */
+.ref-status {
+  font-size: 10px;
+  padding: 1px 8px;
+  border-radius: 8px;
+  font-weight: 600;
+}
+
+.ref-status.verified {
+  background: #dff6dd;
+  color: #107c10;
+}
+
+.ref-status.unmatched {
+  background: #eee;
+  color: #666;
+}
+
+.ref-status.suspicious {
+  background: #fff4ce;
+  color: #eaa300;
+}
+
+.ref-status.error {
+  background: #fde7e9;
+  color: #c42b1c;
+}
+
+/* Card row 2: title */
+.ref-card-title {
+  margin-bottom: 8px;
+  font-weight: 600;
+  color: #1a1a1a;
+  line-height: 1.4;
+}
+
+/* Card rows 3+: sections */
+.ref-card-section {
+  margin-bottom: 6px;
+}
+
+.ref-card-section-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin-bottom: 2px;
+}
+
+.ref-card-section-content {
+  font-size: 12px;
+  color: #333;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.ref-card-original {
+  font-family: "Cascadia Code", "Consolas", monospace;
+  font-size: 11px;
+  background: #fafafa;
+  padding: 6px 8px;
+  border-radius: 3px;
+  white-space: pre-wrap;
+}
+
+/* Warning / mismatch lists */
+.ref-card-warning-list,
+.ref-card-mismatch-list {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.ref-card-warning {
+  color: #eaa300;
+  font-size: 11px;
+}
+
+.ref-card-mismatch {
+  color: #c42b1c;
+  font-size: 11px;
+}
+
+/* Suspected reason badge */
+.ref-card-reason {
+  font-size: 11px;
+  color: #888;
+  font-style: italic;
+}
+
+/* DB-specific badge */
+.ref-db-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: #e8f0fe;
+  color: #1a73e8;
+}

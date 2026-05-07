@@ -1042,6 +1042,72 @@ def citation_db_unmatched_report_cmd(project_dir):
                   f"{summary['unmatched']} unmatched."))
 
 
+@main.command(name="citation-viewer-data")
+@click.option("--project", "project_dir", required=True,
+              type=click.Path(file_okay=False, writable=True),
+              help="Path to the project working folder.")
+def citation_viewer_data_cmd(project_dir):
+    """Generate unified citation viewer data JSON for the GUI."""
+    from peer_review_assistant.citations.viewer_data import generate_viewer_data
+
+    emit("progress", task="viewer-data", step="validate", percent=0)
+
+    proj_path = os.path.join(project_dir, "project.json")
+    if not os.path.isfile(proj_path):
+        error("NO_PROJECT", "project.json not found. Run init-project first.")
+
+    refs_path = os.path.join(project_dir, "citations", "references_split.json")
+    if not os.path.isfile(refs_path):
+        error("NO_REFERENCES_SPLIT",
+              "citations/references_split.json not found. "
+              "Run extract-citations first.")
+
+    emit("progress", task="viewer-data", step="assemble", percent=30)
+
+    try:
+        viewer_data = generate_viewer_data(project_dir)
+    except Exception as e:
+        error("CITATION_DB_ERROR",
+              f"Failed to generate viewer data: {e}")
+
+    emit("progress", task="viewer-data", step="save", percent=80)
+
+    # Save viewer data
+    out_path = os.path.join(project_dir, "citations", "citation_viewer_data.json")
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(viewer_data, f, indent=2, ensure_ascii=False)
+
+    # Log
+    log_path = os.path.join(project_dir, "logs", "citation_db.log")
+    now = datetime.now(JST).isoformat()
+    s = viewer_data["summary"]
+    log_entry = (
+        f"[{now}] citation-viewer-data: "
+        f"total={s['total']}, verified={s['verified']}, "
+        f"unmatched={s['unmatched']}, suspicious={s['suspicious']}\n"
+    )
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    with open(log_path, "a", encoding="utf-8") as f:
+        f.write(log_entry)
+
+    with open(proj_path, "r", encoding="utf-8") as f:
+        proj = json.load(f)
+    proj["updated_at"] = datetime.now(JST).isoformat()
+    with open(proj_path, "w", encoding="utf-8") as f:
+        json.dump(proj, f, indent=2, ensure_ascii=False)
+
+    emit("done",
+         task="viewer-data",
+         total=s["total"],
+         verified=s["verified"],
+         unmatched=s["unmatched"],
+         suspicious=s["suspicious"],
+         message=(f"Viewer data generated: {s['total']} references, "
+                  f"{s['verified']} verified, "
+                  f"{s['unmatched']} unmatched, "
+                  f"{s['suspicious']} suspicious."))
+
+
 @main.command()
 @click.option("--slot", required=True,
               help="LLM slot name (summary, reviewer1, reviewer2, reviewer3).")

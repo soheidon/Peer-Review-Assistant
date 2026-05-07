@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
+import ReferencesReviewViewer from "./ReferencesReviewViewer";
 
 interface LogEntry {
   event: string;
@@ -20,6 +21,8 @@ function App() {
   const [sectionsDone, setSectionsDone] = useState(false);
   const [citationExtractionDone, setCitationExtractionDone] = useState(false);
   const [crossrefDone, setCrossrefDone] = useState(false);
+  const [viewerDataReady, setViewerDataReady] = useState(false);
+  const [viewerDataGenerating, setViewerDataGenerating] = useState(false);
   const [structureCheckResults, setStructureCheckResults] = useState<Record<string, string>>({});
   const [structureMergeDone, setStructureMergeDone] = useState(false);
   const [structureMergeRunning, setStructureMergeRunning] = useState(false);
@@ -349,6 +352,33 @@ function App() {
       if (output.code === 0) setCrossrefDone(true);
     } catch (e: unknown) {
       addLog({ event: "error", message: e instanceof Error ? e.message : String(e) });
+    }
+  };
+
+  const runViewerData = async () => {
+    if (!projectPath.trim()) {
+      addLog({ event: "error", message: "Please create a project first." });
+      return;
+    }
+
+    setViewerDataGenerating(true);
+    addLog({ event: "info", message: "Generating citation viewer data..." });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const cmd = Command.create("pra-cli", [
+        "citation-viewer-data",
+        "--project",
+        projectPath,
+      ]);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+      if (output.code === 0) setViewerDataReady(true);
+    } catch (e: unknown) {
+      addLog({ event: "error", message: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setViewerDataGenerating(false);
     }
   };
 
@@ -892,6 +922,27 @@ function App() {
           </button>
           {crossrefDone && <span className="status-chip ok">Done</span>}
         </div>
+      </section>
+
+      <section className="panel viewer-panel">
+        <h2>References Review</h2>
+        <div className="row">
+          <button
+            onClick={runViewerData}
+            disabled={!crossrefDone || viewerDataGenerating}
+          >
+            Generate Viewer Data
+          </button>
+          {viewerDataGenerating && (
+            <span className="status-chip" style={{ backgroundColor: "#eee", color: "#555" }}>
+              Generating...
+            </span>
+          )}
+          {viewerDataReady && <span className="status-chip ok">Ready</span>}
+        </div>
+        {viewerDataReady && (
+          <ReferencesReviewViewer projectPath={projectPath} />
+        )}
       </section>
 
       <section className="panel">

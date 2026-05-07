@@ -835,7 +835,7 @@ def test_llm(slot, provider, base_url, model, api_key):
              latency_ms=result.get("latency_ms"))
 
 
-_VALID_CHECKS = {"structure", "expression"}
+_VALID_CHECKS = {"structure", "expression", "methods_stats"}
 
 
 @main.command()
@@ -860,6 +860,7 @@ def run_check(project_dir, check_name, slot, provider, base_url, model, api_key)
     from peer_review_assistant.llm.prompts import (
         build_structure_check_messages,
         build_expression_check_messages,
+        build_methods_stats_check_messages,
     )
     from peer_review_assistant.llm.json_repair import parse_llm_json
 
@@ -943,6 +944,8 @@ def run_check(project_dir, check_name, slot, provider, base_url, model, api_key)
 
     if check_name == "expression":
         messages = build_expression_check_messages(manuscript_data, section_texts, section_map)
+    elif check_name == "methods_stats":
+        messages = build_methods_stats_check_messages(manuscript_data, section_texts, section_map)
     else:
         messages = build_structure_check_messages(manuscript_data, section_texts, section_map)
 
@@ -958,8 +961,8 @@ def run_check(project_dir, check_name, slot, provider, base_url, model, api_key)
         api_key=api_key,
     )
 
-    timeout = 120 if check_name == "expression" else 30
-    max_tokens = 8192 if check_name == "expression" else 4096
+    timeout = 120 if check_name in ("expression", "methods_stats") else 30
+    max_tokens = 8192 if check_name in ("expression", "methods_stats") else 4096
     result = chat_completion(prov, messages, max_tokens=max_tokens, temperature=0.0,
                              timeout_seconds=timeout)
 

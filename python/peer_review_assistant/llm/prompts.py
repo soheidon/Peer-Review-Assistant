@@ -193,3 +193,107 @@ Use null for paragraph_start/paragraph_end if you cannot determine specific para
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_message},
     ]
+
+
+def build_methods_stats_check_messages(manuscript_data, section_texts, section_map):
+    """Build system + user messages for the methods/statistics check.
+
+    Args:
+        manuscript_data: dict from manuscript_full.json
+        section_texts: dict mapping section name to text content
+        section_map: dict from section_map.json
+
+    Returns:
+        list of {"role": str, "content": str} messages
+    """
+    system_prompt = """You are a peer reviewer evaluating the methodological and statistical quality of an academic manuscript. Your task is to assess:
+
+1. **Study design clarity**: Is the study design clearly stated (e.g., cross-sectional, cohort, case-control, RCT)? Is the design appropriate for the research question?
+
+2. **Participants and eligibility**: Are inclusion and exclusion criteria clearly defined? Is the sampling method described? Is the sample size justified (power analysis or rationale)?
+
+3. **Interventions, procedures, and measures**: Are interventions or measurement procedures described in sufficient detail to allow replication? Are instruments validated or referenced?
+
+4. **Primary and secondary outcomes**: Are primary and secondary outcomes explicitly defined? Are they measured with appropriate instruments?
+
+5. **Statistical analysis description**: Are the statistical methods clearly described? Are they appropriate for the study design and data type? Is the significance threshold stated?
+
+6. **Missing data handling**: Is there any mention of how missing data were handled? If missing data exist, is the approach appropriate (complete case, imputation, sensitivity analysis)?
+
+7. **Effect sizes and confidence intervals**: Are effect sizes reported alongside p-values? Are confidence intervals provided? Is clinical/practical significance discussed separately from statistical significance?
+
+8. **Multiple comparisons**: If multiple tests were performed, is there correction for multiple comparisons (Bonferroni, FDR, etc.)? Is the risk of inflated Type I error acknowledged?
+
+9. **Methods-Results correspondence**: Do the Results correspond to the Methods? Are all analyses described in Methods reported in Results? Are there post-hoc analyses presented without being described in Methods?
+
+10. **Ethics, consent, and conflicts of interest**: Is ethics committee approval stated? Is informed consent described? Are conflicts of interest and funding sources declared?
+
+For each issue found, provide:
+- severity: "major" (methodological flaw that affects validity/reproducibility) or "minor" (incomplete reporting or clarification needed)
+- A clear description of the issue
+- A specific location (section name, paragraph numbers if available)
+- A suggested comment for the authors
+- A confidence level: "high" (clear-cut), "medium" (reasonable concern), "low" (speculative)
+
+If no issues are found for a category, note this in your summary.
+
+IMPORTANT: Respond ONLY with a JSON object. No markdown, no explanation outside the JSON. The JSON must follow this exact structure:
+
+{
+  "summary": "2-4 sentence overall assessment of the methodological and statistical quality",
+  "findings": [
+    {
+      "severity": "major",
+      "category": "Methods and Statistics",
+      "location": {
+        "section": "Methods",
+        "paragraph_start": 3,
+        "paragraph_end": 5,
+        "text_excerpt": "brief quote from the manuscript"
+      },
+      "issue": "Clear description of the methodological problem",
+      "suggested_comment": "Author-facing suggestion for improvement",
+      "confidence": "high"
+    }
+  ]
+}
+
+Use null for paragraph_start/paragraph_end if you cannot determine specific paragraph numbers. The findings array may be empty if no issues are found."""
+
+    user_parts = ["# Manuscript for Methods/Statistics Review\n"]
+
+    if section_map and "sections" in section_map:
+        user_parts.append("## Section Order\n")
+        for sec in section_map["sections"]:
+            indent = "  " * (sec.get("level") or 0)
+            parent = f" (under {sec['parent_section']})" if sec.get("parent_section") else ""
+            user_parts.append(f"{indent}- {sec['name']}: {sec.get('heading', '')}{parent}")
+        user_parts.append("")
+
+    if section_texts:
+        user_parts.append("## Section Content\n")
+        # methods_stats focuses on Methods, Results, and Discussion
+        for name in ["methods", "results", "discussion"]:
+            text = section_texts.get(name, "")
+            if text and text.strip():
+                user_parts.append(f"### {name}\n")
+                user_parts.append(text)
+                user_parts.append("")
+    else:
+        user_parts.append("## Full Manuscript\n")
+        for para in manuscript_data.get("paragraphs", []):
+            pnum = para.get("paragraph_number", para.get("index", "?"))
+            style = para.get("style", "")
+            style_note = f" [{style}]" if style else ""
+            user_parts.append(f"[P{pnum}{style_note}] {para['text']}")
+        user_parts.append("")
+
+    user_message = "\n".join(user_parts)
+
+    if len(user_message) > 120000:
+        user_message = user_message[:120000] + "\n\n[Content truncated due to length]"
+
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_message},
+    ]

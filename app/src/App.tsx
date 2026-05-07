@@ -25,6 +25,8 @@ function App() {
   const [structureMergeRunning, setStructureMergeRunning] = useState(false);
   const [expressionCheckResults, setExpressionCheckResults] = useState<Record<string, string>>({});
   const [methodsStatsCheckResults, setMethodsStatsCheckResults] = useState<Record<string, string>>({});
+  const [methodsStatsMergeDone, setMethodsStatsMergeDone] = useState(false);
+  const [methodsStatsMergeRunning, setMethodsStatsMergeRunning] = useState(false);
   const [expressionMergeDone, setExpressionMergeDone] = useState(false);
   const [expressionMergeRunning, setExpressionMergeRunning] = useState(false);
   const [finalMergeDone, setFinalMergeDone] = useState(false);
@@ -614,6 +616,45 @@ function App() {
     }
   };
 
+  const runMergeMethodsStats = async () => {
+    if (!projectPath.trim()) {
+      addLog({ event: "error", message: "Please create a project first." });
+      return;
+    }
+    if (llmSlots.filter((s) => s.name.startsWith("reviewer")).every(
+      (s) => methodsStatsCheckResults[s.name] !== "done"
+    )) {
+      addLog({ event: "error", message: "At least one reviewer must complete a methods/stats check first." });
+      return;
+    }
+
+    setMethodsStatsMergeRunning(true);
+    addLog({ event: "info", message: "Merging methods/stats check results..." });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const cmd = Command.create("pra-cli", [
+        "merge-section",
+        "--project", projectPath,
+        "--check", "methods_stats",
+      ]);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+
+      if (output.code === 0) {
+        setMethodsStatsMergeDone(true);
+        setMethodsStatsMergeRunning(false);
+      } else {
+        setMethodsStatsMergeRunning(false);
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog({ event: "error", message: msg });
+      setMethodsStatsMergeRunning(false);
+    }
+  };
+
   const runFinalMerge = async () => {
     if (!projectPath.trim()) {
       addLog({ event: "error", message: "Please create a project first." });
@@ -959,6 +1000,26 @@ function App() {
           </button>
           {expressionMergeDone && <span className="status-chip ok">Merged</span>}
           {expressionMergeRunning && (
+            <span className="status-chip" style={{ backgroundColor: "#eee", color: "#555" }}>
+              Merging...
+            </span>
+          )}
+        </div>
+        <div className="row">
+          <button
+            onClick={runMergeMethodsStats}
+            disabled={
+              methodsStatsMergeDone ||
+              methodsStatsMergeRunning ||
+              llmSlots.filter((s) => s.name.startsWith("reviewer")).every(
+                (s) => methodsStatsCheckResults[s.name] !== "done"
+              )
+            }
+          >
+            Merge Methods/Stats Results
+          </button>
+          {methodsStatsMergeDone && <span className="status-chip ok">Merged</span>}
+          {methodsStatsMergeRunning && (
             <span className="status-chip" style={{ backgroundColor: "#eee", color: "#555" }}>
               Merging...
             </span>

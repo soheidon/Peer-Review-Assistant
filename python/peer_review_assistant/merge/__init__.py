@@ -51,16 +51,14 @@ def merge_section(check_name, project_dir):
             f_with_source["_source"] = source_name
             all_findings.append(f_with_source)
 
-    # Group by normalized key
-    groups = {}
-    for f in all_findings:
-        key = _normalize_key(f)
-        groups.setdefault(key, []).append(f)
+    # Cluster findings by token overlap (section-aware fuzzy dedup)
+    JACCARD_THRESHOLD = 0.25
+    clusters = _cluster_findings(all_findings, threshold=JACCARD_THRESHOLD)
 
-    # Merge each group into a comment
+    # Merge each cluster into a comment
     merged_comments = []
-    for key, group in groups.items():
-        comment = _merge_finding_group(group, check_name, len(merged_comments) + 1)
+    for cluster in clusters:
+        comment = _merge_finding_group(cluster, check_name, len(merged_comments) + 1)
         merged_comments.append(comment)
 
     # Sort: major first, then by confidence within severity
@@ -122,18 +120,92 @@ def _load_raw_results(check_name, project_dir):
     return results
 
 
-def _normalize_key(finding):
-    """Create a normalized dedup key from a finding.
+def _normalize_text(finding):
+    """Create a normalized text fingerprint for fuzzy dedup matching.
 
-    Key = section + first 80 chars of issue, lowercased, punctuation stripped.
+    Combines section, category, issue, and suggested_comment into
+    a single lowercased, punctuation-stripped token sequence.
     """
     section = (finding.get("location", {}) or {}).get("section", "") or ""
+    category = finding.get("category", "") or ""
     issue = finding.get("issue", "") or ""
-    # Normalize: lowercase, strip punctuation, collapse whitespace
-    text = f"{section} {issue[:80]}".lower()
+    suggestion = finding.get("suggested_comment", "") or ""
+
+    text = f"{section} {category} {issue} {suggestion}".lower()
     text = re.sub(r"[^\w\s]", "", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text
+
+
+def _token_overlap(text1, text2):
+    """Compute Jaccard similarity of word tokens between two normalized texts.
+
+    Returns 0.0–1.0.
+    """
+    tokens1 = set(text1.split())
+    tokens2 = set(text2.split())
+    if not tokens1 and not tokens2:
+        return 1.0
+    if not tokens1 or not tokens2:
+        return 0.0
+    return len(tokens1 & tokens2) / len(tokens1 | tokens2)
+
+
+def _cluster_findings(all_findings, threshold=0.25):
+    """Group findings into clusters using greedy token-overlap clustering.
+
+    Hard constraints:
+    - Findings must reference the same section name to be merged.
+    - Findings from the same source (reviewer) are never merged (a single
+      reviewer does not submit duplicate findings about the same issue).
+
+    Within the same section and across different sources, Jaccard token
+    overlap on normalized issue+category+suggestion text determines
+    cluster membership.
+
+    Args:
+        all_findings: list of finding dicts with _source key
+        threshold: minimum Jaccard similarity for cluster membership
+
+    Returns:
+        list of [findings] groups
+    """
+    normalized = [_normalize_text(f) for f in all_findings]
+
+    clusters = []  # list of [findings]
+
+    for i, finding in enumerate(all_findings):
+        sec_i = (finding.get("location", {}) or {}).get("section", "") or ""
+        src_i = finding.get("_source", "")
+
+        best_idx = -1
+        best_score = 0.0
+
+        for j, cluster_findings in enumerate(clusters):
+            rep = cluster_findings[0]
+            cluster_sec = (rep.get("location", {}) or {}).get("section", "") or ""
+            cluster_src = rep.get("_source", "")
+
+            # Hard constraint: same section
+            if sec_i != cluster_sec:
+                continue
+
+            # Hard constraint: different source (no intra-reviewer merging)
+            if src_i == cluster_src:
+                continue
+
+            # Compare against representative (first finding in cluster)
+            score = _token_overlap(normalized[i], _normalize_text(rep))
+            if score > best_score:
+                best_score = score
+                best_idx = j
+
+        if best_score >= threshold:
+            clusters[best_idx].append(finding)
+        else:
+            clusters.append([finding])
+
+    return clusters
 
 
 def _merge_finding_group(group, check_name, index):

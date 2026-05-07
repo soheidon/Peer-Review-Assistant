@@ -40,22 +40,40 @@ def final_merge(project_dir):
         expression_comments = expr_merged.get("comments", [])
         expression_available = True
 
-    recommendation = _get_recommendation(len(major), len(minor))
+    ms_comments = []
+    ms_available = False
+    if _merged_methods_stats_exists(project_dir):
+        ms_merged = _load_merged_methods_stats(project_dir)
+        ms_comments = ms_merged.get("comments", [])
+        ms_available = True
+
+    ms_major = [c for c in ms_comments if c.get("severity") == "major"]
+    ms_minor = [c for c in ms_comments if c.get("severity") != "major"]
+    all_major = major + ms_major
+
+    recommendation = _get_recommendation(len(all_major), len(minor))
+
+    total = len(comments) + len(expression_comments) + len(ms_comments)
 
     final_review_md = _generate_final_review_md(
-        merged, major, minor, expression_comments, abstract, recommendation
+        merged, major, minor, expression_comments,
+        ms_comments, ms_available, abstract, recommendation,
     )
     comments_to_authors_md = _generate_comments_to_authors_md(
-        major, minor, expression_comments
+        major, minor, expression_comments, ms_comments,
     )
-    confidential_md = _generate_confidential_comments_md(expression_available)
+    confidential_md = _generate_confidential_comments_md(
+        expression_available, ms_available,
+    )
     recommendation_md = _generate_recommendation_md(
-        len(major), len(minor), len(comments) + len(expression_comments),
+        len(major), len(minor), total,
         len(expression_comments), expression_available,
+        len(ms_comments), len(ms_major), ms_available,
     )
     audit_trail = _build_audit_trail(
         merged, len(major), len(minor), recommendation,
         abstract is not None, expression_available, len(expression_comments),
+        ms_available, len(ms_comments), len(ms_major),
     )
 
     return {
@@ -66,9 +84,9 @@ def final_merge(project_dir):
             "recommendation_md": recommendation_md,
             "audit_trail": audit_trail,
         },
-        "total_comments": len(comments) + len(expression_comments),
-        "major_count": len(major),
-        "minor_count": len(minor) + len(expression_comments),
+        "total_comments": total,
+        "major_count": len(all_major),
+        "minor_count": len(minor) + len(expression_comments) + len(ms_minor),
         "recommendation": recommendation,
     }
 
@@ -118,6 +136,23 @@ def _load_merged_expression(project_dir):
         return json.load(f)
 
 
+def _merged_methods_stats_exists(project_dir):
+    """Check if outputs/methods_stats/merged.section.json exists."""
+    path = os.path.join(
+        project_dir, "outputs", "methods_stats", "merged.section.json"
+    )
+    return os.path.isfile(path)
+
+
+def _load_merged_methods_stats(project_dir):
+    """Load and return outputs/methods_stats/merged.section.json."""
+    path = os.path.join(
+        project_dir, "outputs", "methods_stats", "merged.section.json"
+    )
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
 def _get_recommendation(major_count, minor_count):
     """Return recommendation string based on severity counts."""
     if major_count > 0:
@@ -148,7 +183,8 @@ def _format_location(location):
 
 
 def _generate_final_review_md(merged, major, minor, expression_comments,
-                              abstract, recommendation):
+                              ms_comments, ms_available, abstract,
+                              recommendation):
     """Generate the complete final_review.md."""
     lines = ["# Peer Review", ""]
 
@@ -240,8 +276,61 @@ def _generate_final_review_md(merged, major, minor, expression_comments,
         )
         lines.append("")
 
-    # Section 6: Citation and Literature Concerns
-    lines.append("## 6. Citation and Literature Concerns")
+    # Section 6: Methods and Statistical Concerns
+    lines.append("## 6. Methods and Statistical Concerns")
+    lines.append("")
+    if ms_available and ms_comments:
+        ms_major = [c for c in ms_comments if c.get("severity") == "major"]
+        ms_minor = [c for c in ms_comments if c.get("severity") != "major"]
+        if ms_major:
+            for i, c in enumerate(ms_major, 1):
+                loc = _format_location(c.get("location"))
+                category = c.get("category", "Methods and Statistics")
+                lines.append(f"### 6.{i}. {category} (Major) / {loc}")
+                lines.append("")
+                lines.append(f"**Issue**: {c.get('issue', '')}")
+                lines.append("")
+                lines.append(f"**Evidence**: {c.get('evidence', '')}")
+                lines.append("")
+                suggested = c.get("suggested_author_comment", "")
+                if suggested:
+                    lines.append(f"**Suggested Revision**: {suggested}")
+                    lines.append("")
+                lines.append(f"**Confidence**: {c.get('confidence', 'low')}")
+                lines.append("")
+            next_idx = len(ms_major) + 1
+        else:
+            lines.append("No major methods/statistics issues were identified.")
+            lines.append("")
+            next_idx = 1
+        if ms_minor:
+            for i, c in enumerate(ms_minor, next_idx):
+                loc = _format_location(c.get("location"))
+                category = c.get("category", "Methods and Statistics")
+                lines.append(f"### 6.{i}. {category} (Minor) / {loc}")
+                lines.append("")
+                lines.append(f"**Issue**: {c.get('issue', '')}")
+                lines.append("")
+                lines.append(f"**Evidence**: {c.get('evidence', '')}")
+                lines.append("")
+                suggested = c.get("suggested_author_comment", "")
+                if suggested:
+                    lines.append(f"**Suggested Revision**: {suggested}")
+                    lines.append("")
+                lines.append(f"**Confidence**: {c.get('confidence', 'low')}")
+                lines.append("")
+    elif ms_available and not ms_comments:
+        lines.append("No methods/statistics issues were identified.")
+        lines.append("")
+    else:
+        lines.append(
+            "Methods and statistical quality was not assessed in this run. "
+            "Run methods_stats check to include methodological quality comments."
+        )
+        lines.append("")
+
+    # Section 7: Citation and Literature Concerns
+    lines.append("## 7. Citation and Literature Concerns")
     lines.append("")
     lines.append(
         "Not assessed in the current run. Citation verification and "
@@ -249,8 +338,8 @@ def _generate_final_review_md(merged, major, minor, expression_comments,
     )
     lines.append("")
 
-    # Section 7: Originality and Overlap
-    lines.append("## 7. Originality and Overlap")
+    # Section 8: Originality and Overlap
+    lines.append("## 8. Originality and Overlap")
     lines.append("")
     lines.append(
         "Not assessed in the current run. Originality and overlap "
@@ -258,12 +347,14 @@ def _generate_final_review_md(merged, major, minor, expression_comments,
     )
     lines.append("")
 
-    # Section 8: Confidential Comments to the Editor
-    lines.append("## 8. Confidential Comments to the Editor")
+    # Section 9: Confidential Comments to the Editor
+    lines.append("## 9. Confidential Comments to the Editor")
     lines.append("")
     checks_run = ["structural organization", "IMRaD compliance"]
     if expression_comments:
         checks_run.append("expression and language quality")
+    if ms_available:
+        checks_run.append("methods and statistical quality")
     checks_run_str = ", ".join(checks_run)
     lines.append(
         f"This review assessed: {checks_run_str}. "
@@ -274,8 +365,8 @@ def _generate_final_review_md(merged, major, minor, expression_comments,
     )
     lines.append("")
 
-    # Section 9: Recommendation
-    lines.append("## 9. Recommendation")
+    # Section 10: Recommendation
+    lines.append("## 10. Recommendation")
     lines.append("")
     lines.append(f"**Verdict**: {recommendation}")
     lines.append("")
@@ -302,11 +393,13 @@ def _generate_final_review_md(merged, major, minor, expression_comments,
     return "\n".join(lines)
 
 
-def _generate_comments_to_authors_md(major, minor, expression_comments):
+def _generate_comments_to_authors_md(major, minor, expression_comments,
+                                     ms_comments=None):
     """Generate comments_to_authors.md — only author-facing fields."""
     lines = ["# Comments to Authors", ""]
 
-    all_comments = list(major) + list(minor) + list(expression_comments)
+    all_comments = (list(major) + list(minor) + list(expression_comments)
+                    + list(ms_comments or []))
 
     if not all_comments:
         lines.append(
@@ -330,7 +423,8 @@ def _generate_comments_to_authors_md(major, minor, expression_comments):
     return "\n".join(lines)
 
 
-def _generate_confidential_comments_md(expression_available=False):
+def _generate_confidential_comments_md(expression_available=False,
+                                       ms_available=False):
     """Generate confidential_comments_to_editor.md."""
     scope_lines = [
         "**Scope of this review:**",
@@ -341,12 +435,15 @@ def _generate_confidential_comments_md(expression_available=False):
     not_assessed = [
         "- Citation accuracy and completeness",
         "- Originality and overlap with existing literature",
-        "- Statistical methodology",
     ]
     if expression_available:
         scope_lines.append("- Expression quality and language")
     else:
         not_assessed.append("- Expression quality and language")
+    if ms_available:
+        scope_lines.append("- Methods and statistical methodology")
+    else:
+        not_assessed.append("- Methods and statistical methodology")
 
     return "\n".join([
         "# Confidential Comments to the Editor",
@@ -371,13 +468,18 @@ def _generate_confidential_comments_md(expression_available=False):
 
 
 def _generate_recommendation_md(major_count, minor_count, total_count,
-                                expression_count=0, expression_available=False):
+                                expression_count=0, expression_available=False,
+                                ms_count=0, ms_major_count=0,
+                                ms_available=False):
     """Generate recommendation.md with verdict and justification."""
-    recommendation = _get_recommendation(major_count, minor_count)
+    recommendation = _get_recommendation(major_count + ms_major_count,
+                                         minor_count)
 
     checks = ["structure"]
     if expression_available:
         checks.append("expression")
+    if ms_available:
+        checks.append("methods_stats")
 
     lines = [
         "# Recommendation",
@@ -391,6 +493,9 @@ def _generate_recommendation_md(major_count, minor_count, total_count,
     ]
     if expression_available:
         lines.append(f"- {expression_count} minor issue(s) (expression)")
+    if ms_available:
+        lines.append(f"- {ms_count} issue(s) (methods/stats: "
+                     f"{ms_major_count} major)")
     lines += [
         "",
         "**Limitations**: Citation verification, originality assessment, "
@@ -413,7 +518,9 @@ def _generate_recommendation_md(major_count, minor_count, total_count,
 
 def _build_audit_trail(merged, major_count, minor_count, recommendation,
                        abstract_available, expression_available=False,
-                       expression_comment_count=0):
+                       expression_comment_count=0,
+                       ms_available=False, ms_comment_count=0,
+                       ms_major_count=0):
     """Build the audit_trail.json data structure."""
     from datetime import datetime, timezone, timedelta
 
@@ -421,7 +528,7 @@ def _build_audit_trail(merged, major_count, minor_count, recommendation,
     now = datetime.now(JST)
 
     assessed = ["structure"]
-    not_assessed = ["methods_stats", "citation", "originality"]
+    not_assessed = ["citation", "originality"]
     inputs = {
         "merged_structure": "outputs/structure/merged.section.json",
         "abstract_available": abstract_available,
@@ -431,24 +538,52 @@ def _build_audit_trail(merged, major_count, minor_count, recommendation,
         inputs["merged_expression"] = "outputs/expression/merged.section.json"
     else:
         not_assessed.append("expression")
+    if ms_available:
+        assessed.append("methods_stats")
+        inputs["merged_methods_stats"] = "outputs/methods_stats/merged.section.json"
+    else:
+        not_assessed.append("methods_stats")
 
+    total = len(merged.get("comments", [])) + expression_comment_count + ms_comment_count
     comment_counts = {
-        "total": len(merged.get("comments", [])) + expression_comment_count,
+        "total": total,
         "major": major_count,
         "minor": minor_count,
     }
     if expression_available:
         comment_counts["structure_minor"] = minor_count
         comment_counts["expression_minor"] = expression_comment_count
+    if ms_available:
+        comment_counts["structure_minor"] = minor_count
+        comment_counts["expression_minor"] = expression_comment_count
+        comment_counts["ms_count"] = ms_comment_count
+        comment_counts["ms_major"] = ms_major_count
+        comment_counts["ms_minor"] = ms_comment_count - ms_major_count
+
+    if expression_available and ms_available:
+        phase = "9C"
+        description = (
+            "Final review generation with structure, expression, "
+            "and methods_stats checks"
+        )
+    elif expression_available:
+        phase = "9B"
+        description = (
+            "Final review generation with structure and expression checks"
+        )
+    elif ms_available:
+        phase = "9C"
+        description = (
+            "Final review generation with structure and methods_stats checks"
+        )
+    else:
+        phase = "9A"
+        description = "Structure-only final review generation"
 
     return {
         "generated_at": now.isoformat(),
-        "phase": "9B" if expression_available else "9A",
-        "description": (
-            "Final review generation with structure and expression checks"
-            if expression_available else
-            "Structure-only final review generation"
-        ),
+        "phase": phase,
+        "description": description,
         "inputs": inputs,
         "check_items_assessed": assessed,
         "check_items_not_assessed": not_assessed,

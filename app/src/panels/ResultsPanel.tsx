@@ -6,14 +6,15 @@ interface ResultsPanelProps {
   onLoadResultFile: (filename: string) => void;
   onReloadResults: () => void;
   onOpenOutputFolder: () => void;
+  statusMessage: {text: string; type: "ok" | "error" | "info"} | null;
 }
 
 const RESULT_FILES = [
-  { file: "final_review.md", label: "Final Review" },
-  { file: "comments_to_authors.md", label: "Comments to Authors" },
-  { file: "confidential_comments_to_editor.md", label: "Confidential to Editor" },
-  { file: "recommendation.md", label: "Recommendation" },
-  { file: "audit_trail.json", label: "Audit Trail" },
+  { file: "final_review.md", label: "最終査読コメント" },
+  { file: "comments_to_authors.md", label: "著者向けコメント" },
+  { file: "confidential_comments_to_editor.md", label: "編集者向けコメント" },
+  { file: "recommendation.md", label: "推奨判定" },
+  { file: "audit_trail.json", label: "処理記録" },
 ];
 
 export default function ResultsPanel({
@@ -24,9 +25,16 @@ export default function ResultsPanel({
   onLoadResultFile,
   onReloadResults,
   onOpenOutputFolder,
+  statusMessage,
 }: ResultsPanelProps) {
   return (
     <div>
+      {statusMessage && (
+        <div className={`status-banner ${statusMessage.type}`}>
+          {statusMessage.text}
+        </div>
+      )}
+
       <section className="panel">
         <h2>結果</h2>
         <div className="row">
@@ -47,15 +55,13 @@ export default function ResultsPanel({
         </div>
         <div className="row">
           <button onClick={onReloadResults} disabled={!projectPath.trim()}>
-            Reload Results
+            結果を再読み込み
           </button>
           <button onClick={onOpenOutputFolder} disabled={!projectPath.trim()}>
-            Open Output Folder
+            出力フォルダを開く
           </button>
           {resultFileLoading && (
-            <span className="status-chip" style={{ backgroundColor: "#eee", color: "#555" }}>
-              Loading...
-            </span>
+            <span className="status-chip running">読込中...</span>
           )}
         </div>
         <pre className="result-content">

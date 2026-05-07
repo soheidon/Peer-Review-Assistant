@@ -10,6 +10,7 @@ interface HomePanelProps {
   structureMergeDone: boolean;
   finalMergeDone: boolean;
   onRunHealthcheck: () => void;
+  statusMessage: {text: string; type: "ok" | "error" | "info"} | null;
 }
 
 export default function HomePanel({
@@ -24,12 +25,13 @@ export default function HomePanel({
   structureMergeDone,
   finalMergeDone,
   onRunHealthcheck,
+  statusMessage,
 }: HomePanelProps) {
   const stages = [
     { label: "プロジェクト作成", done: projectCreated },
-    { label: "入力ファイル", done: sourceAttached },
-    { label: "前処理", done: preprocessDone },
-    { label: "文献抽出", done: citationExtractionDone },
+    { label: "入力ファイル取込", done: sourceAttached },
+    { label: "docx本文抽出", done: preprocessDone },
+    { label: "引用文献抽出", done: citationExtractionDone },
     { label: "文献DB照合", done: crossrefDone },
     { label: "文献確認", done: viewerDataReady },
     { label: "査読チェック", done: structureMergeDone },
@@ -44,6 +46,12 @@ export default function HomePanel({
       <h1 className="home-title">Peer Review Assistant</h1>
       <p className="home-subtitle">査読アシスタント v0.1.0</p>
 
+      {statusMessage && (
+        <div className={`status-banner ${statusMessage.type}`}>
+          {statusMessage.text}
+        </div>
+      )}
+
       <div className="panel" style={{ marginTop: 16 }}>
         <h2>システム</h2>
         <div className="row">
@@ -51,12 +59,17 @@ export default function HomePanel({
             onClick={onRunHealthcheck}
             disabled={healthcheckStatus === "running"}
           >
-            Python CLI healthcheck
+            {healthcheckStatus === "running"
+              ? "接続確認中..."
+              : "Python CLI 接続確認"}
           </button>
           {healthcheckStatus && healthcheckStatus !== "running" && (
             <span className={`status-chip ${healthcheckStatus === "ok" ? "ok" : "err"}`}>
-              {healthcheckStatus === "ok" ? "OK" : "Error"}
+              {healthcheckStatus === "ok" ? "正常" : "エラー"}
             </span>
+          )}
+          {healthcheckStatus === "running" && (
+            <span className="status-chip running">実行中...</span>
           )}
         </div>
       </div>

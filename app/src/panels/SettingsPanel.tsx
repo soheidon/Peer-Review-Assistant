@@ -14,6 +14,13 @@ interface SettingsPanelProps {
   onTestAll: () => void;
 }
 
+const SLOT_LABELS: Record<string, string> = {
+  summary: "Summary",
+  reviewer1: "評価者1",
+  reviewer2: "評価者2",
+  reviewer3: "評価者3",
+};
+
 export default function SettingsPanel({
   llmSlots,
   llmTestResults,
@@ -28,23 +35,21 @@ export default function SettingsPanel({
   return (
     <div>
       <section className="panel">
-        <h2>API Settings</h2>
+        <h2>API 設定</h2>
         {llmSlots.map((slot) => (
           <div key={slot.name} className="llm-slot-row">
             <div className="llm-slot-header">
-              <span className="llm-slot-label">{slot.name}</span>
+              <span className="llm-slot-label">{SLOT_LABELS[slot.name] || slot.name}</span>
               {llmTestResults[slot.name] &&
                 llmTestResults[slot.name] !== "testing" && (
                   <span
                     className={`status-chip ${llmTestResults[slot.name] === "ok" ? "ok" : "err"}`}
                   >
-                    {llmTestResults[slot.name] === "ok" ? "OK" : "Error"}
+                    {llmTestResults[slot.name] === "ok" ? "接続可" : "接続不可"}
                   </span>
                 )}
               {llmTestResults[slot.name] === "testing" && (
-                <span className="status-chip" style={{ backgroundColor: "#eee", color: "#555" }}>
-                  Testing...
-                </span>
+                <span className="status-chip running">接続確認中...</span>
               )}
             </div>
             <div className="llm-slot-fields">
@@ -52,7 +57,7 @@ export default function SettingsPanel({
                 type="text"
                 value={slot.provider}
                 onChange={(e) => onUpdateSlot(slot.name, "provider", e.target.value)}
-                placeholder="Provider (e.g., openai, deepseek)"
+                placeholder="プロバイダ (例: openai)"
                 className="llm-input"
               />
               <input
@@ -66,28 +71,28 @@ export default function SettingsPanel({
                 type="text"
                 value={slot.model}
                 onChange={(e) => onUpdateSlot(slot.name, "model", e.target.value)}
-                placeholder="Model"
+                placeholder="モデル"
                 className="llm-input"
               />
               <input
                 type="password"
                 value={slot.apiKey}
                 onChange={(e) => onUpdateSlot(slot.name, "apiKey", e.target.value)}
-                placeholder="API Key"
+                placeholder="APIキー"
                 className="llm-input"
               />
               <button
                 onClick={() => onTestSlot(slot.name)}
                 disabled={llmTestResults[slot.name] === "testing"}
               >
-                Test
+                {llmTestResults[slot.name] === "testing" ? "確認中..." : "接続確認"}
               </button>
             </div>
           </div>
         ))}
         <div className="row">
           <button onClick={onTestAll} disabled={!allConfigured}>
-            Test All Connections
+            すべて接続確認
           </button>
         </div>
       </section>

@@ -5,6 +5,8 @@ interface ProjectPanelProps {
   pdfPath: string;
   validationOk: boolean;
   sourceAttached: boolean;
+  validateRunning: boolean;
+  attachRunning: boolean;
   onProjectPathChange: (path: string) => void;
   onBrowseFolder: () => void;
   onCreateProject: () => void;
@@ -14,7 +16,7 @@ interface ProjectPanelProps {
   onBrowsePdf: () => void;
   onValidateInput: () => void;
   onAttachSource: () => void;
-  onPreprocessSource: () => void;
+  statusMessage: {text: string; type: "ok" | "error" | "info"} | null;
 }
 
 export default function ProjectPanel({
@@ -24,6 +26,8 @@ export default function ProjectPanel({
   pdfPath,
   validationOk,
   sourceAttached,
+  validateRunning,
+  attachRunning,
   onProjectPathChange,
   onBrowseFolder,
   onCreateProject,
@@ -33,10 +37,16 @@ export default function ProjectPanel({
   onBrowsePdf,
   onValidateInput,
   onAttachSource,
-  onPreprocessSource,
+  statusMessage,
 }: ProjectPanelProps) {
   return (
     <div>
+      {statusMessage && (
+        <div className={`status-banner ${statusMessage.type}`}>
+          {statusMessage.text}
+        </div>
+      )}
+
       <section className="panel">
         <h2>プロジェクトフォルダ</h2>
         <div className="row">
@@ -47,11 +57,11 @@ export default function ProjectPanel({
             placeholder="プロジェクトフォルダを選択..."
             className="path-input"
           />
-          <button onClick={onBrowseFolder}>Browse</button>
+          <button onClick={onBrowseFolder}>参照</button>
         </div>
         <div className="row">
-          <button onClick={onCreateProject}>Create New Project</button>
-          {projectCreated && <span className="status-chip ok">Created</span>}
+          <button onClick={onCreateProject}>新規プロジェクト作成</button>
+          {projectCreated && <span className="status-chip ok">作成済</span>}
         </div>
       </section>
 
@@ -62,40 +72,63 @@ export default function ProjectPanel({
             type="text"
             value={docxPath}
             onChange={(e) => onDocxPathChange(e.target.value)}
-            placeholder="Manuscript .docx を選択..."
+            placeholder="原稿docxを選択..."
             className="path-input"
           />
-          <button onClick={onBrowseDocx}>Browse</button>
+          <button onClick={onBrowseDocx}>参照</button>
         </div>
         <div className="row">
           <input
             type="text"
             value={pdfPath}
             onChange={(e) => onPdfPathChange(e.target.value)}
-            placeholder="Line-numbered PDF を選択..."
+            placeholder="行番号付きPDFを選択..."
             className="path-input"
           />
-          <button onClick={onBrowsePdf}>Browse</button>
-        </div>
-        <div className="row">
-          <button onClick={onValidateInput}>Validate Input Files</button>
-          {validationOk && <span className="status-chip ok">Valid</span>}
+          <button onClick={onBrowsePdf}>参照</button>
         </div>
         <div className="row">
           <button
-            onClick={onAttachSource}
-            disabled={!validationOk || !projectCreated}
+            onClick={onValidateInput}
+            disabled={validateRunning || !docxPath.trim() || !pdfPath.trim()}
           >
-            Attach to Project
+            {validateRunning ? "確認中..." : "入力ファイルを確認"}
           </button>
-          {sourceAttached && <span className="status-chip ok">Attached</span>}
+          {validateRunning && <span className="status-chip running">実行中...</span>}
+          {validationOk && !validateRunning && <span className="status-chip ok">確認済</span>}
         </div>
+        {!validationOk && !validateRunning && docxPath.trim() && pdfPath.trim() && (
+          <div className="disabled-reason">「入力ファイルを確認」をクリックしてください</div>
+        )}
         <div className="row">
-          <button onClick={onPreprocessSource} disabled={!sourceAttached}>
-            Preprocess docx
+          <button
+            onClick={onAttachSource}
+            disabled={!validationOk || !projectCreated || attachRunning}
+          >
+            {attachRunning ? "取り込み中..." : "プロジェクトに取り込み"}
           </button>
+          {attachRunning && <span className="status-chip running">実行中...</span>}
+          {sourceAttached && !attachRunning && <span className="status-chip ok">取込済</span>}
         </div>
+        {!sourceAttached && !attachRunning && validationOk && projectCreated && (
+          <div className="disabled-reason">「プロジェクトに取り込み」をクリックしてください</div>
+        )}
+        {!validationOk && projectCreated && !attachRunning && (
+          <div className="disabled-reason">先に入力ファイルを確認してください</div>
+        )}
+        {!projectCreated && (
+          <div className="disabled-reason">プロジェクトを先に作成してください</div>
+        )}
       </section>
+
+      {/* Next step suggestion */}
+      <div className="next-step">
+        {!projectCreated && "次: プロジェクトフォルダを選択し、新規プロジェクト作成してください"}
+        {projectCreated && !docxPath.trim() && "次: 原稿docxと行番号付きPDFを選択してください"}
+        {projectCreated && docxPath.trim() && pdfPath.trim() && !validationOk && "次: 入力ファイルを確認してください"}
+        {projectCreated && validationOk && !sourceAttached && "次: プロジェクトに取り込んでください"}
+        {sourceAttached && "プロジェクト準備完了。「前処理」メニューに進んでください"}
+      </div>
     </div>
   );
 }

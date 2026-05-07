@@ -288,6 +288,89 @@ button:disabled {
   color: #c42b1c;
 }
 
+.status-chip.unrun {
+  background: #f0f0f0;
+  color: #888;
+}
+
+.status-chip.running {
+  background: #e8f0fe;
+  color: #1a73e8;
+}
+
+.status-chip.warn {
+  background: #fff4ce;
+  color: #eaa300;
+}
+
+/* ── Status banner (per-panel feedback) ─────────────────────────────────── */
+
+.status-banner {
+  padding: 8px 14px;
+  border-radius: 4px;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
+.status-banner.ok {
+  background: #dff6dd;
+  color: #107c10;
+  border: 1px solid #a5d6a5;
+}
+
+.status-banner.error {
+  background: #fde7e9;
+  color: #c42b1c;
+  border: 1px solid #f5a3a3;
+}
+
+.status-banner.info {
+  background: #e8f0fe;
+  color: #1a73e8;
+  border: 1px solid #a8c8fa;
+}
+
+/* ── Disabled reason ────────────────────────────────────────────────────── */
+
+.disabled-reason {
+  font-size: 11px;
+  color: #999;
+  margin-bottom: 6px;
+  margin-left: 4px;
+}
+
+/* ── Next step ──────────────────────────────────────────────────────────── */
+
+.next-step {
+  font-size: 12px;
+  color: #ca5010;
+  font-weight: 600;
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid #eee;
+}
+
+/* ── Preprocess info ────────────────────────────────────────────────────── */
+
+.preprocess-info {
+  font-size: 11px;
+  color: #666;
+  margin-left: 8px;
+}
+
+/* ── Suspicious alert ───────────────────────────────────────────────────── */
+
+.suspicious-alert {
+  background: #fff4ce;
+  color: #eaa300;
+  border: 1px solid #f5d21d;
+  padding: 8px 14px;
+  border-radius: 4px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
 /* ── Log ────────────────────────────────────────────────────────────────── */
 
 .log-panel {

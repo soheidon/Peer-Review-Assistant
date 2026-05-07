@@ -21,7 +21,7 @@ export default function LogPanel({
       <section className="panel log-panel">
         <div className="log-header">
           <h2>ログ</h2>
-          <button onClick={onClearLogs} className="clear-btn">Clear</button>
+          <button onClick={onClearLogs} className="clear-btn">ログを消去</button>
         </div>
         <div className="log-area">
           {logs.length === 0 && (

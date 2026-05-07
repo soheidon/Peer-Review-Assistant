@@ -48,6 +48,28 @@ function App() {
   const [resultFileContent, setResultFileContent] = useState("");
   const [resultFileLoading, setResultFileLoading] = useState(false);
 
+  // Running states for individual operations
+  const [validateRunning, setValidateRunning] = useState(false);
+  const [attachRunning, setAttachRunning] = useState(false);
+  const [preprocessRunning, setPreprocessRunning] = useState(false);
+  const [numberingRunning, setNumberingRunning] = useState(false);
+  const [sectionsRunning, setSectionsRunning] = useState(false);
+  const [citationExtractionRunning, setCitationExtractionRunning] = useState(false);
+  const [crossrefRunning, setCrossrefRunning] = useState(false);
+
+  // Status feedback
+  const [statusMessage, setStatusMessage] = useState<{text: string; type: "ok"|"error"|"info"}|null>(null);
+  const [preprocessResults, setPreprocessResults] = useState<Record<string, string>>({});
+  const [crossrefSummary, setCrossrefSummary] = useState("");
+
+  // Auto-clear status message after 8 seconds
+  useEffect(() => {
+    if (statusMessage) {
+      const timer = setTimeout(() => setStatusMessage(null), 8000);
+      return () => clearTimeout(timer);
+    }
+  }, [statusMessage]);
+
   const defaultSlots = [
     { name: "summary", provider: "", baseUrl: "", model: "", apiKey: "" },
     { name: "reviewer1", provider: "", baseUrl: "", model: "", apiKey: "" },
@@ -68,7 +90,54 @@ function App() {
     for (const line of lines) {
       if (line.trim()) {
         try {
-          addLog(JSON.parse(line));
+          const parsed = JSON.parse(line);
+          addLog(parsed);
+          // Extract supplementary info from done events
+          if (parsed.event === "done") {
+            if (parsed.paragraphs != null) {
+              setPreprocessResults((prev) => ({
+                ...prev,
+                preprocess: `${parsed.paragraphs}段落、${parsed.chars?.toLocaleString() ?? "?"}文字`,
+              }));
+            }
+            if (parsed.sentences != null) {
+              setPreprocessResults((prev) => ({
+                ...prev,
+                numbering: `${parsed.sentences}文`,
+              }));
+            }
+            if (parsed.sections != null) {
+              setPreprocessResults((prev) => ({
+                ...prev,
+                sections: `${parsed.sections}セクション`,
+              }));
+            }
+            if (parsed.citations != null) {
+              setPreprocessResults((prev) => ({
+                ...prev,
+                citations: `${parsed.citations}件`,
+              }));
+            }
+            if (parsed.verified != null || parsed.unmatched != null) {
+              const v = parsed.verified ?? 0;
+              const u = parsed.unmatched ?? 0;
+              setCrossrefSummary(`${v}件確認、${u}件未照合`);
+              setPreprocessResults((prev) => ({
+                ...prev,
+                crossref: `${v}件確認、${u}件未照合`,
+              }));
+            }
+            if (parsed.total != null) {
+              const t = parsed.total ?? 0;
+              const s = parsed.suspicious ?? 0;
+              const parts = [`${t}件`];
+              if (s > 0) parts.push(`要確認${s}件`);
+              setPreprocessResults((prev) => ({
+                ...prev,
+                viewerData: parts.join("、"),
+              }));
+            }
+          }
         } catch {
           addLog({ event: "stdout", message: line });
         }
@@ -78,6 +147,7 @@ function App() {
 
   const runHealthcheck = async () => {
     setHealthcheckStatus("running");
+    setStatusMessage(null);
     addLog({ event: "info", message: "Running healthcheck..." });
 
     try {
@@ -193,6 +263,8 @@ function App() {
     }
 
     setValidationOk(false);
+    setValidateRunning(true);
+    setStatusMessage(null);
     addLog({ event: "info", message: "Validating input files..." });
 
     try {
@@ -212,10 +284,16 @@ function App() {
 
       if (output.code === 0) {
         setValidationOk(true);
+        setStatusMessage({text: "入力ファイルの確認が完了しました。", type: "ok"});
+      } else {
+        setStatusMessage({text: "入力ファイルの確認に失敗しました。", type: "error"});
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       addLog({ event: "error", message: msg });
+      setStatusMessage({text: "入力ファイルの確認でエラーが発生しました。", type: "error"});
+    } finally {
+      setValidateRunning(false);
     }
   };
 
@@ -226,6 +304,8 @@ function App() {
     }
 
     setSourceAttached(false);
+    setAttachRunning(true);
+    setStatusMessage(null);
     addLog({ event: "info", message: "Attaching source files..." });
 
     try {
@@ -247,10 +327,16 @@ function App() {
 
       if (output.code === 0) {
         setSourceAttached(true);
+        setStatusMessage({text: "docxとPDFをプロジェクトに取り込みました。", type: "ok"});
+      } else {
+        setStatusMessage({text: "プロジェクトへの取り込みに失敗しました。", type: "error"});
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       addLog({ event: "error", message: msg });
+      setStatusMessage({text: "プロジェクトへの取り込みでエラーが発生しました。", type: "error"});
+    } finally {
+      setAttachRunning(false);
     }
   };
 
@@ -261,6 +347,8 @@ function App() {
     }
 
     setPreprocessDone(false);
+    setPreprocessRunning(true);
+    setStatusMessage(null);
     addLog({ event: "info", message: "Preprocessing docx..." });
 
     try {
@@ -278,15 +366,23 @@ function App() {
 
       if (output.code === 0) {
         setPreprocessDone(true);
+        setStatusMessage({text: "docx本文抽出が完了しました。", type: "ok"});
+      } else {
+        setStatusMessage({text: "docx本文抽出に失敗しました。", type: "error"});
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       addLog({ event: "error", message: msg });
+      setStatusMessage({text: "docx本文抽出でエラーが発生しました。", type: "error"});
+    } finally {
+      setPreprocessRunning(false);
     }
   };
 
   const runNumbering = async () => {
     setNumberingDone(false);
+    setNumberingRunning(true);
+    setStatusMessage(null);
     addLog({ event: "info", message: "Running paragraph/sentence numbering..." });
 
     try {
@@ -299,14 +395,24 @@ function App() {
       const output = await cmd.execute();
       parseOutput(output.stdout);
       if (output.stderr) addLog({ event: "stderr", message: output.stderr });
-      if (output.code === 0) setNumberingDone(true);
+      if (output.code === 0) {
+        setNumberingDone(true);
+        setStatusMessage({text: "段落・文番号作成が完了しました。", type: "ok"});
+      } else {
+        setStatusMessage({text: "段落・文番号作成に失敗しました。", type: "error"});
+      }
     } catch (e: unknown) {
       addLog({ event: "error", message: e instanceof Error ? e.message : String(e) });
+      setStatusMessage({text: "段落・文番号作成でエラーが発生しました。", type: "error"});
+    } finally {
+      setNumberingRunning(false);
     }
   };
 
   const runSections = async () => {
     setSectionsDone(false);
+    setSectionsRunning(true);
+    setStatusMessage(null);
     addLog({ event: "info", message: "Splitting manuscript into sections..." });
 
     try {
@@ -319,14 +425,24 @@ function App() {
       const output = await cmd.execute();
       parseOutput(output.stdout);
       if (output.stderr) addLog({ event: "stderr", message: output.stderr });
-      if (output.code === 0) setSectionsDone(true);
+      if (output.code === 0) {
+        setSectionsDone(true);
+        setStatusMessage({text: "セクション分割が完了しました。", type: "ok"});
+      } else {
+        setStatusMessage({text: "セクション分割に失敗しました。", type: "error"});
+      }
     } catch (e: unknown) {
       addLog({ event: "error", message: e instanceof Error ? e.message : String(e) });
+      setStatusMessage({text: "セクション分割でエラーが発生しました。", type: "error"});
+    } finally {
+      setSectionsRunning(false);
     }
   };
 
   const runExtractCitations = async () => {
     setCitationExtractionDone(false);
+    setCitationExtractionRunning(true);
+    setStatusMessage(null);
     addLog({ event: "info", message: "Extracting citations..." });
 
     try {
@@ -339,14 +455,24 @@ function App() {
       const output = await cmd.execute();
       parseOutput(output.stdout);
       if (output.stderr) addLog({ event: "stderr", message: output.stderr });
-      if (output.code === 0) setCitationExtractionDone(true);
+      if (output.code === 0) {
+        setCitationExtractionDone(true);
+        setStatusMessage({text: "引用文献抽出が完了しました。", type: "ok"});
+      } else {
+        setStatusMessage({text: "引用文献抽出に失敗しました。", type: "error"});
+      }
     } catch (e: unknown) {
       addLog({ event: "error", message: e instanceof Error ? e.message : String(e) });
+      setStatusMessage({text: "引用文献抽出でエラーが発生しました。", type: "error"});
+    } finally {
+      setCitationExtractionRunning(false);
     }
   };
 
   const runCrossrefDb = async () => {
     setCrossrefDone(false);
+    setCrossrefRunning(true);
+    setStatusMessage(null);
     addLog({ event: "info", message: "Checking Crossref database..." });
 
     try {
@@ -359,9 +485,17 @@ function App() {
       const output = await cmd.execute();
       parseOutput(output.stdout);
       if (output.stderr) addLog({ event: "stderr", message: output.stderr });
-      if (output.code === 0) setCrossrefDone(true);
+      if (output.code === 0) {
+        setCrossrefDone(true);
+        setStatusMessage({text: "Crossref照合が完了しました。", type: "ok"});
+      } else {
+        setStatusMessage({text: "Crossref照合に失敗しました。", type: "error"});
+      }
     } catch (e: unknown) {
       addLog({ event: "error", message: e instanceof Error ? e.message : String(e) });
+      setStatusMessage({text: "Crossref照合でエラーが発生しました。", type: "error"});
+    } finally {
+      setCrossrefRunning(false);
     }
   };
 
@@ -372,6 +506,7 @@ function App() {
     }
 
     setViewerDataGenerating(true);
+    setStatusMessage(null);
     addLog({ event: "info", message: "Generating citation viewer data..." });
 
     try {
@@ -384,9 +519,15 @@ function App() {
       const output = await cmd.execute();
       parseOutput(output.stdout);
       if (output.stderr) addLog({ event: "stderr", message: output.stderr });
-      if (output.code === 0) setViewerDataReady(true);
+      if (output.code === 0) {
+        setViewerDataReady(true);
+        setStatusMessage({text: "文献確認データを作成しました。", type: "ok"});
+      } else {
+        setStatusMessage({text: "文献確認データ作成に失敗しました。", type: "error"});
+      }
     } catch (e: unknown) {
       addLog({ event: "error", message: e instanceof Error ? e.message : String(e) });
+      setStatusMessage({text: "文献確認データ作成でエラーが発生しました。", type: "error"});
     } finally {
       setViewerDataGenerating(false);
     }
@@ -460,6 +601,7 @@ function App() {
     }
 
     setStructureCheckResults((prev) => ({ ...prev, [slotName]: "running" }));
+    setStatusMessage(null);
     addLog({ event: "info", message: `Running structure check with ${slotName}...` });
 
     try {
@@ -480,13 +622,16 @@ function App() {
 
       if (output.code === 0) {
         setStructureCheckResults((prev) => ({ ...prev, [slotName]: "done" }));
+        setStatusMessage({text: `構成チェック(${slotName})が完了しました。`, type: "ok"});
       } else {
         setStructureCheckResults((prev) => ({ ...prev, [slotName]: "failed" }));
+        setStatusMessage({text: `構成チェック(${slotName})に失敗しました。`, type: "error"});
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       addLog({ event: "error", message: msg });
       setStructureCheckResults((prev) => ({ ...prev, [slotName]: "failed" }));
+      setStatusMessage({text: `構成チェック(${slotName})でエラーが発生しました。`, type: "error"});
     }
   };
 
@@ -504,6 +649,7 @@ function App() {
     }
 
     setExpressionCheckResults((prev) => ({ ...prev, [slotName]: "running" }));
+    setStatusMessage(null);
     addLog({ event: "info", message: `Running expression check with ${slotName}...` });
 
     try {
@@ -524,13 +670,16 @@ function App() {
 
       if (output.code === 0) {
         setExpressionCheckResults((prev) => ({ ...prev, [slotName]: "done" }));
+        setStatusMessage({text: `表現チェック(${slotName})が完了しました。`, type: "ok"});
       } else {
         setExpressionCheckResults((prev) => ({ ...prev, [slotName]: "failed" }));
+        setStatusMessage({text: `表現チェック(${slotName})に失敗しました。`, type: "error"});
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       addLog({ event: "error", message: msg });
       setExpressionCheckResults((prev) => ({ ...prev, [slotName]: "failed" }));
+      setStatusMessage({text: `表現チェック(${slotName})でエラーが発生しました。`, type: "error"});
     }
   };
 
@@ -548,6 +697,7 @@ function App() {
     }
 
     setMethodsStatsCheckResults((prev) => ({ ...prev, [slotName]: "running" }));
+    setStatusMessage(null);
     addLog({ event: "info", message: `Running methods/stats check with ${slotName}...` });
 
     try {
@@ -568,13 +718,16 @@ function App() {
 
       if (output.code === 0) {
         setMethodsStatsCheckResults((prev) => ({ ...prev, [slotName]: "done" }));
+        setStatusMessage({text: `方法・統計チェック(${slotName})が完了しました。`, type: "ok"});
       } else {
         setMethodsStatsCheckResults((prev) => ({ ...prev, [slotName]: "failed" }));
+        setStatusMessage({text: `方法・統計チェック(${slotName})に失敗しました。`, type: "error"});
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       addLog({ event: "error", message: msg });
       setMethodsStatsCheckResults((prev) => ({ ...prev, [slotName]: "failed" }));
+      setStatusMessage({text: `方法・統計チェック(${slotName})でエラーが発生しました。`, type: "error"});
     }
   };
 
@@ -591,6 +744,7 @@ function App() {
     }
 
     setStructureMergeRunning(true);
+    setStatusMessage(null);
     addLog({ event: "info", message: "Merging structure check results..." });
 
     try {
@@ -606,13 +760,15 @@ function App() {
 
       if (output.code === 0) {
         setStructureMergeDone(true);
-        setStructureMergeRunning(false);
+        setStatusMessage({text: "構成チェック結果を統合しました。", type: "ok"});
       } else {
-        setStructureMergeRunning(false);
+        setStatusMessage({text: "構成チェック結果の統合に失敗しました。", type: "error"});
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       addLog({ event: "error", message: msg });
+      setStatusMessage({text: "構成チェック結果の統合でエラーが発生しました。", type: "error"});
+    } finally {
       setStructureMergeRunning(false);
     }
   };
@@ -630,6 +786,7 @@ function App() {
     }
 
     setExpressionMergeRunning(true);
+    setStatusMessage(null);
     addLog({ event: "info", message: "Merging expression check results..." });
 
     try {
@@ -645,13 +802,15 @@ function App() {
 
       if (output.code === 0) {
         setExpressionMergeDone(true);
-        setExpressionMergeRunning(false);
+        setStatusMessage({text: "表現チェック結果を統合しました。", type: "ok"});
       } else {
-        setExpressionMergeRunning(false);
+        setStatusMessage({text: "表現チェック結果の統合に失敗しました。", type: "error"});
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       addLog({ event: "error", message: msg });
+      setStatusMessage({text: "表現チェック結果の統合でエラーが発生しました。", type: "error"});
+    } finally {
       setExpressionMergeRunning(false);
     }
   };
@@ -669,6 +828,7 @@ function App() {
     }
 
     setMethodsStatsMergeRunning(true);
+    setStatusMessage(null);
     addLog({ event: "info", message: "Merging methods/stats check results..." });
 
     try {
@@ -684,13 +844,15 @@ function App() {
 
       if (output.code === 0) {
         setMethodsStatsMergeDone(true);
-        setMethodsStatsMergeRunning(false);
+        setStatusMessage({text: "方法・統計チェック結果を統合しました。", type: "ok"});
       } else {
-        setMethodsStatsMergeRunning(false);
+        setStatusMessage({text: "方法・統計チェック結果の統合に失敗しました。", type: "error"});
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       addLog({ event: "error", message: msg });
+      setStatusMessage({text: "方法・統計チェック結果の統合でエラーが発生しました。", type: "error"});
+    } finally {
       setMethodsStatsMergeRunning(false);
     }
   };
@@ -702,6 +864,7 @@ function App() {
     }
 
     setFinalMergeRunning(true);
+    setStatusMessage(null);
     addLog({ event: "info", message: "Generating final review..." });
 
     try {
@@ -716,10 +879,14 @@ function App() {
 
       if (output.code === 0) {
         setFinalMergeDone(true);
+        setStatusMessage({text: "最終査読コメントを生成しました。", type: "ok"});
+      } else {
+        setStatusMessage({text: "最終査読コメントの生成に失敗しました。", type: "error"});
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       addLog({ event: "error", message: msg });
+      setStatusMessage({text: "最終査読コメントの生成でエラーが発生しました。", type: "error"});
     } finally {
       setFinalMergeRunning(false);
     }
@@ -771,6 +938,23 @@ function App() {
     return { color, margin: 0, fontSize: "12px", fontFamily: "monospace" };
   };
 
+  const stepToView: Record<string, string> = {
+    project: "project",
+    input: "project",
+    preprocess: "preprocess",
+    citations: "preprocess",
+    db_check: "preprocess",
+    cite_review: "citations",
+    review: "review",
+    merge: "review",
+    output: "results",
+  };
+
+  const handleStepClick = (viewKey: string) => {
+    const target = stepToView[viewKey];
+    if (target) setActiveView(target);
+  };
+
   const progressProps = {
     projectPath,
     sourceAttached,
@@ -780,6 +964,7 @@ function App() {
     viewerDataReady,
     structureMergeDone,
     finalMergeDone,
+    onStepClick: handleStepClick,
   };
 
   return (
@@ -801,6 +986,7 @@ function App() {
               structureMergeDone={structureMergeDone}
               finalMergeDone={finalMergeDone}
               onRunHealthcheck={runHealthcheck}
+              statusMessage={statusMessage}
             />
           )}
 
@@ -812,6 +998,8 @@ function App() {
               pdfPath={pdfPath}
               validationOk={validationOk}
               sourceAttached={sourceAttached}
+              validateRunning={validateRunning}
+              attachRunning={attachRunning}
               onProjectPathChange={setProjectPath}
               onBrowseFolder={browseFolder}
               onCreateProject={createProject}
@@ -821,24 +1009,35 @@ function App() {
               onBrowsePdf={browsePdf}
               onValidateInput={validateInput}
               onAttachSource={attachSource}
-              onPreprocessSource={preprocessSource}
+              statusMessage={statusMessage}
             />
           )}
 
           {activeView === "preprocess" && (
             <PreprocessPanel
+              projectPath={projectPath}
+              sourceAttached={sourceAttached}
               preprocessDone={preprocessDone}
+              preprocessRunning={preprocessRunning}
               numberingDone={numberingDone}
+              numberingRunning={numberingRunning}
               sectionsDone={sectionsDone}
+              sectionsRunning={sectionsRunning}
               citationExtractionDone={citationExtractionDone}
+              citationExtractionRunning={citationExtractionRunning}
               crossrefDone={crossrefDone}
+              crossrefRunning={crossrefRunning}
               viewerDataGenerating={viewerDataGenerating}
               viewerDataReady={viewerDataReady}
+              preprocessResults={preprocessResults}
+              crossrefSummary={crossrefSummary}
+              onPreprocess={preprocessSource}
               onNumbering={runNumbering}
               onSections={runSections}
               onExtractCitations={runExtractCitations}
               onCrossrefDb={runCrossrefDb}
               onViewerData={runViewerData}
+              statusMessage={statusMessage}
             />
           )}
 
@@ -849,6 +1048,7 @@ function App() {
               viewerDataReady={viewerDataReady}
               viewerDataGenerating={viewerDataGenerating}
               onViewerData={runViewerData}
+              statusMessage={statusMessage}
             />
           )}
 
@@ -874,6 +1074,8 @@ function App() {
               onMergeExpression={runMergeExpression}
               onMergeMethodsStats={runMergeMethodsStats}
               onFinalMerge={runFinalMerge}
+              onNavigateToSettings={() => setActiveView("settings")}
+              statusMessage={statusMessage}
             />
           )}
 
@@ -886,6 +1088,7 @@ function App() {
               onLoadResultFile={loadResultFile}
               onReloadResults={reloadResults}
               onOpenOutputFolder={openOutputFolder}
+              statusMessage={statusMessage}
             />
           )}
 

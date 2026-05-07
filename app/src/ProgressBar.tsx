@@ -7,6 +7,7 @@ interface ProgressBarProps {
   viewerDataReady: boolean;
   structureMergeDone: boolean;
   finalMergeDone: boolean;
+  onStepClick?: (viewKey: string) => void;
 }
 
 const STAGES = [
@@ -25,6 +26,15 @@ export default function ProgressBar(props: ProgressBarProps) {
   const doneCount = STAGES.filter((s) => s.done(props)).length;
   const firstPending = STAGES.findIndex((s) => !s.done(props));
 
+  const handleClick = (key: string, isDone: boolean) => {
+    if (isDone && props.onStepClick) {
+      props.onStepClick(key);
+    } else if (!isDone && props.onStepClick) {
+      // Navigate to the first pending step's view
+      props.onStepClick(key);
+    }
+  };
+
   return (
     <div className="progress-bar">
       {STAGES.map((stage, i) => {
@@ -39,7 +49,12 @@ export default function ProgressBar(props: ProgressBarProps) {
             {i > 0 && (
               <div className={`progress-line ${isDone ? "done" : ""}`} />
             )}
-            <div className={`progress-step ${stateClass}`}>
+            <div
+              className={`progress-step ${stateClass}`}
+              onClick={() => handleClick(stage.key, isDone)}
+              title={`${stage.label} — ${isDone ? "完了" : isActive ? "実行中" : "待機中"}`}
+              style={props.onStepClick ? { cursor: "pointer" } : undefined}
+            >
               <div className="progress-circle">
                 {isDone ? "✓" : isActive ? (doneCount + 1) : i + 1}
               </div>

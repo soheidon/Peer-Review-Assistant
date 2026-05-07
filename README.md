@@ -4,12 +4,24 @@
 
 ## 概要
 
-- docx 原稿と、Word から保存した行番号付き PDF を入力します
+- docx 原稿と、Word から保存した行番号付き PDF を入力します（PDF は任意）
 - 原稿の構成、表現、方法・統計、引用文献、先行研究との関係を点検します
 - 複数の LLM と文献データベース（PubMed, Semantic Scholar, Crossref, OpenAlex）を組み合わせて分析します
 - 行番号付きまたは段落・文番号付きの査読コメントを Markdown 形式で出力します
 
 本ツールは査読者の判断を代替しません。査読者が原稿を理解し、問題点を整理し、著者向けコメントおよび編集者向けコメントを作成するための補助ツールです。
+
+## 現在の状態
+
+**v0.1.0** — GUI 基盤とプロジェクト管理が実装済み。以下の機能が利用可能です：
+
+- プロジェクトの作成・開く
+- docx/PDF ファイルの検証と取り込み（3入力モード対応）
+- システムヘルスチェック
+- 進捗サマリー表示
+- LLM スロット設定・接続テスト
+
+前処理パイプライン、文献DB照合、LLM チェック実行は次フェーズで実装予定です。
 
 ## インストール方法
 
@@ -31,13 +43,22 @@ pip install -e .
 
 ## 最小限の使い方
 
-1. 査読用 docx を Word で開き、行番号付き PDF として保存する
+1. 査読用 docx を準備する（PDF は任意）
 2. Peer Review Assistant を起動する
-3. 作業フォルダを作成する
-4. 前処理画面で docx と PDF を指定し、前処理を実行する
-5. API 設定画面で LLM の接続設定を行う
-6. 各チェック項目（構成、表現、方法・統計、引用文献、類似性・新規性）を実行する
-7. 最終マージを実行し、査読コメントを出力する
+3. プロジェクト画面で作業フォルダを作成または開く
+4. docx を選択し、「入力ファイルを確認」→「プロジェクトに取り込み」
+5. 前処理画面で処理を実行
+6. API 設定画面で LLM の接続設定を行う
+7. 各チェック項目を実行
+8. 最終出力を確認
+
+## 入力モード
+
+| モード | docx | PDF | 説明 |
+|---|---|---|---|
+| docx_only | 必須 | なし | 段落・文番号のみで位置表示 |
+| docx_with_pdf | 必須 | あり | PDF あり、行番号抽出は未実行 |
+| docx_with_line_numbered_pdf | 必須 | あり | 行番号抽出成功（将来実装） |
 
 ## 動作環境
 
@@ -56,12 +77,14 @@ pip install -e .
 
 ## ライセンス
 
-> 未定
+MIT License — 詳細は [LICENSE](LICENSE) を参照してください。
 
 ## 開発ドキュメント
 
-- [SPEC.md](SPEC.md) — 全体仕様
-- [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) — 実装フェーズ別仕様
+- [SPEC.md](SPEC.md) — 全体仕様（機能別）
 - [docs/SPEC_CLI.md](docs/SPEC_CLI.md) — Python CLI 詳細仕様
 - [docs/SPEC_PROJECT_STRUCTURE.md](docs/SPEC_PROJECT_STRUCTURE.md) — リポジトリ・作業フォルダ構成
-- [docs/implementation_logs/](docs/implementation_logs/) — 実装ログ
+- [docs/SPEC_PREPROCESS.md](docs/SPEC_PREPROCESS.md) — 前処理仕様
+- [docs/SPEC_CITATION_EXTRACTION.md](docs/SPEC_CITATION_EXTRACTION.md) — 引用文献抽出仕様
+- [docs/SPEC_CITATION_DB.md](docs/SPEC_CITATION_DB.md) — 文献DB照合仕様
+- [docs/SPEC_LLM.md](docs/SPEC_LLM.md) — LLM接続・実行仕様

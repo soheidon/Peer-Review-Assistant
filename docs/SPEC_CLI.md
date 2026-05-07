@@ -206,7 +206,9 @@ pra-cli init-project --project <作業フォルダのパス>
     "pdf_sha256": null,
     "docx_size_bytes": null,
     "pdf_size_bytes": null,
-    "input_validation_status": "not_started"
+    "input_validation_status": "not_started",
+    "source_mode": "docx_only",
+    "line_numbers_available": false
   },
   "manuscript": {
     "title": null,
@@ -267,7 +269,7 @@ pra-cli init-project --project <作業フォルダのパス>
 ### 6.2 呼び出し
 
 ```bash
-pra-cli validate-input --docx <file.docx> --pdf <file.pdf>
+pra-cli validate-input --docx <file.docx> [--pdf <file.pdf>]
 ```
 
 ### 6.3 パラメータ
@@ -275,17 +277,15 @@ pra-cli validate-input --docx <file.docx> --pdf <file.pdf>
 | パラメータ | 必須 | 型 | 説明 |
 |---|---|---|---|
 | `--docx` | はい | FILE（.docx） | 検証する docx ファイルのパス |
-| `--pdf` | はい | FILE（.pdf） | 検証する PDF ファイルのパス |
+| `--pdf` | いいえ | FILE（.pdf） | 検証する PDF ファイルのパス（任意。省略時は PDF 関連の検証をスキップ） |
 
 ### 6.4 検証項目
 
 1. docx ファイルが存在するか
 2. docx の拡張子が `.docx` か
 3. docx のファイルサイズが 0 より大きいか
-4. PDF ファイルが存在するか
-5. PDF の拡張子が `.pdf` か
-6. PDF のファイルサイズが 0 より大きいか
-7. 両方の SHA256 を計算
+4. PDF が指定された場合のみ: PDF ファイルの存在、拡張子 `.pdf`、サイズ > 0
+5. docx の SHA256 を計算（PDF が指定された場合は PDF も）
 
 ### 6.5 成功時の出力
 
@@ -316,7 +316,7 @@ pra-cli validate-input --docx <file.docx> --pdf <file.pdf>
 ### 7.2 呼び出し
 
 ```bash
-pra-cli attach-source --project <project_folder> --docx <file.docx> --pdf <file.pdf>
+pra-cli attach-source --project <project_folder> --docx <file.docx> [--pdf <file.pdf>]
 ```
 
 ### 7.3 パラメータ
@@ -325,7 +325,7 @@ pra-cli attach-source --project <project_folder> --docx <file.docx> --pdf <file.
 |---|---|---|---|
 | `--project` | はい | PATH（ディレクトリ） | 作業フォルダのパス（init-project で作成済みであること） |
 | `--docx` | はい | FILE（.docx） | 原本 docx ファイルのパス |
-| `--pdf` | はい | FILE（.pdf） | 原本 PDF ファイルのパス |
+| `--pdf` | いいえ | FILE（.pdf） | 原本 PDF ファイルのパス（任意。省略時は `source_mode: "docx_only"` となる） |
 
 ### 7.4 処理ステップ
 
@@ -344,7 +344,7 @@ pra-cli attach-source --project <project_folder> --docx <file.docx> --pdf <file.
 
 ### 7.6 project.json 更新内容
 
-`source` セクションに以下を書き込む。
+`source` セクションに以下を書き込む。PDF が省略された場合、`pdf_path`、`pdf_sha256`、`pdf_size_bytes` は `null` となり、`source_mode` は `"docx_only"`、`line_numbers_available` は `false` となる。
 
 ```json
 {
@@ -357,10 +357,20 @@ pra-cli attach-source --project <project_folder> --docx <file.docx> --pdf <file.
     "pdf_sha256": "def456...",
     "docx_size_bytes": 123456,
     "pdf_size_bytes": 234567,
-    "input_validation_status": "ok"
+    "input_validation_status": "ok",
+    "source_mode": "docx_with_pdf",
+    "line_numbers_available": false
   }
 }
 ```
+
+`source_mode` は以下のいずれか:
+
+| 値 | 条件 |
+|---|---|
+| `docx_only` | PDF が指定されなかった |
+| `docx_with_pdf` | PDF が指定されたが行番号抽出は未実行 |
+| `docx_with_line_numbered_pdf` | 行番号抽出に成功（将来実装） |
 
 ### 7.7 done イベント
 
@@ -375,7 +385,7 @@ pra-cli attach-source --project <project_folder> --docx <file.docx> --pdf <file.
 | エラーコード | 発生コマンド | 説明 |
 |---|---|---|
 | `RELEASE_FOLDER_REJECTED` | `init-project`, `attach-source` | 指定パスが `release/` 以下である |
-| `PROJECT_EXISTS` | `init-project` | 指定パスに既に `project.json` が存在する |
+| `PROJECT_EXISTS` | `init-project` | 指定パスに既に `project.json` が存在する（メッセージは日本語: 「このフォルダには既にプロジェクトがあります。別のフォルダを選ぶか、GUIの「既存プロジェクトを開く」を使用してください。」） |
 | `INPUT_VALIDATION_FAILED` | `validate-input`, `attach-source` | docx/PDF が検証条件を満たさない |
 | `SOURCE_EXISTS` | `attach-source` | work/source/ に既にファイルが存在する |
 | `NO_PROJECT` | `attach-source` | project.json が見つからない（init-project 未実行） |
@@ -474,7 +484,5 @@ Tauri v2 では、実行可能なコマンドを capabilities で明示的に許
 
 ## 12. 関連文書
 
-- [SPEC.md](../SPEC.md) — 全体仕様（セクション2.3〜2.4）
-- [IMPLEMENTATION_PLAN.md](../IMPLEMENTATION_PLAN.md) — 実装フェーズ別仕様
+- [SPEC.md](../SPEC.md) — 全体仕様
 - [SPEC_PROJECT_STRUCTURE.md](SPEC_PROJECT_STRUCTURE.md) — 作業フォルダ構成・設定ファイルスキーマ
-- [implementation_logs/2026-05-07_phase1-implementation.md](implementation_logs/2026-05-07_phase1-implementation.md) — Phase 1 実装ログ

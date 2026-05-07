@@ -14,18 +14,28 @@
 peer-review-assistant/
   README.md
   SPEC.md
-  IMPLEMENTATION_PLAN.md
+  LICENSE
 
   app/
     package.json
     src/
       main.tsx
       App.tsx
-      components/
-      pages/
-      lib/
+      App.css
+      Sidebar.tsx
+      ProgressBar.tsx
+      panels/
+        HomePanel.tsx
+        ProjectPanel.tsx
+        PreprocessPanel.tsx
+        CitationReviewPanel.tsx
+        ReviewChecksPanel.tsx
+        ResultsPanel.tsx
+        SettingsPanel.tsx
+        LogPanel.tsx
     src-tauri/
       tauri.conf.json
+      Cargo.toml
       src/
 
   python/
@@ -42,24 +52,15 @@ peer-review-assistant/
     pyproject.toml
 
   docs/
+    SPEC_CLI.md
     SPEC_PROJECT_STRUCTURE.md
     SPEC_PREPROCESS.md
-    SPEC_CLI.md
-    SPEC_GUI.md
-    SPEC_LLM.md
+    SPEC_CITATION_EXTRACTION.md
     SPEC_CITATION_DB.md
-    SPEC_REVIEW_OUTPUT.md
-    SPEC_SECURITY.md
+    SPEC_LLM.md
 
+  e2e_test_project/
   examples/
-    sample_project/
-
-  release/
-    README_RELEASE.md
-    uploads/
-    builds/
-    checksums/
-
   tests/
     python/
     app/
@@ -281,7 +282,9 @@ GUI側では、作業フォルダ選択時に以下を行う。
     "pdf_sha256": null,
     "docx_size_bytes": null,
     "pdf_size_bytes": null,
-    "input_validation_status": "not_started"
+    "input_validation_status": "not_started",
+    "source_mode": "docx_only",
+    "line_numbers_available": false
   },
   "manuscript": {
     "title": null,
@@ -319,7 +322,9 @@ GUI側では、作業フォルダ選択時に以下を行う。
     "pdf_sha256": "def456...",
     "docx_size_bytes": 123456,
     "pdf_size_bytes": 234567,
-    "input_validation_status": "ok"
+    "input_validation_status": "ok",
+    "source_mode": "docx_with_pdf",
+    "line_numbers_available": false
   },
   "manuscript": {
     "title": null,
@@ -340,6 +345,16 @@ GUI側では、作業フォルダ選択時に以下を行う。
   }
 }
 ```
+
+`source_mode` は以下のいずれか:
+
+| 値 | 条件 |
+|---|---|
+| `docx_only` | PDF が指定されなかった（`pdf_path` は `null`） |
+| `docx_with_pdf` | PDF が指定されたが行番号抽出は未実行 |
+| `docx_with_line_numbered_pdf` | 行番号抽出に成功（将来実装） |
+
+`line_numbers_available` は PDF からの行番号抽出が成功した場合に `true` となる。
 
 ---
 

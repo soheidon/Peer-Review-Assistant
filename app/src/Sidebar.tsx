@@ -6,7 +6,6 @@ const MENU_ITEMS = [
   { key: "review", label: "査読チェック", icon: "✓" },
   { key: "results", label: "結果", icon: "📄" },
   { key: "settings", label: "設定", icon: "🔧" },
-  { key: "log", label: "ログ", icon: "📋" },
 ];
 
 interface SidebarProps {
@@ -17,7 +16,6 @@ interface SidebarProps {
 export default function Sidebar({ activeView, onNavigate }: SidebarProps) {
   return (
     <nav className="sidebar">
-      <div className="sidebar-brand">PRA</div>
       <ul className="sidebar-menu">
         {MENU_ITEMS.map((item) => (
           <li

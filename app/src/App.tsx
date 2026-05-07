@@ -9,7 +9,6 @@ import CitationReviewPanel from "./panels/CitationReviewPanel";
 import ReviewChecksPanel from "./panels/ReviewChecksPanel";
 import ResultsPanel from "./panels/ResultsPanel";
 import SettingsPanel from "./panels/SettingsPanel";
-import LogPanel from "./panels/LogPanel";
 
 interface LogEntry {
   event: string;
@@ -61,6 +60,7 @@ function App() {
   const [statusMessage, setStatusMessage] = useState<{text: string; type: "ok"|"error"|"info"}|null>(null);
   const [preprocessResults, setPreprocessResults] = useState<Record<string, string>>({});
   const [crossrefSummary, setCrossrefSummary] = useState("");
+  const [logExpanded, setLogExpanded] = useState(true);
 
   // Auto-clear status message after 8 seconds
   useEffect(() => {
@@ -183,9 +183,48 @@ function App() {
     const selected = await open({
       directory: true,
       multiple: false,
-      title: "Select project folder",
+      title: "プロジェクトフォルダを選択",
     });
     if (selected && typeof selected === "string") {
+      setProjectPath(selected);
+    }
+  };
+
+  const openExistingProject = async () => {
+    const selected = await open({
+      directory: true,
+      multiple: false,
+      title: "既存プロジェクトフォルダを開く",
+    });
+    if (!selected || typeof selected !== "string") return;
+
+    const projJsonPath = `${selected.replace(/\\/g, "/")}/project.json`;
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const raw = await invoke<string>("read_text_file", { path: projJsonPath });
+      const proj = JSON.parse(raw);
+      setProjectPath(selected);
+      setProjectCreated(true);
+      // Restore source info from project.json
+      if (proj.source) {
+        if (proj.source.docx_path) {
+          setDocxPath(proj.source.original_docx_path || proj.source.docx_path);
+        }
+        if (proj.source.pdf_path) {
+          setPdfPath(proj.source.original_pdf_path || proj.source.pdf_path);
+        }
+        if (proj.source.input_validation_status === "ok") {
+          setValidationOk(true);
+          setSourceAttached(true);
+        }
+      }
+      if (proj.preprocess) {
+        if (proj.preprocess.status === "done") setPreprocessDone(true);
+      }
+      setStatusMessage({text: "既存プロジェクトを開きました。", type: "info"});
+      addLog({event: "info", message: `Opened existing project: ${selected}`});
+    } catch {
+      // No project.json — just set the path for new project creation
       setProjectPath(selected);
     }
   };
@@ -972,6 +1011,15 @@ function App() {
       <Sidebar activeView={activeView} onNavigate={setActiveView} />
       <div className="app-main">
         <ProgressBar {...progressProps} />
+
+        {/* Project info header */}
+        <div className="app-header">
+          <span className="app-header-label">現在のプロジェクト：</span>
+          <span className="app-header-path">
+            {projectPath || "未選択"}
+          </span>
+        </div>
+
         <div className="app-content">
           {activeView === "home" && (
             <HomePanel
@@ -1002,6 +1050,7 @@ function App() {
               attachRunning={attachRunning}
               onProjectPathChange={setProjectPath}
               onBrowseFolder={browseFolder}
+              onOpenExisting={openExistingProject}
               onCreateProject={createProject}
               onDocxPathChange={setDocxPath}
               onBrowseDocx={browseDocx}
@@ -1101,13 +1150,37 @@ function App() {
               onTestAll={testAllLlm}
             />
           )}
+        </div>
 
-          {activeView === "log" && (
-            <LogPanel
-              logs={logs}
-              onClearLogs={clearLogs}
-              logLineStyle={logLineStyle}
-            />
+        {/* Bottom collapsible log pane */}
+        <div className={`app-log-pane ${logExpanded ? "" : "collapsed"}`}>
+          <div className="app-log-header">
+            <button
+              className="log-toggle-btn"
+              onClick={() => setLogExpanded((v) => !v)}
+            >
+              {logExpanded ? "▼" : "▲"} ログ
+              {logs.length > 0 && (
+                <span className="log-count">{logs.length}</span>
+              )}
+            </button>
+            {logExpanded && (
+              <button onClick={clearLogs} className="clear-btn">ログを消去</button>
+            )}
+          </div>
+          {logExpanded && (
+            <div className="app-log-area">
+              {logs.length === 0 && (
+                <p className="log-empty-msg">
+                  コマンドを実行するとログが表示されます。
+                </p>
+              )}
+              {logs.map((entry, i) => (
+                <pre key={i} style={logLineStyle(entry)} className="log-line">
+                  {JSON.stringify(entry)}
+                </pre>
+              ))}
+            </div>
           )}
         </div>
       </div>

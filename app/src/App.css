@@ -37,6 +37,100 @@ body {
   overflow-y: auto;
 }
 
+/* ── Project info header ───────────────────────────────────────────────── */
+
+.app-header {
+  padding: 6px 16px;
+  background: #fafafa;
+  border-bottom: 1px solid #d9d9d9;
+  font-size: 12px;
+  color: #555;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.app-header-label {
+  color: #888;
+}
+
+.app-header-path {
+  font-family: "Cascadia Code", "Consolas", monospace;
+  font-size: 11px;
+  color: #333;
+  word-break: break-all;
+}
+
+/* ── Bottom log pane ───────────────────────────────────────────────────── */
+
+.app-log-pane {
+  flex-shrink: 0;
+  border-top: 1px solid #c0c0c0;
+  background: #fafafa;
+}
+
+.app-log-pane.collapsed {
+  /* only header visible */
+}
+
+.app-log-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 16px;
+  background: #eee;
+  border-bottom: 1px solid #d9d9d9;
+}
+
+.log-toggle-btn {
+  background: none;
+  border: none;
+  font-size: 12px;
+  cursor: pointer;
+  color: #555;
+  padding: 2px 6px;
+  height: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.log-toggle-btn:hover {
+  background: #e0e0e0;
+  border: none;
+}
+
+.log-count {
+  font-size: 10px;
+  background: #0078d4;
+  color: #fff;
+  padding: 0 5px;
+  border-radius: 8px;
+  font-weight: 600;
+}
+
+.log-empty-msg {
+  color: #999;
+  font-size: 11px;
+  font-family: "Cascadia Code", "Consolas", monospace;
+  padding: 4px 0;
+}
+
+.app-log-area {
+  padding: 6px 16px;
+  max-height: 150px;
+  overflow-y: auto;
+  font-family: "Cascadia Code", "Consolas", monospace;
+}
+
+.log-line {
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+  font-size: 11px;
+}
+
 /* ── Sidebar ────────────────────────────────────────────────────────────── */
 
 .sidebar {

@@ -7,6 +7,15 @@ import shutil
 import sys
 from datetime import datetime, timezone, timedelta
 
+# Force UTF-8 encoding for stdout/stderr on all platforms.
+# On Windows, Python defaults to the system code page (e.g. cp932),
+# which breaks the Tauri plugin-shell's strict UTF-8 decode of subprocess output.
+sys.stdout.reconfigure(encoding="utf-8")
+sys.stderr.reconfigure(encoding="utf-8")
+# Also set environment variables so any child processes inherit UTF-8.
+os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+os.environ.setdefault("PYTHONUTF8", "1")
+
 import click
 
 
@@ -68,8 +77,8 @@ def compute_sha256(filepath):
     return h.hexdigest()
 
 
-def validate_input_files(docx_path, pdf_path):
-    """Validate input docx and PDF files. Returns (ok, errors)."""
+def validate_input_files(docx_path, pdf_path=None):
+    """Validate input docx and PDF files. PDF is optional. Returns (ok, errors)."""
     errors = []
 
     if not os.path.isfile(docx_path):
@@ -80,13 +89,14 @@ def validate_input_files(docx_path, pdf_path):
         if os.path.getsize(docx_path) == 0:
             errors.append(f"docx file is empty: {docx_path}")
 
-    if not os.path.isfile(pdf_path):
-        errors.append(f"PDF file not found: {pdf_path}")
-    else:
-        if not pdf_path.lower().endswith(".pdf"):
-            errors.append(f"PDF file extension is not .pdf: {pdf_path}")
-        if os.path.getsize(pdf_path) == 0:
-            errors.append(f"PDF file is empty: {pdf_path}")
+    if pdf_path:
+        if not os.path.isfile(pdf_path):
+            errors.append(f"PDF file not found: {pdf_path}")
+        else:
+            if not pdf_path.lower().endswith(".pdf"):
+                errors.append(f"PDF file extension is not .pdf: {pdf_path}")
+            if os.path.getsize(pdf_path) == 0:
+                errors.append(f"PDF file is empty: {pdf_path}")
 
     return len(errors) == 0, errors
 
@@ -121,7 +131,10 @@ def init_project(project_dir):
     # Reject if project.json already exists
     if os.path.isfile(os.path.join(project_dir, "project.json")):
         error("PROJECT_EXISTS",
-              "project.json already exists. Use an empty or new folder.")
+              "このフォルダには既にプロジェクトがあります。"
+              "別のフォルダを選ぶか、GUIの「既存プロジェクトを開く」を使用してください。 "
+              "project.json already exists. Use an empty folder for new project, "
+              "or open as existing project.")
 
     emit("progress", task="init-project", step="create_dirs", percent=10)
 
@@ -177,6 +190,8 @@ def init_project(project_dir):
             "docx_size_bytes": None,
             "pdf_size_bytes": None,
             "input_validation_status": "not_started",
+            "source_mode": "docx_only",
+            "line_numbers_available": False,
         },
         "manuscript": {
             "title": None,
@@ -235,11 +250,11 @@ def init_project(project_dir):
 @click.option("--docx", "docx_path", required=True,
               type=click.Path(exists=True, dir_okay=False, readable=True),
               help="Path to the manuscript .docx file.")
-@click.option("--pdf", "pdf_path", required=True,
+@click.option("--pdf", "pdf_path", required=False, default=None,
               type=click.Path(exists=True, dir_okay=False, readable=True),
-              help="Path to the line-numbered .pdf file.")
+              help="Path to the PDF file (optional; line-numbered recommended).")
 def validate_input(docx_path, pdf_path):
-    """Validate input docx and PDF files without copying."""
+    """Validate input docx and optional PDF files without copying."""
     emit("progress", task="validate-input", step="check_files", percent=0)
 
     ok, errors = validate_input_files(docx_path, pdf_path)
@@ -253,14 +268,14 @@ def validate_input(docx_path, pdf_path):
     emit("progress", task="validate-input", step="compute_hash", percent=50)
 
     docx_sha = compute_sha256(docx_path)
-    pdf_sha = compute_sha256(pdf_path)
+    pdf_sha = compute_sha256(pdf_path) if pdf_path else None
     docx_size = os.path.getsize(docx_path)
-    pdf_size = os.path.getsize(pdf_path)
+    pdf_size = os.path.getsize(pdf_path) if pdf_path else None
 
     emit("done",
          task="validate-input",
          docx_path=os.path.abspath(docx_path),
-         pdf_path=os.path.abspath(pdf_path),
+         pdf_path=os.path.abspath(pdf_path) if pdf_path else None,
          docx_sha256=docx_sha,
          pdf_sha256=pdf_sha,
          docx_size_bytes=docx_size,
@@ -275,11 +290,11 @@ def validate_input(docx_path, pdf_path):
 @click.option("--docx", "docx_path", required=True,
               type=click.Path(exists=True, dir_okay=False, readable=True),
               help="Path to the manuscript .docx file.")
-@click.option("--pdf", "pdf_path", required=True,
+@click.option("--pdf", "pdf_path", required=False, default=None,
               type=click.Path(exists=True, dir_okay=False, readable=True),
-              help="Path to the line-numbered .pdf file.")
+              help="Path to the PDF file (optional; line-numbered recommended).")
 def attach_source(project_dir, docx_path, pdf_path):
-    """Validate input files and copy them into work/source/ with standard names."""
+    """Validate input files and copy them into project with standard names."""
     emit("progress", task="attach-source", step="validate", percent=0)
 
     # Load project.json
@@ -305,28 +320,42 @@ def attach_source(project_dir, docx_path, pdf_path):
     emit("progress", task="attach-source", step="compute_hash", percent=30)
 
     docx_sha = compute_sha256(docx_path)
-    pdf_sha = compute_sha256(pdf_path)
+    pdf_sha = compute_sha256(pdf_path) if pdf_path else None
     docx_size = os.path.getsize(docx_path)
-    pdf_size = os.path.getsize(pdf_path)
+    pdf_size = os.path.getsize(pdf_path) if pdf_path else None
 
-    # Check for existing files in work/source/
+    # Determine source mode
+    if pdf_path:
+        source_mode = "docx_with_pdf"
+        line_numbers_available = False  # May be updated later by line extraction
+    else:
+        source_mode = "docx_only"
+        line_numbers_available = False
+
+    # Check for existing files in project/source/
     source_dir = os.path.join(project_dir, "source")
     os.makedirs(source_dir, exist_ok=True)
 
     dest_docx = os.path.join(source_dir, "manuscript.docx")
-    dest_pdf = os.path.join(source_dir, "manuscript_line_numbered.pdf")
+    dest_pdf = os.path.join(source_dir, "manuscript_line_numbered.pdf") if pdf_path else None
 
     emit("progress", task="attach-source", step="check_existing", percent=50)
 
-    if os.path.exists(dest_docx) or os.path.exists(dest_pdf):
+    existing = []
+    if os.path.exists(dest_docx):
+        existing.append("manuscript.docx")
+    if dest_pdf and os.path.exists(dest_pdf):
+        existing.append("manuscript_line_numbered.pdf")
+    if existing:
         error("SOURCE_EXISTS",
-              "work/source/ already contains manuscript.docx or manuscript_line_numbered.pdf. "
+              f"source/ already contains: {', '.join(existing)}. "
               "Remove them first or use a different project folder.")
 
     emit("progress", task="attach-source", step="copy_files", percent=70)
 
     shutil.copy2(docx_path, dest_docx)
-    shutil.copy2(pdf_path, dest_pdf)
+    if pdf_path and dest_pdf:
+        shutil.copy2(pdf_path, dest_pdf)
 
     emit("progress", task="attach-source", step="update_project_json", percent=85)
 
@@ -337,14 +366,16 @@ def attach_source(project_dir, docx_path, pdf_path):
     now = datetime.now(JST)
     proj["updated_at"] = now.isoformat()
     proj["source"]["original_docx_path"] = os.path.abspath(docx_path)
-    proj["source"]["original_pdf_path"] = os.path.abspath(pdf_path)
+    proj["source"]["original_pdf_path"] = os.path.abspath(pdf_path) if pdf_path else None
     proj["source"]["docx_path"] = "source/manuscript.docx"
-    proj["source"]["pdf_path"] = "source/manuscript_line_numbered.pdf"
+    proj["source"]["pdf_path"] = "source/manuscript_line_numbered.pdf" if pdf_path else None
     proj["source"]["docx_sha256"] = docx_sha
     proj["source"]["pdf_sha256"] = pdf_sha
     proj["source"]["docx_size_bytes"] = docx_size
     proj["source"]["pdf_size_bytes"] = pdf_size
     proj["source"]["input_validation_status"] = "ok"
+    proj["source"]["source_mode"] = source_mode
+    proj["source"]["line_numbers_available"] = line_numbers_available
 
     with open(proj_path, "w", encoding="utf-8") as f:
         json.dump(proj, f, indent=2, ensure_ascii=False)
@@ -352,9 +383,11 @@ def attach_source(project_dir, docx_path, pdf_path):
     emit("done",
          task="attach-source",
          docx_path="source/manuscript.docx",
-         pdf_path="source/manuscript_line_numbered.pdf",
+         pdf_path="source/manuscript_line_numbered.pdf" if pdf_path else None,
          docx_sha256=docx_sha,
          pdf_sha256=pdf_sha,
+         source_mode=source_mode,
+         line_numbers_available=line_numbers_available,
          message="Source files attached successfully.")
 
 

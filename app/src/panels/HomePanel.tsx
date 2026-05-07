@@ -75,15 +75,6 @@ export default function HomePanel({
       </div>
 
       <div className="panel" style={{ marginTop: 12 }}>
-        <h2>現在のプロジェクト</h2>
-        {projectPath ? (
-          <p className="home-project-path">{projectPath}</p>
-        ) : (
-          <p className="home-hint">プロジェクトが選択されていません。「プロジェクト」メニューから作成してください。</p>
-        )}
-      </div>
-
-      <div className="panel" style={{ marginTop: 12 }}>
         <h2>進捗サマリー</h2>
         <p className="home-progress-text">
           {doneCount} / {stages.length} ステップ完了

@@ -9,6 +9,32 @@ from datetime import datetime, timezone, timedelta
 
 import click
 
+
+def _get_env(key):
+    """Get environment variable with user-env fallback (Windows only).
+
+    On Windows, os.environ only returns process-level variables.
+    User environment variables set via [Environment]::SetEnvironmentVariable
+    are not visible to subprocesses launched from non-Windows shells (bash).
+    This function checks the Windows registry as a fallback.
+    """
+    val = os.environ.get(key)
+    if val:
+        return val
+    # Fallback: check user environment via Windows registry
+    if sys.platform == "win32":
+        try:
+            import winreg
+            with winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                "Environment",
+            ) as regkey:
+                val, _ = winreg.QueryValueEx(regkey, key)
+                return val if val else ""
+        except (OSError, ImportError):
+            pass
+    return ""
+
 JST = timezone(timedelta(hours=9))
 
 
@@ -833,6 +859,116 @@ def test_llm(slot, provider, base_url, model, api_key):
              code="LLM_CONNECTION_FAILED",
              message=result["error"] or "Unknown error",
              latency_ms=result.get("latency_ms"))
+
+
+@main.command(name="test-db")
+@click.option("--db", "db_name", required=True,
+              help="Database to test (e.g., pubmed).")
+@click.option("--query", default="cancer",
+              help="Test query term (default: cancer).")
+def test_db_cmd(db_name, query):
+    """Test connection to an external database (e.g., PubMed)."""
+    import urllib.request
+    import urllib.parse
+    import urllib.error
+
+    if db_name != "pubmed":
+        error("UNSUPPORTED_DB",
+              f"Database '{db_name}' is not supported. "
+              "Currently supported: pubmed.")
+
+    # --- read credentials from environment ---
+    api_key = _get_env("NCBI_API_KEY").strip()
+    email = _get_env("NCBI_EMAIL").strip()
+    tool = _get_env("NCBI_TOOL").strip()
+
+    if not api_key:
+        error("NCBI_API_KEY_MISSING",
+              "NCBI_API_KEY environment variable is not set. "
+              "Set it to your NCBI API key to use PubMed.")
+
+    warnings = []
+    if not email:
+        warnings.append("NCBI_EMAIL is not set; NCBI recommends including an "
+                        "email for better service.")
+    if not tool:
+        warnings.append("NCBI_TOOL is not set; NCBI recommends including a "
+                        "tool name.")
+
+    emit("progress", task="test-db", step="connect", percent=30,
+         db=db_name,
+         key_provided=True,
+         email_provided=bool(email),
+         tool_provided=bool(tool))
+
+    # --- build request URL (api_key never logged) ---
+    params = {
+        "db": "pubmed",
+        "term": query,
+        "retmode": "json",
+        "retmax": "1",
+        "api_key": api_key,
+    }
+    if email:
+        params["email"] = email
+    if tool:
+        params["tool"] = tool
+
+    url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?" \
+          + urllib.parse.urlencode(params)
+
+    # --- make the request ---
+    emit("progress", task="test-db", step="request", percent=60,
+         db=db_name, query=query)
+
+    try:
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            body = resp.read().decode("utf-8")
+    except urllib.error.HTTPError as e:
+        emit("progress", task="test-db", step="request", percent=60,
+             db=db_name, query=query, http_status=e.code)
+        error("PUBMED_REQUEST_FAILED",
+              f"PubMed API returned HTTP {e.code}: {e.reason}")
+    except urllib.error.URLError as e:
+        emit("progress", task="test-db", step="request", percent=60,
+             db=db_name, query=query)
+        error("PUBMED_TIMEOUT",
+              f"PubMed API request failed: {e.reason}")
+
+    # --- parse response ---
+    emit("progress", task="test-db", step="parse", percent=80,
+         db=db_name)
+
+    try:
+        data = json.loads(body)
+    except json.JSONDecodeError as e:
+        error("PUBMED_INVALID_RESPONSE",
+              f"Failed to parse PubMed response as JSON: {e}")
+
+    esearchresult = data.get("esearchresult", {})
+    result_count = int(esearchresult.get("count", 0))
+    idlist = esearchresult.get("idlist", [])
+    sample_pmid = idlist[0] if idlist else None
+
+    if result_count == 0 and not idlist:
+        error("PUBMED_INVALID_RESPONSE",
+              f"PubMed response contained no results. "
+              f"Raw keys: {list(data.keys())}")
+
+    # --- success ---
+    extra = {}
+    if warnings:
+        extra["warnings"] = warnings
+
+    emit("done",
+         task="test-db",
+         db=db_name,
+         ok=True,
+         result_count=result_count,
+         sample_pmid=sample_pmid,
+         key_provided=True,
+         **extra)
 
 
 _VALID_CHECKS = {"structure", "expression", "methods_stats"}

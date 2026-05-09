@@ -1840,6 +1840,7 @@ function App() {
 
   const stepToView: Record<string, string> = {
     project: "project",
+    journal: "journal",
     settings: "settings",
     input: "project",
     preprocess: "preprocess",
@@ -1858,6 +1859,7 @@ function App() {
 
   const progressProps = {
     projectPath,
+    journalLoaded,
     sourceAttached,
     preprocessDone,
     numberingDone,

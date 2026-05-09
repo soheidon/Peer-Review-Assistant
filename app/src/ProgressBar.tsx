@@ -1,5 +1,6 @@
 interface ProgressBarProps {
   projectPath: string;
+  journalLoaded: boolean;
   sourceAttached: boolean;
   preprocessDone: boolean;
   numberingDone: boolean;
@@ -17,7 +18,8 @@ interface ProgressBarProps {
 
 const STAGES = [
   { key: "project",    label: "プロジェクト作成", done: (p: ProgressBarProps) => !!p.projectPath },
-  { key: "settings",   label: "設定",             done: (p: ProgressBarProps) => p.settingsConfigured },
+  { key: "journal",    label: "ジャーナル設定",   done: (p: ProgressBarProps) => p.journalLoaded },
+  { key: "settings",   label: "API設定",          done: (p: ProgressBarProps) => p.settingsConfigured },
   { key: "input",      label: "入力ファイル",     done: (p: ProgressBarProps) => p.sourceAttached },
   { key: "preprocess", label: "前処理",           done: (p: ProgressBarProps) => p.preprocessDone },
   { key: "sections",   label: "本文分割確認",     done: (p: ProgressBarProps) => p.sectionsDone },

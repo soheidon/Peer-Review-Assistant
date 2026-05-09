@@ -1857,6 +1857,122 @@ def generate_llm_reference_flags_cmd(project_dir, slot, provider, base_url,
                   f"analyzed, {later_count} flagged for later LLM check."))
 
 
+@main.command(name="generate-journal-profile")
+@click.option("--project", "project_dir", required=True,
+              type=click.Path(file_okay=False, writable=True),
+              help="Path to the project working folder.")
+@click.option("--slot", required=True,
+              help="LLM slot name (e.g., summary, reviewer1).")
+@click.option("--provider", required=True,
+              help="LLM provider (e.g., openai, anthropic, deepseek).")
+@click.option("--base-url", required=True,
+              help="LLM API base URL.")
+@click.option("--model", required=True,
+              help="LLM model name.")
+@click.option("--api-key", default=None,
+              help="LLM API key.")
+@click.option("--api-key-env", default=None,
+              help="Environment variable name containing the API key.")
+@click.option("--journal-name", default="",
+              help="Target journal name (e.g., 'Scientific Reports').")
+@click.option("--journal-url", default="",
+              help="Journal homepage or submission guidelines URL.")
+@click.option("--article-type", default="Article",
+              help="Article type (Article, Review, etc.).")
+def generate_journal_profile_cmd(project_dir, slot, provider, base_url,
+                                  model, api_key, api_key_env,
+                                  journal_name, journal_url, article_type):
+    """Generate journal_profile.json using LLM research.
+
+    The LLM researches the target journal and fills in submission guidelines,
+    citation style, and review policy information. Output is saved as a DRAFT
+    — the user should review and confirm before using it for checks.
+
+    Writes journal_profile.json and journal_profile_draft.md to the project
+    directory. The API key value is never logged.
+    """
+    from peer_review_assistant.llm import LLMProvider, chat_completion
+    from peer_review_assistant.llm.json_repair import parse_llm_json
+    from peer_review_assistant.journal_profile import (
+        build_journal_profile_messages,
+        apply_defaults,
+        save_journal_profile,
+    )
+
+    emit("progress", task="generate-journal-profile",
+         step="validate", percent=0, slot=slot)
+
+    proj_path = os.path.join(project_dir, "project.json")
+    if not os.path.isfile(proj_path):
+        error("NO_PROJECT", "project.json not found.")
+
+    # Resolve API key
+    if not api_key and api_key_env:
+        api_key = _get_env(api_key_env).strip()
+    if not api_key:
+        api_key = _get_env(f"PRA_LLM_KEY_{slot.upper()}").strip()
+    if not api_key:
+        error("NO_API_KEY",
+              f"No API key provided. Use --api-key, --api-key-env, or set "
+              f"PRA_LLM_KEY_{slot.upper()} environment variable.")
+
+    emit("progress", task="generate-journal-profile",
+         step="calling_llm", percent=40, slot=slot,
+         journal=journal_name or "(not specified)", model=model)
+
+    prov = LLMProvider(
+        name=slot,
+        provider=provider,
+        base_url=base_url,
+        model=model,
+        api_key=api_key,
+    )
+
+    messages = build_journal_profile_messages(
+        journal_name=journal_name,
+        journal_url=journal_url,
+        article_type=article_type,
+    )
+
+    result = chat_completion(prov, messages, max_tokens=4096, timeout_seconds=60)
+
+    if not result or not result.get("content"):
+        error("LLM_EMPTY", "LLM returned empty response for journal profile.")
+
+    emit("progress", task="generate-journal-profile",
+         step="parsing", percent=70, slot=slot)
+
+    parsed = parse_llm_json(result["content"])
+    if not parsed:
+        error("LLM_PARSE_FAILED",
+              "Failed to parse LLM response as JSON. "
+              "The model may have returned an unsupported format.")
+
+    profile = apply_defaults(parsed)
+    profile["source"] = "llm"
+    profile["source_details"] = f"Generated via {slot} ({model})"
+
+    json_path, md_path = save_journal_profile(project_dir, profile)
+
+    # Update project.json
+    with open(proj_path, "r", encoding="utf-8") as f:
+        proj = json.load(f)
+    proj.setdefault("journal_profile", {})["status"] = "draft"
+    proj["journal_profile"]["generated_at"] = datetime.now(JST).isoformat()
+    proj["updated_at"] = datetime.now(JST).isoformat()
+    with open(proj_path, "w", encoding="utf-8") as f:
+        json.dump(proj, f, indent=2, ensure_ascii=False)
+
+    emit("done",
+         task="generate-journal-profile",
+         journal=profile.get("journal_name", journal_name),
+         source=profile.get("source"),
+         saved_json=os.path.basename(json_path),
+         saved_md=os.path.basename(md_path),
+         message=(f"Journal profile saved for "
+                  f"'{profile.get('journal_name', journal_name)}'."))
+
+
 @main.command(name="defer-reference")
 @click.option("--project", "project_dir", required=True,
               type=click.Path(file_okay=False, writable=True),

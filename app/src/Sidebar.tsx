@@ -1,6 +1,7 @@
 const MENU_ITEMS = [
   { key: "project",    label: "プロジェクト",   icon: "📁" },
-  { key: "settings",   label: "設定・投稿先",   icon: "🔧" },
+  { key: "journal",    label: "ジャーナル",     icon: "📰" },
+  { key: "settings",   label: "設定",           icon: "🔧" },
   { key: "preprocess", label: "前処理",         icon: "⚙️" },
   { key: "sections",   label: "本文分割",       icon: "📋" },
   { key: "citations",  label: "文献確認",       icon: "📚" },

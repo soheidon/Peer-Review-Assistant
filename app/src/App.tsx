@@ -10,6 +10,7 @@ import ReviewChecksPanel from "./panels/ReviewChecksPanel";
 import ResultsPanel from "./panels/ResultsPanel";
 import SettingsPanel from "./panels/SettingsPanel";
 import SectionViewerPanel from "./panels/SectionViewerPanel";
+import JournalPanel, { JournalProfile } from "./panels/JournalPanel";
 
 interface LlmSlot {
   name: string;
@@ -115,6 +116,53 @@ function App() {
       return () => clearTimeout(timer);
     }
   }, [statusMessage]);
+
+  // Journal tab state
+  const defaultJournalProfile: JournalProfile = {
+    journal_name: "",
+    journal_url: "",
+    publisher: "",
+    article_type: "Article",
+    reference_style: {
+      style_name: "",
+      in_text_citation: "numeric",
+      reference_list_order: "order_of_appearance",
+      doi_required: "recommended_or_required_if_available",
+      url_access_date_required: null,
+      journal_title_style: "abbreviated_or_full",
+      example_reference: "",
+    },
+    submission_guidelines: {
+      word_limit: null,
+      abstract_limit: null,
+      figure_table_limits: null,
+      supplementary_material_policy: "",
+      data_availability_policy: "",
+      ethics_policy: "",
+      conflict_of_interest_policy: "",
+      funding_statement_policy: "",
+    },
+    review_policy: {
+      novelty_requirement: "",
+      methodological_requirements: "",
+      statistical_reporting_expectations: "",
+      reporting_guidelines: [],
+      reviewer_guidance: "",
+      editorial_policy_summary: "",
+    },
+    notes: "",
+    source: "manual",
+    source_details: "",
+    updated_at: "",
+  };
+  const [journalProfile, setJournalProfile] = useState<JournalProfile>(structuredClone(defaultJournalProfile));
+  const [journalLoaded, setJournalLoaded] = useState(false);
+  const [journalLlmRunning, setJournalLlmRunning] = useState(false);
+  const [journalLoading, setJournalLoading] = useState(false);
+  const [journalExternalPrompt, setJournalExternalPrompt] = useState("");
+  const [journalImportText, setJournalImportText] = useState("");
+  const [journalImportPreview, setJournalImportPreview] = useState<JournalProfile | null>(null);
+  const [journalImportError, setJournalImportError] = useState("");
 
   const defaultSlotEnvNames: Record<string, string> = {
     summary: "PRA_LLM_KEY_SUMMARY",
@@ -319,6 +367,25 @@ function App() {
         if (await checkFile("citations/references_repaired_llm.json")) setLlmRepairDone(true);
         if (await checkFile("citations/db_google_books_candidates.json")) setGoogleBooksDone(true);
         if (await checkFile("citations/reference_llm_flags.json")) setLlmFlagsDone(true);
+
+        // Check for journal profile
+        try {
+          const jpRaw = await invoke<string>("read_text_file", { path: `${base}/journal_profile.json` });
+          const jpParsed = JSON.parse(jpRaw);
+          const merged = JSON.parse(JSON.stringify(defaultJournalProfile));
+          const deepMerge = (target: Record<string, unknown>, source: Record<string, unknown>) => {
+            for (const key of Object.keys(source)) {
+              if (source[key] !== null && typeof source[key] === "object" && !Array.isArray(source[key]) && typeof target[key] === "object" && target[key] !== null && !Array.isArray(target[key])) {
+                deepMerge(target[key] as Record<string, unknown>, source[key] as Record<string, unknown>);
+              } else if (source[key] !== undefined) {
+                target[key] = source[key];
+              }
+            }
+          };
+          deepMerge(merged, jpParsed);
+          setJournalProfile(merged as JournalProfile);
+          setJournalLoaded(true);
+        } catch { /* journal_profile.json not found — that's fine */ }
 
         // Check merge results
         if (await checkFile("outputs/structure/merged.section.json")) setStructureMergeDone(true);
@@ -899,6 +966,213 @@ function App() {
       setStatusMessage({text: "LLM文献フラグ生成でエラーが発生しました。", type: "error"});
     } finally {
       setLlmFlagsGenerating(false);
+    }
+  };
+
+  // ── Journal tab handlers ────────────────────────────────────────────────
+
+  /** Update a nested field in journalProfile using dot-notation path. */
+  const updateJournalField = (path: string, value: unknown) => {
+    setJournalProfile((prev) => {
+      const next = JSON.parse(JSON.stringify(prev));
+      const keys = path.split(".");
+      let target: Record<string, unknown> = next;
+      for (let i = 0; i < keys.length - 1; i++) {
+        target = target[keys[i]] as Record<string, unknown>;
+      }
+      target[keys[keys.length - 1]] = value;
+      return next;
+    });
+  };
+
+  /** Save journal profile to project directory. */
+  const saveJournal = async () => {
+    if (!projectPath.trim()) return;
+    setJournalLoading(true);
+    setStatusMessage(null);
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const jsonPath = `${projectPath.replace(/\\/g, "/")}/journal_profile.json`;
+      const payload = { ...journalProfile, updated_at: new Date().toISOString() };
+      await invoke("write_text_file", { path: jsonPath, content: JSON.stringify(payload, null, 2) });
+      setJournalProfile(payload);
+      setJournalLoaded(true);
+      setStatusMessage({ text: "ジャーナル情報を保存しました。", type: "ok" });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog({ event: "error", message: msg });
+      setStatusMessage({ text: "保存に失敗しました。", type: "error" });
+    } finally {
+      setJournalLoading(false);
+    }
+  };
+
+  /** Load journal profile from project directory. */
+  const loadJournal = async () => {
+    if (!projectPath.trim()) return;
+    setJournalLoading(true);
+    setStatusMessage(null);
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const jsonPath = `${projectPath.replace(/\\/g, "/")}/journal_profile.json`;
+      const raw = await invoke<string>("read_text_file", { path: jsonPath });
+      const parsed = JSON.parse(raw);
+      // Deep merge with defaults
+      const merged = JSON.parse(JSON.stringify(defaultJournalProfile));
+      const deepMerge = (target: Record<string, unknown>, source: Record<string, unknown>) => {
+        for (const key of Object.keys(source)) {
+          if (source[key] !== null && typeof source[key] === "object" && !Array.isArray(source[key]) && typeof target[key] === "object" && target[key] !== null && !Array.isArray(target[key])) {
+            deepMerge(target[key] as Record<string, unknown>, source[key] as Record<string, unknown>);
+          } else if (source[key] !== undefined) {
+            target[key] = source[key];
+          }
+        }
+      };
+      deepMerge(merged, parsed);
+      setJournalProfile(merged as JournalProfile);
+      setJournalLoaded(true);
+      setStatusMessage({ text: "ジャーナル情報を読み込みました。", type: "ok" });
+    } catch {
+      setStatusMessage({ text: "journal_profile.json が見つかりません。", type: "error" });
+    } finally {
+      setJournalLoading(false);
+    }
+  };
+
+  /** Run LLM journal profile generation via CLI. */
+  const runJournalLlm = async (slotName: string) => {
+    if (!projectPath.trim()) {
+      addLog({ event: "error", message: "Please create a project first." });
+      return;
+    }
+
+    const slot = llmSlots.find((s) => s.name === slotName);
+    if (!slot || !slot.provider.trim() || !slot.baseUrl.trim() || !slot.model.trim()) {
+      addLog({ event: "error", message: `LLM slot ${slotName} is not configured.` });
+      return;
+    }
+
+    setJournalLlmRunning(true);
+    setStatusMessage(null);
+    addLog({ event: "info", message: `Running journal profile generation on ${slotDisplayName(slotName)}...` });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const args = buildLlmArgs(slot, [
+        "generate-journal-profile",
+        "--project", projectPath,
+        "--slot", slotName,
+        "--journal-name", journalProfile.journal_name.trim(),
+      ]);
+      if (journalProfile.journal_url.trim()) {
+        args.push("--journal-url", journalProfile.journal_url.trim());
+      }
+      if (journalProfile.article_type) {
+        args.push("--article-type", journalProfile.article_type);
+      }
+      const cmd = Command.create("pra-cli", args);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+      if (output.code === 0) {
+        // Load the generated profile
+        setJournalLlmRunning(false);
+        await loadJournal();
+        setStatusMessage({ text: `LLMでジャーナル情報を取得しました (${slotDisplayName(slotName)})。`, type: "ok" });
+        return;
+      } else {
+        setStatusMessage({ text: "LLMでのジャーナル情報取得に失敗しました。", type: "error" });
+      }
+    } catch (e: unknown) {
+      addLog({ event: "error", message: e instanceof Error ? e.message : String(e) });
+      setStatusMessage({ text: "LLMでのジャーナル情報取得でエラーが発生しました。", type: "error" });
+    } finally {
+      setJournalLlmRunning(false);
+    }
+  };
+
+  /** Generate a prompt string for external AI tools. */
+  const generateExternalPrompt = () => {
+    const jn = journalProfile.journal_name.trim();
+    const ju = journalProfile.journal_url.trim();
+    const at = journalProfile.article_type;
+    const parts = [
+      `Please research the following journal and produce a structured JSON profile:`,
+      ``,
+      `Journal Name: ${jn || "(please fill in)"}`,
+      `Journal URL: ${ju || "(please fill in)"}`,
+      `Article Type: ${at}`,
+      ``,
+      `The JSON must match this schema and contain accurate information from the journal's official submission guidelines:`,
+      ``,
+      `\`\`\`json`,
+      JSON.stringify(defaultJournalProfile, null, 2),
+      `\`\`\``,
+      ``,
+      `Output ONLY valid JSON — no markdown, no explanations, no code fences.`,
+    ];
+    setJournalExternalPrompt(parts.join("\n"));
+  };
+
+  /** Parse pasted JSON for import. */
+  const parseImportJournal = () => {
+    const text = journalImportText.trim();
+    if (!text) {
+      setJournalImportError("JSONを貼り付けてください。");
+      return;
+    }
+    try {
+      // Strip code fences if present
+      let cleaned = text;
+      if (cleaned.startsWith("```")) {
+        cleaned = cleaned.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "");
+      }
+      const parsed = JSON.parse(cleaned);
+      const merged = JSON.parse(JSON.stringify(defaultJournalProfile));
+      const deepMerge = (target: Record<string, unknown>, source: Record<string, unknown>) => {
+        for (const key of Object.keys(source)) {
+          if (source[key] !== null && typeof source[key] === "object" && !Array.isArray(source[key]) && typeof target[key] === "object" && target[key] !== null && !Array.isArray(target[key])) {
+            deepMerge(target[key] as Record<string, unknown>, source[key] as Record<string, unknown>);
+          } else if (source[key] !== undefined) {
+            target[key] = source[key];
+          }
+        }
+      };
+      deepMerge(merged, parsed);
+      setJournalImportPreview(merged as JournalProfile);
+      setJournalImportError("");
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setJournalImportError(`JSONパースエラー: ${msg}`);
+      setJournalImportPreview(null);
+    }
+  };
+
+  /** Confirm import: merge preview into profile and save. */
+  const confirmImportJournal = async () => {
+    if (!journalImportPreview) return;
+    setJournalProfile(journalImportPreview);
+    setJournalImportPreview(null);
+    setJournalImportText("");
+    setJournalImportError("");
+    // Save immediately
+    if (projectPath.trim()) {
+      setJournalLoading(true);
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const jsonPath = `${projectPath.replace(/\\/g, "/")}/journal_profile.json`;
+        const payload = { ...journalImportPreview, updated_at: new Date().toISOString() };
+        await invoke("write_text_file", { path: jsonPath, content: JSON.stringify(payload, null, 2) });
+        setJournalProfile(payload);
+        setJournalLoaded(true);
+        setStatusMessage({ text: "外部AI結果を取り込み、保存しました。", type: "ok" });
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        addLog({ event: "error", message: msg });
+        setStatusMessage({ text: "保存に失敗しました。", type: "error" });
+      } finally {
+        setJournalLoading(false);
+      }
     }
   };
 
@@ -1634,6 +1908,30 @@ function App() {
               onBrowsePdf={browsePdf}
               onValidateInput={validateInput}
               onAttachSource={attachSource}
+              statusMessage={statusMessage}
+            />
+          )}
+
+          {activeView === "journal" && (
+            <JournalPanel
+              projectPath={projectPath}
+              journalProfile={journalProfile}
+              journalLoaded={journalLoaded}
+              journalLlmRunning={journalLlmRunning}
+              journalLoading={journalLoading}
+              journalExternalPrompt={journalExternalPrompt}
+              journalImportText={journalImportText}
+              journalImportPreview={journalImportPreview}
+              journalImportError={journalImportError}
+              llmSlots={llmSlots}
+              onUpdateField={updateJournalField}
+              onSave={saveJournal}
+              onLoad={loadJournal}
+              onLlmGenerate={runJournalLlm}
+              onGenerateExternalPrompt={generateExternalPrompt}
+              onImportTextChange={setJournalImportText}
+              onImportParse={parseImportJournal}
+              onImportConfirm={confirmImportJournal}
               statusMessage={statusMessage}
             />
           )}

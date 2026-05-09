@@ -118,6 +118,18 @@ const JOURNAL_TITLE_OPTIONS = [
   { value: "unknown", label: "不明" },
 ];
 
+/** Heuristic: check if a model name suggests a "Pro" tier capable of accurate research. */
+function isProModel(model: string): boolean {
+  const m = model.toLowerCase();
+  // Pro/advanced model patterns
+  const proPatterns = [
+    /\bpro\b/, /\bopus\b/, /\bsonnet\b/,
+    /gpt-4/, /gpt-4o/, /claude/,
+    /gemini.*(?:pro|ultra)/, /gemini-2/,
+  ];
+  return proPatterns.some((p) => p.test(m));
+}
+
 export default function JournalPanel({
   projectPath,
   journalProfile,
@@ -150,6 +162,9 @@ export default function JournalPanel({
   const [llmSlot, setLlmSlot] = React.useState(
     configuredSlots.length > 0 ? configuredSlots[0].name : ""
   );
+
+  const selectedSlot = configuredSlots.find((s) => s.name === llmSlot);
+  const selectedIsPro = selectedSlot ? isProModel(selectedSlot.model) : false;
 
   // Collapsible section state
   const [expanded, setExpanded] = React.useState<Record<string, boolean>>({
@@ -195,6 +210,16 @@ export default function JournalPanel({
     userSelect: "none",
   };
 
+  // Two-column card style
+  const cardStyle: React.CSSProperties = {
+    flex: 1,
+    minWidth: 0,
+    border: "1px solid #e0e0e0",
+    borderRadius: 6,
+    padding: 14,
+    background: "#fafafa",
+  };
+
   return (
     <div>
       {statusMessage && (
@@ -207,11 +232,11 @@ export default function JournalPanel({
       <section className="panel">
         <h2>推奨操作</h2>
         <ol style={{ fontSize: "12px", color: "#555", margin: "4px 0 0 16px", lineHeight: 1.8 }}>
+          <li>API設定でProモデルを設定</li>
           <li>ジャーナル名とURLを入力</li>
-          <li>外部AI用プロンプトを作成</li>
-          <li>ChatGPT等で調べたJSONを貼り付け</li>
-          <li>取り込み・保存</li>
-          <li>引用形式と投稿規定を確認</li>
+          <li>APIで取得、または外部AI用プロンプトを作成</li>
+          <li>結果を確認して保存</li>
+          <li>文献形式チェック・査読チェックへ進む</li>
         </ol>
       </section>
 
@@ -253,89 +278,131 @@ export default function JournalPanel({
         </div>
       </section>
 
-      {/* ── ② 情報を取得 ──────────────────────────────────────────── */}
+      {/* ── ② 2カラム: APIで取得 | 外部AI用プロンプトで作成 ────────── */}
       <section className="panel">
         <h2>情報を取得</h2>
-        <p style={{ fontSize: "11px", color: "#888", margin: "0 0 10px 0" }}>
-          ChatGPT、DeepSeek Pro、Geminiなどで投稿規定を調べるためのプロンプトを作成します。
-          取得したJSONを下の貼り付け欄に貼り付けてください。
-        </p>
+        <div className="row" style={{ gap: 14, alignItems: "stretch" }}>
 
-        {/* External AI prompt */}
-        <div className="row" style={{ gap: 8, marginBottom: 8 }}>
-          <button onClick={onGenerateExternalPrompt}>
-            外部AI用プロンプトを作成
-          </button>
-          {journalExternalPrompt && (
-            <button
-              onClick={() => copyToClipboard(journalExternalPrompt)}
-              style={{ fontSize: 11, height: 28 }}
-            >
-              プロンプトをコピー
-            </button>
-          )}
-        </div>
-        {journalExternalPrompt && (
-          <pre
-            style={{
-              background: "#f5f5f5",
-              border: "1px solid #ddd",
-              borderRadius: 4,
-              padding: 12,
-              fontSize: 11,
-              maxHeight: 200,
-              overflowY: "auto",
-              whiteSpace: "pre-wrap",
-              wordBreak: "break-word",
-              margin: "0 0 12px 0",
-            }}
-          >
-            {journalExternalPrompt}
-          </pre>
-        )}
+          {/* ─── 左カラム: APIで取得 ─── */}
+          <div style={cardStyle}>
+            <h3 style={{ fontSize: "13px", fontWeight: 700, color: "#333", margin: "0 0 6px 0" }}>
+              APIで取得
+            </h3>
+            <p style={{ fontSize: "11px", color: "#888", margin: "0 0 10px 0", lineHeight: 1.5 }}>
+              設定済みのLLMを使って、投稿先ジャーナルの投稿規定・引用形式・査読方針を取得します。
+              <strong> 正確性のためProモデルを推奨します。</strong>
+            </p>
 
-        {/* LLM generate (alternative) */}
-        <div className="row" style={{ flexWrap: "wrap", gap: 8, alignItems: "center", marginBottom: 8 }}>
-          <span style={{ fontSize: 12, fontWeight: 600, color: "#555" }}>
-            LLMでジャーナル情報を取得
-          </span>
-          {configuredSlots.length > 0 ? (
-            <>
-              <select
-                value={llmSlot}
-                onChange={(e) => setLlmSlot(e.target.value)}
-                disabled={journalLlmRunning}
-              >
-                {configuredSlots.map((s) => (
-                  <option key={s.name} value={s.name}>
-                    {slotDisplayName(s.name)} ({s.model})
-                  </option>
-                ))}
-              </select>
-              <button
-                onClick={() => onLlmGenerate(llmSlot)}
-                disabled={journalLlmRunning || !jp.journal_name.trim()}
-              >
-                {journalLlmRunning ? "生成中..." : "実行"}
+            {configuredSlots.length > 0 ? (
+              <>
+                {/* Slot selector */}
+                <div className="row" style={{ marginBottom: 8, gap: 6, alignItems: "center" }}>
+                  <select
+                    value={llmSlot}
+                    onChange={(e) => setLlmSlot(e.target.value)}
+                    disabled={journalLlmRunning}
+                    style={{ flex: 1 }}
+                  >
+                    {configuredSlots.map((s) => (
+                      <option key={s.name} value={s.name}>
+                        {slotDisplayName(s.name)} ({s.model})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Model tier chip */}
+                {selectedSlot && (
+                  <div style={{ marginBottom: 8 }}>
+                    <span
+                      className={`status-chip ${selectedIsPro ? "ok" : "err"}`}
+                      style={{ fontSize: 11 }}
+                    >
+                      {selectedIsPro ? "Proモデル" : "軽量モデル（非推奨）"}
+                    </span>
+                    {!selectedIsPro && (
+                      <div className="disabled-reason" style={{ marginTop: 4 }}>
+                        ジャーナル投稿規定の取得には高精度モデルを推奨します。Proモデルを設定してください。
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Execute button */}
+                <button
+                  onClick={() => onLlmGenerate(llmSlot)}
+                  disabled={journalLlmRunning || !jp.journal_name.trim()}
+                  style={{ width: "100%", marginBottom: 4 }}
+                >
+                  {journalLlmRunning ? "生成中..." : "APIでジャーナル情報を取得"}
+                </button>
+                {journalLlmRunning && (
+                  <span className="status-chip running">実行中...</span>
+                )}
+                {!jp.journal_name.trim() && (
+                  <div className="disabled-reason">先に「ジャーナル名」を入力してください</div>
+                )}
+              </>
+            ) : (
+              <div style={{ fontSize: 11, color: "#999" }}>
+                LLMスロットが未設定です。「API設定」タブでLLMの設定を行ってください。
+              </div>
+            )}
+          </div>
+
+          {/* ─── 右カラム: 外部AI用プロンプトで作成 ─── */}
+          <div style={cardStyle}>
+            <h3 style={{ fontSize: "13px", fontWeight: 700, color: "#333", margin: "0 0 6px 0" }}>
+              外部AI用プロンプトで作成
+            </h3>
+            <p style={{ fontSize: "11px", color: "#888", margin: "0 0 10px 0", lineHeight: 1.5 }}>
+              ChatGPT、DeepSeek Pro、GeminiなどWeb検索可能なAIに貼り付けるプロンプトを作成します。
+              取得したJSONを下の貼り付け欄に貼り付けてください。
+            </p>
+
+            <div className="row" style={{ gap: 8, marginBottom: 8 }}>
+              <button onClick={onGenerateExternalPrompt} style={{ flex: 1 }}>
+                外部AI用プロンプトを作成
               </button>
-            </>
-          ) : (
-            <span style={{ fontSize: 11, color: "#999" }}>
-              LLMスロットが未設定です。「設定」タブでAPI設定を行ってください。
-            </span>
-          )}
-          {journalLlmRunning && (
-            <span className="status-chip running">実行中...</span>
-          )}
-        </div>
-        {!jp.journal_name.trim() && configuredSlots.length > 0 && (
-          <div className="disabled-reason" style={{ marginBottom: 8 }}>先に「ジャーナル名」を入力してください</div>
-        )}
+              {journalExternalPrompt && (
+                <button
+                  onClick={() => copyToClipboard(journalExternalPrompt)}
+                  style={{ fontSize: 11, height: 28 }}
+                >
+                  プロンプトをコピー
+                </button>
+              )}
+            </div>
 
-        {/* External AI result paste import */}
-        <h3 style={{ fontSize: "13px", fontWeight: 600, color: "#333", margin: "14px 0 6px 0" }}>
-          外部AI結果の貼り付け取り込み
-        </h3>
+            {journalExternalPrompt ? (
+              <pre
+                style={{
+                  background: "#f5f5f5",
+                  border: "1px solid #ddd",
+                  borderRadius: 4,
+                  padding: 10,
+                  fontSize: 10.5,
+                  maxHeight: 220,
+                  overflowY: "auto",
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                  margin: 0,
+                }}
+              >
+                {journalExternalPrompt}
+              </pre>
+            ) : (
+              <p style={{ fontSize: 11, color: "#bbb", margin: 0 }}>
+                プロンプト作成ボタンを押すと、ここに表示されます。
+              </p>
+            )}
+          </div>
+        </div>
+      </section>
+
+      {/* ── ③ 外部AI結果の貼り付け取り込み ──────────────────────────── */}
+      <section className="panel">
+        <h2>外部AI結果の貼り付け取り込み</h2>
         <div className="row" style={{ marginBottom: 6 }}>
           <textarea
             style={{ ...txtStyle, minHeight: "100px" }}
@@ -385,9 +452,12 @@ export default function JournalPanel({
         )}
       </section>
 
-      {/* ── ③ 保存・読み込み ──────────────────────────────────────── */}
+      {/* ── ④ 保存・読み込み ──────────────────────────────────────── */}
       <section className="panel">
         <h2>保存・読み込み</h2>
+        <p style={{ fontSize: "11px", color: "#888", margin: "0 0 8px 0" }}>
+          取得・取り込み・編集したジャーナル情報を journal_profile.json に保存します。
+        </p>
         <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
           <button onClick={onSave} disabled={!projectPath || journalLoading}>
             {journalLoading ? "保存中..." : "保存"}
@@ -401,7 +471,7 @@ export default function JournalPanel({
         </div>
       </section>
 
-      {/* ── ④ ジャーナル形式・投稿規定の確認（折りたたみ） ────────── */}
+      {/* ── ⑤ ジャーナル形式・投稿規定の確認（折りたたみ） ────────── */}
       <section className="panel">
         <h2>ジャーナル形式・投稿規定の確認</h2>
 
@@ -658,7 +728,7 @@ export default function JournalPanel({
       <div className="next-step">
         {!projectPath && "プロジェクトを作成してください。"}
         {projectPath && !journalLoaded && !jp.journal_name.trim() &&
-          "ジャーナル名とURLを入力し、外部AI用プロンプトを作成するか、直接入力して保存してください。"}
+          "ジャーナル名とURLを入力し、APIで取得するか外部AI用プロンプトを作成してください。"}
         {projectPath && journalLoaded &&
           "ジャーナル情報を編集後、「保存」を押してください。次の工程（文献確認・査読チェック）で自動参照されます。"}
       </div>

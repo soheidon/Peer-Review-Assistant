@@ -1847,8 +1847,8 @@ function App() {
 
   const stepToView: Record<string, string> = {
     project: "project",
-    journal: "journal",
     settings: "settings",
+    journal: "journal",
     input: "project",
     preprocess: "preprocess",
     sections: "sections",

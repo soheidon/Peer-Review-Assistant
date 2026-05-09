@@ -11,6 +11,16 @@ import ResultsPanel from "./panels/ResultsPanel";
 import SettingsPanel from "./panels/SettingsPanel";
 import SectionViewerPanel from "./panels/SectionViewerPanel";
 
+interface LlmSlot {
+  name: string;
+  provider: string;
+  baseUrl: string;
+  model: string;
+  apiKey: string;
+  apiKeyMode: "direct" | "env_var";
+  apiKeyEnvName: string;
+}
+
 interface LogEntry {
   event: string;
   [key: string]: unknown;
@@ -36,6 +46,30 @@ function App() {
   const [viewerDataVersion, setViewerDataVersion] = useState(0);
   const [llmRepairDone, setLlmRepairDone] = useState(false);
   const [llmRepairGenerating, setLlmRepairGenerating] = useState(false);
+  const [googleBooksDone, setGoogleBooksDone] = useState(false);
+  const [googleBooksGenerating, setGoogleBooksGenerating] = useState(false);
+  const [googleBooksApiKey, setGoogleBooksApiKey] = useState("");
+  const [googleBooksApiKeyMode, setGoogleBooksApiKeyMode] = useState<"direct" | "env_var">("env_var");
+  const [googleBooksApiKeyEnvName, setGoogleBooksApiKeyEnvName] = useState("GOOGLE_BOOKS_API_KEY");
+  const [gbEnvCheckResult, setGbEnvCheckResult] = useState("");
+  const [gbConnectionTestResult, setGbConnectionTestResult] = useState("");
+  const [googleBooksCandidateCount, setGoogleBooksCandidateCount] = useState<number | undefined>(undefined);
+  const [llmFlagsDone, setLlmFlagsDone] = useState(false);
+  const [llmFlagsGenerating, setLlmFlagsGenerating] = useState(false);
+
+  // Semantic Scholar API state
+  const [semanticScholarApiKey, setSemanticScholarApiKey] = useState("");
+  const [semanticScholarApiKeyMode, setSemanticScholarApiKeyMode] = useState<"direct" | "env_var">("env_var");
+  const [semanticScholarApiKeyEnvName, setSemanticScholarApiKeyEnvName] = useState("SEMANTIC_SCHOLAR_API_KEY");
+  const [ssEnvCheckResult, setSsEnvCheckResult] = useState("");
+  const [ssConnectionTestResult, setSsConnectionTestResult] = useState("");
+
+  // PubMed / NCBI API state
+  const [pubmedApiKey, setPubmedApiKey] = useState("");
+  const [pubmedApiKeyMode, setPubmedApiKeyMode] = useState<"direct" | "env_var">("env_var");
+  const [pubmedApiKeyEnvName, setPubmedApiKeyEnvName] = useState("NCBI_API_KEY");
+  const [pubmedEnvCheckResult, setPubmedEnvCheckResult] = useState("");
+  const [pubmedConnectionTestResult, setPubmedConnectionTestResult] = useState("");
   const [structureCheckResults, setStructureCheckResults] = useState<Record<string, string>>({});
   const [structureMergeDone, setStructureMergeDone] = useState(false);
   const [structureMergeRunning, setStructureMergeRunning] = useState(false);
@@ -82,14 +116,21 @@ function App() {
     }
   }, [statusMessage]);
 
-  const defaultSlots = [
-    { name: "summary", provider: "", baseUrl: "", model: "", apiKey: "" },
-    { name: "reviewer1", provider: "", baseUrl: "", model: "", apiKey: "" },
-    { name: "reviewer2", provider: "", baseUrl: "", model: "", apiKey: "" },
-    { name: "reviewer3", provider: "", baseUrl: "", model: "", apiKey: "" },
+  const defaultSlotEnvNames: Record<string, string> = {
+    summary: "PRA_LLM_KEY_SUMMARY",
+    reviewer1: "PRA_LLM_KEY_REVIEWER1",
+    reviewer2: "PRA_LLM_KEY_REVIEWER2",
+    reviewer3: "PRA_LLM_KEY_REVIEWER3",
+  };
+  const defaultSlots: LlmSlot[] = [
+    { name: "summary", provider: "", baseUrl: "", model: "", apiKey: "", apiKeyMode: "env_var", apiKeyEnvName: "PRA_LLM_KEY_SUMMARY" },
+    { name: "reviewer1", provider: "", baseUrl: "", model: "", apiKey: "", apiKeyMode: "env_var", apiKeyEnvName: "PRA_LLM_KEY_REVIEWER1" },
+    { name: "reviewer2", provider: "", baseUrl: "", model: "", apiKey: "", apiKeyMode: "env_var", apiKeyEnvName: "PRA_LLM_KEY_REVIEWER2" },
+    { name: "reviewer3", provider: "", baseUrl: "", model: "", apiKey: "", apiKeyMode: "env_var", apiKeyEnvName: "PRA_LLM_KEY_REVIEWER3" },
   ];
   const [llmSlots, setLlmSlots] = useState(defaultSlots);
   const [llmTestResults, setLlmTestResults] = useState<Record<string, string>>({});
+  const [llmEnvCheckResults, setLlmEnvCheckResults] = useState<Record<string, string>>({});
 
   const addLog = (entry: LogEntry) => {
     setLogs((prev) => [...prev, entry]);
@@ -276,6 +317,8 @@ function App() {
         if (await checkFile("citations/db_verified_references.json")) setCrossrefDone(true);
         if (await checkFile("citations/citation_viewer_data.json")) setViewerDataReady(true);
         if (await checkFile("citations/references_repaired_llm.json")) setLlmRepairDone(true);
+        if (await checkFile("citations/db_google_books_candidates.json")) setGoogleBooksDone(true);
+        if (await checkFile("citations/reference_llm_flags.json")) setLlmFlagsDone(true);
 
         // Check merge results
         if (await checkFile("outputs/structure/merged.section.json")) setStructureMergeDone(true);
@@ -765,10 +808,120 @@ function App() {
     }
   };
 
+  const runGoogleBooksDb = async () => {
+    if (!projectPath.trim()) {
+      addLog({ event: "error", message: "Please create a project first." });
+      return;
+    }
+
+    setGoogleBooksDone(false);
+    setGoogleBooksGenerating(true);
+    setStatusMessage(null);
+    addLog({ event: "info", message: "Searching Google Books for book-like references..." });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const args: string[] = [
+        "citation-db-google-books",
+        "--project", projectPath,
+      ];
+      if (googleBooksApiKeyMode === "direct" && googleBooksApiKey.trim()) {
+        args.push("--api-key", googleBooksApiKey.trim());
+      } else if (googleBooksApiKeyMode === "env_var" && googleBooksApiKeyEnvName.trim()) {
+        args.push("--api-key-env", googleBooksApiKeyEnvName.trim());
+      }
+      const cmd = Command.create("pra-cli", args);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+
+      if (output.code === 0) {
+        setGoogleBooksDone(true);
+        // Extract candidate count from done event
+        const lines = output.stdout.trim().split("\n");
+        for (const line of lines) {
+          if (line.trim()) {
+            try {
+              const parsed = JSON.parse(line);
+              if (parsed.event === "done" && parsed.candidates_found != null) {
+                setGoogleBooksCandidateCount(parsed.candidates_found as number);
+              }
+            } catch { /* not JSON */ }
+          }
+        }
+        setStatusMessage({text: "Google Books候補検索が完了しました。文献確認データを再作成してください。", type: "ok"});
+      } else {
+        setStatusMessage({text: "Google Books候補検索に失敗しました。", type: "error"});
+      }
+    } catch (e: unknown) {
+      addLog({ event: "error", message: e instanceof Error ? e.message : String(e) });
+      setStatusMessage({text: "Google Books候補検索でエラーが発生しました。", type: "error"});
+    } finally {
+      setGoogleBooksGenerating(false);
+    }
+  };
+
+  const runLlmFlags = async (slotName: string) => {
+    if (!projectPath.trim()) {
+      addLog({ event: "error", message: "Please create a project first." });
+      return;
+    }
+
+    const slot = llmSlots.find((s) => s.name === slotName);
+    if (!slot || !slot.provider.trim() || !slot.baseUrl.trim() || !slot.model.trim()) {
+      addLog({ event: "error", message: `LLM slot ${slotName} is not configured.` });
+      return;
+    }
+
+    setLlmFlagsGenerating(true);
+    setStatusMessage(null);
+    addLog({ event: "info", message: `Running LLM reference flags generation on ${slotDisplayName(slotName)}...` });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const args = buildLlmArgs(slot, [
+        "generate-llm-reference-flags",
+        "--project", projectPath,
+        "--slot", slotName,
+      ]);
+      const cmd = Command.create("pra-cli", args);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+      if (output.code === 0) {
+        setLlmFlagsDone(true);
+        setStatusMessage({text: `LLM文献フラグ生成が完了しました (${slotDisplayName(slotName)})。文献確認データを再作成してください。`, type: "ok"});
+      } else {
+        setStatusMessage({text: "LLM文献フラグ生成に失敗しました。", type: "error"});
+      }
+    } catch (e: unknown) {
+      addLog({ event: "error", message: e instanceof Error ? e.message : String(e) });
+      setStatusMessage({text: "LLM文献フラグ生成でエラーが発生しました。", type: "error"});
+    } finally {
+      setLlmFlagsGenerating(false);
+    }
+  };
+
   const updateSlot = (slotName: string, field: string, value: string) => {
     setLlmSlots((prev) =>
       prev.map((s) => (s.name === slotName ? { ...s, [field]: value } : s))
     );
+  };
+
+  /** Build LLM CLI args for a slot, respecting apiKeyMode (direct vs env_var). */
+  const buildLlmArgs = (slot: LlmSlot, cmd: string[]): string[] => {
+    const args = [...cmd];
+    args.push("--provider", slot.provider);
+    args.push("--base-url", slot.baseUrl);
+    args.push("--model", slot.model);
+    if (slot.apiKeyMode === "direct" && slot.apiKey.trim()) {
+      args.push("--api-key", slot.apiKey.trim());
+    } else if (slot.apiKeyMode === "env_var" && slot.apiKeyEnvName.trim()) {
+      args.push("--api-key-env", slot.apiKeyEnvName.trim());
+    } else {
+      args.push("--api-key", slot.apiKey); // fallback
+    }
+    return args;
   };
 
   const testLlmSlot = async (slotName: string) => {
@@ -780,8 +933,12 @@ function App() {
       addLog({ event: "error", message: `${label}: プロバイダ、Base URL、モデルを入力してください。` });
       return;
     }
-    if (!slot.apiKey.trim()) {
+    if (slot.apiKeyMode === "direct" && !slot.apiKey.trim()) {
       addLog({ event: "error", message: `${label}: APIキーを入力してください。` });
+      return;
+    }
+    if (slot.apiKeyMode === "env_var" && !slot.apiKeyEnvName.trim()) {
+      addLog({ event: "error", message: `${label}: 環境変数名を入力してください。` });
       return;
     }
 
@@ -790,14 +947,11 @@ function App() {
 
     try {
       const { Command } = await import("@tauri-apps/plugin-shell");
-      const cmd = Command.create("pra-cli", [
+      const args = buildLlmArgs(slot, [
         "test-llm",
         "--slot", slotName,
-        "--provider", slot.provider,
-        "--base-url", slot.baseUrl,
-        "--model", slot.model,
-        "--api-key", slot.apiKey,
       ]);
+      const cmd = Command.create("pra-cli", args);
       const output = await cmd.execute();
       parseOutput(output.stdout);
       if (output.stderr) addLog({ event: "stderr", message: output.stderr });
@@ -821,6 +975,250 @@ function App() {
     }
   };
 
+  const checkLlmEnv = async (slotName: string) => {
+    const slot = llmSlots.find((s) => s.name === slotName);
+    if (!slot) return;
+    const envName = slot.apiKeyEnvName.trim();
+    if (!envName) return;
+    setLlmEnvCheckResults((prev) => ({ ...prev, [slotName]: "" }));
+    addLog({ event: "info", message: `環境変数 ${envName} を確認中...` });
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const cmd = Command.create("pra-cli", ["check-env", "--name", envName]);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+      if (output.code === 0) {
+        const lines = output.stdout.trim().split("\n");
+        for (const line of lines) {
+          if (line.trim()) {
+            try {
+              const parsed = JSON.parse(line);
+              if (parsed.event === "env_check") {
+                setLlmEnvCheckResults((prev) => ({ ...prev, [slotName]: parsed.set ? "set" : "not_set" }));
+              }
+            } catch { /* skip */ }
+          }
+        }
+      } else { setLlmEnvCheckResults((prev) => ({ ...prev, [slotName]: "error" })); }
+    } catch (e: unknown) {
+      addLog({ event: "error", message: e instanceof Error ? e.message : String(e) });
+      setLlmEnvCheckResults((prev) => ({ ...prev, [slotName]: "error" }));
+    }
+  };
+
+  const checkGbEnv = async () => {
+    const envName = googleBooksApiKeyEnvName.trim();
+    if (!envName) return;
+
+    setGbEnvCheckResult("");
+    addLog({ event: "info", message: `環境変数 ${envName} を確認中...` });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const cmd = Command.create("pra-cli", [
+        "check-env",
+        "--name", envName,
+      ]);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+
+      if (output.code === 0) {
+        // Parse the env_check event
+        const lines = output.stdout.trim().split("\n");
+        for (const line of lines) {
+          if (line.trim()) {
+            try {
+              const parsed = JSON.parse(line);
+              if (parsed.event === "env_check") {
+                setGbEnvCheckResult(parsed.set ? "set" : "not_set");
+              }
+            } catch { /* skip non-JSON */ }
+          }
+        }
+      } else {
+        setGbEnvCheckResult("error");
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog({ event: "error", message: msg });
+      setGbEnvCheckResult("error");
+    }
+  };
+
+  const testGbConnection = async () => {
+    setGbConnectionTestResult("testing");
+    addLog({ event: "info", message: "Google Books API 接続をテスト中..." });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const args: string[] = ["test-google-books"];
+      if (googleBooksApiKeyMode === "direct" && googleBooksApiKey.trim()) {
+        args.push("--api-key", googleBooksApiKey.trim());
+      } else if (googleBooksApiKeyMode === "env_var" && googleBooksApiKeyEnvName.trim()) {
+        args.push("--api-key-env", googleBooksApiKeyEnvName.trim());
+      }
+      const cmd = Command.create("pra-cli", args);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+
+      if (output.code === 0) {
+        // Parse the done event
+        const lines = output.stdout.trim().split("\n");
+        for (const line of lines) {
+          if (line.trim()) {
+            try {
+              const parsed = JSON.parse(line);
+              if (parsed.event === "done" && parsed.task === "test-google-books") {
+                setGbConnectionTestResult(parsed.status === "ok" ? "ok" : "error");
+              }
+            } catch { /* skip non-JSON */ }
+          }
+        }
+      } else {
+        setGbConnectionTestResult("error");
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog({ event: "error", message: msg });
+      setGbConnectionTestResult("error");
+    }
+  };
+
+  // ── Semantic Scholar handlers ──────────────────────────────────────────
+
+  const checkSsEnv = async () => {
+    const envName = semanticScholarApiKeyEnvName.trim();
+    if (!envName) return;
+    setSsEnvCheckResult("");
+    addLog({ event: "info", message: `環境変数 ${envName} を確認中...` });
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const cmd = Command.create("pra-cli", ["check-env", "--name", envName]);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+      if (output.code === 0) {
+        const lines = output.stdout.trim().split("\n");
+        for (const line of lines) {
+          if (line.trim()) {
+            try {
+              const parsed = JSON.parse(line);
+              if (parsed.event === "env_check") {
+                setSsEnvCheckResult(parsed.set ? "set" : "not_set");
+              }
+            } catch { /* skip */ }
+          }
+        }
+      } else { setSsEnvCheckResult("error"); }
+    } catch (e: unknown) {
+      addLog({ event: "error", message: e instanceof Error ? e.message : String(e) });
+      setSsEnvCheckResult("error");
+    }
+  };
+
+  const testSsConnection = async () => {
+    setSsConnectionTestResult("testing");
+    addLog({ event: "info", message: "Semantic Scholar API 接続をテスト中..." });
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const args: string[] = ["test-semantic-scholar"];
+      if (semanticScholarApiKeyMode === "direct" && semanticScholarApiKey.trim()) {
+        args.push("--api-key", semanticScholarApiKey.trim());
+      } else if (semanticScholarApiKeyMode === "env_var" && semanticScholarApiKeyEnvName.trim()) {
+        args.push("--api-key-env", semanticScholarApiKeyEnvName.trim());
+      }
+      const cmd = Command.create("pra-cli", args);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+      if (output.code === 0) {
+        const lines = output.stdout.trim().split("\n");
+        for (const line of lines) {
+          if (line.trim()) {
+            try {
+              const parsed = JSON.parse(line);
+              if (parsed.event === "done" && parsed.task === "test-semantic-scholar") {
+                setSsConnectionTestResult(parsed.status === "ok" ? "ok" : "error");
+              }
+            } catch { /* skip */ }
+          }
+        }
+      } else { setSsConnectionTestResult("error"); }
+    } catch (e: unknown) {
+      addLog({ event: "error", message: e instanceof Error ? e.message : String(e) });
+      setSsConnectionTestResult("error");
+    }
+  };
+
+  // ── PubMed handlers ────────────────────────────────────────────────────
+
+  const checkPubmedEnv = async () => {
+    const envName = pubmedApiKeyEnvName.trim();
+    if (!envName) return;
+    setPubmedEnvCheckResult("");
+    addLog({ event: "info", message: `環境変数 ${envName} を確認中...` });
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const cmd = Command.create("pra-cli", ["check-env", "--name", envName]);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+      if (output.code === 0) {
+        const lines = output.stdout.trim().split("\n");
+        for (const line of lines) {
+          if (line.trim()) {
+            try {
+              const parsed = JSON.parse(line);
+              if (parsed.event === "env_check") {
+                setPubmedEnvCheckResult(parsed.set ? "set" : "not_set");
+              }
+            } catch { /* skip */ }
+          }
+        }
+      } else { setPubmedEnvCheckResult("error"); }
+    } catch (e: unknown) {
+      addLog({ event: "error", message: e instanceof Error ? e.message : String(e) });
+      setPubmedEnvCheckResult("error");
+    }
+  };
+
+  const testPubmedConnection = async () => {
+    setPubmedConnectionTestResult("testing");
+    addLog({ event: "info", message: "PubMed API 接続をテスト中..." });
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const args: string[] = ["test-pubmed"];
+      if (pubmedApiKeyMode === "direct" && pubmedApiKey.trim()) {
+        args.push("--api-key", pubmedApiKey.trim());
+      } else if (pubmedApiKeyMode === "env_var" && pubmedApiKeyEnvName.trim()) {
+        args.push("--api-key-env", pubmedApiKeyEnvName.trim());
+      }
+      const cmd = Command.create("pra-cli", args);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+      if (output.code === 0) {
+        const lines = output.stdout.trim().split("\n");
+        for (const line of lines) {
+          if (line.trim()) {
+            try {
+              const parsed = JSON.parse(line);
+              if (parsed.event === "done" && parsed.task === "test-pubmed") {
+                setPubmedConnectionTestResult(parsed.status === "ok" ? "ok" : "error");
+              }
+            } catch { /* skip */ }
+          }
+        }
+      } else { setPubmedConnectionTestResult("error"); }
+    } catch (e: unknown) {
+      addLog({ event: "error", message: e instanceof Error ? e.message : String(e) });
+      setPubmedConnectionTestResult("error");
+    }
+  };
+
   const runStructureCheck = async (slotName: string) => {
     const slot = llmSlots.find((s) => s.name === slotName);
     if (!slot) return;
@@ -829,7 +1227,8 @@ function App() {
       addLog({ event: "error", message: "Please create a project first." });
       return;
     }
-    if (!slot.provider.trim() || !slot.baseUrl.trim() || !slot.model.trim() || !slot.apiKey.trim()) {
+    const hasKey = slot.apiKeyMode === "direct" ? !!slot.apiKey.trim() : !!slot.apiKeyEnvName.trim();
+    if (!slot.provider.trim() || !slot.baseUrl.trim() || !slot.model.trim() || !hasKey) {
       addLog({ event: "error", message: `${slotDisplayName(slotName)}: API設定が不完全です。「設定」画面を確認してください。` });
       return;
     }
@@ -840,16 +1239,13 @@ function App() {
 
     try {
       const { Command } = await import("@tauri-apps/plugin-shell");
-      const cmd = Command.create("pra-cli", [
+      const args = buildLlmArgs(slot, [
         "run-check",
         "--project", projectPath,
         "--check", "structure",
         "--slot", slotName,
-        "--provider", slot.provider,
-        "--base-url", slot.baseUrl,
-        "--model", slot.model,
-        "--api-key", slot.apiKey,
       ]);
+      const cmd = Command.create("pra-cli", args);
       const output = await cmd.execute();
       parseOutput(output.stdout);
       if (output.stderr) addLog({ event: "stderr", message: output.stderr });
@@ -877,7 +1273,8 @@ function App() {
       addLog({ event: "error", message: "Please create a project first." });
       return;
     }
-    if (!slot.provider.trim() || !slot.baseUrl.trim() || !slot.model.trim() || !slot.apiKey.trim()) {
+    const hasKey = slot.apiKeyMode === "direct" ? !!slot.apiKey.trim() : !!slot.apiKeyEnvName.trim();
+    if (!slot.provider.trim() || !slot.baseUrl.trim() || !slot.model.trim() || !hasKey) {
       addLog({ event: "error", message: `${slotDisplayName(slotName)}: API設定が不完全です。「設定」画面を確認してください。` });
       return;
     }
@@ -888,16 +1285,13 @@ function App() {
 
     try {
       const { Command } = await import("@tauri-apps/plugin-shell");
-      const cmd = Command.create("pra-cli", [
+      const args = buildLlmArgs(slot, [
         "run-check",
         "--project", projectPath,
         "--check", "expression",
         "--slot", slotName,
-        "--provider", slot.provider,
-        "--base-url", slot.baseUrl,
-        "--model", slot.model,
-        "--api-key", slot.apiKey,
       ]);
+      const cmd = Command.create("pra-cli", args);
       const output = await cmd.execute();
       parseOutput(output.stdout);
       if (output.stderr) addLog({ event: "stderr", message: output.stderr });
@@ -925,7 +1319,8 @@ function App() {
       addLog({ event: "error", message: "Please create a project first." });
       return;
     }
-    if (!slot.provider.trim() || !slot.baseUrl.trim() || !slot.model.trim() || !slot.apiKey.trim()) {
+    const hasKey = slot.apiKeyMode === "direct" ? !!slot.apiKey.trim() : !!slot.apiKeyEnvName.trim();
+    if (!slot.provider.trim() || !slot.baseUrl.trim() || !slot.model.trim() || !hasKey) {
       addLog({ event: "error", message: `${slotDisplayName(slotName)}: API設定が不完全です。「設定」画面を確認してください。` });
       return;
     }
@@ -936,16 +1331,13 @@ function App() {
 
     try {
       const { Command } = await import("@tauri-apps/plugin-shell");
-      const cmd = Command.create("pra-cli", [
+      const args = buildLlmArgs(slot, [
         "run-check",
         "--project", projectPath,
         "--check", "methods_stats",
         "--slot", slotName,
-        "--provider", slot.provider,
-        "--base-url", slot.baseUrl,
-        "--model", slot.model,
-        "--api-key", slot.apiKey,
       ]);
+      const cmd = Command.create("pra-cli", args);
       const output = await cmd.execute();
       parseOutput(output.stdout);
       if (output.stderr) addLog({ event: "stderr", message: output.stderr });
@@ -1297,6 +1689,13 @@ function App() {
               llmRepairGenerating={llmRepairGenerating}
               onLlmRepair={runLlmRepair}
               llmSlots={llmSlots}
+              googleBooksDone={googleBooksDone}
+              googleBooksGenerating={googleBooksGenerating}
+              googleBooksCandidateCount={googleBooksCandidateCount}
+              onGoogleBooks={runGoogleBooksDb}
+              llmFlagsDone={llmFlagsDone}
+              llmFlagsGenerating={llmFlagsGenerating}
+              onGenerateLlmFlags={runLlmFlags}
               statusMessage={statusMessage}
             />
           )}
@@ -1345,9 +1744,41 @@ function App() {
             <SettingsPanel
               llmSlots={llmSlots}
               llmTestResults={llmTestResults}
+              llmEnvCheckResults={llmEnvCheckResults}
               onUpdateSlot={updateSlot}
               onTestSlot={testLlmSlot}
+              onCheckLlmEnv={checkLlmEnv}
               onTestAll={testAllLlm}
+              googleBooksApiKey={googleBooksApiKey}
+              onGoogleBooksApiKeyChange={setGoogleBooksApiKey}
+              googleBooksApiKeyMode={googleBooksApiKeyMode}
+              onGoogleBooksApiKeyModeChange={setGoogleBooksApiKeyMode}
+              googleBooksApiKeyEnvName={googleBooksApiKeyEnvName}
+              onGoogleBooksApiKeyEnvNameChange={setGoogleBooksApiKeyEnvName}
+              gbEnvCheckResult={gbEnvCheckResult}
+              onCheckGbEnv={checkGbEnv}
+              gbConnectionTestResult={gbConnectionTestResult}
+              onTestGbConnection={testGbConnection}
+              semanticScholarApiKey={semanticScholarApiKey}
+              onSemanticScholarApiKeyChange={setSemanticScholarApiKey}
+              semanticScholarApiKeyMode={semanticScholarApiKeyMode}
+              onSemanticScholarApiKeyModeChange={setSemanticScholarApiKeyMode}
+              semanticScholarApiKeyEnvName={semanticScholarApiKeyEnvName}
+              onSemanticScholarApiKeyEnvNameChange={setSemanticScholarApiKeyEnvName}
+              ssEnvCheckResult={ssEnvCheckResult}
+              onCheckSsEnv={checkSsEnv}
+              ssConnectionTestResult={ssConnectionTestResult}
+              onTestSsConnection={testSsConnection}
+              pubmedApiKey={pubmedApiKey}
+              onPubmedApiKeyChange={setPubmedApiKey}
+              pubmedApiKeyMode={pubmedApiKeyMode}
+              onPubmedApiKeyModeChange={setPubmedApiKeyMode}
+              pubmedApiKeyEnvName={pubmedApiKeyEnvName}
+              onPubmedApiKeyEnvNameChange={setPubmedApiKeyEnvName}
+              pubmedEnvCheckResult={pubmedEnvCheckResult}
+              onCheckPubmedEnv={checkPubmedEnv}
+              pubmedConnectionTestResult={pubmedConnectionTestResult}
+              onTestPubmedConnection={testPubmedConnection}
             />
           )}
         </div>

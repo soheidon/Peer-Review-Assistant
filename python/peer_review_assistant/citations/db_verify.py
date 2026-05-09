@@ -1,10 +1,32 @@
 """Crossref database verification for reference entries."""
 
+import html as _html
 import json
+import re as _re
 import time
 import urllib.request
 import urllib.parse
 import urllib.error
+
+_TAG_RE = _re.compile(r"<[^>]+>")
+_CHAR_CLEANUP = str.maketrans({"€": "-"})
+
+
+def _clean_text(text):
+    """Decode HTML entities and strip tags for display in error messages.
+    Handles double-encoded entities (e.g. &amp;ndash; → –) and encoding
+    corruptions (e.g. € → -)."""
+    if not text:
+        return ""
+    text = text.translate(_CHAR_CLEANUP)
+    decoded = text
+    for _ in range(3):
+        prev = decoded
+        decoded = _html.unescape(decoded)
+        if decoded == prev:
+            break
+    return " ".join(_TAG_RE.sub("", decoded).split())
+
 
 CROSSREF_WORKS_URL = "https://api.crossref.org/works/"
 CROSSREF_SEARCH_URL = "https://api.crossref.org/works"
@@ -304,8 +326,8 @@ def _compare(ref, crossref, method):
     metadata_errors = []
     if title_match == "mismatch":
         metadata_errors.append(
-            f"Title mismatch: original='{parsed.get('title')}', "
-            f"crossref='{crossref.get('title')}'")
+            f"Title mismatch: original='{_clean_text(parsed.get('title') or '')}', "
+            f"crossref='{_clean_text(crossref.get('title') or '')}'")
     if authors_match == "mismatch":
         metadata_errors.append("Authors mismatch")
     if year_match is False:
@@ -314,8 +336,8 @@ def _compare(ref, crossref, method):
             f"crossref={crossref.get('year')}")
     if journal_match == "mismatch":
         metadata_errors.append(
-            f"Journal mismatch: original='{parsed.get('journal')}', "
-            f"crossref='{crossref.get('journal')}'")
+            f"Journal mismatch: original='{_clean_text(parsed.get('journal') or '')}', "
+            f"crossref='{_clean_text(crossref.get('journal') or '')}'")
 
     return {
         "exists": True,
@@ -329,10 +351,17 @@ def _compare(ref, crossref, method):
 
 
 def _normalize(text):
-    """Normalize text for comparison: lowercase, strip punctuation, collapse
-    whitespace."""
+    """Normalize text for comparison: decode HTML, lowercase, strip punctuation,
+    collapse whitespace."""
     if not text:
         return ""
+    # Step 0: Fix encoding corruptions + strip tags + decode HTML entities
+    text = text.translate(_CHAR_CLEANUP)
+    for _ in range(3):
+        prev = text
+        text = _TAG_RE.sub("", _html.unescape(text))
+        if text == prev:
+            break
     text = text.lower().strip()
     # Remove punctuation except spaces
     result = []

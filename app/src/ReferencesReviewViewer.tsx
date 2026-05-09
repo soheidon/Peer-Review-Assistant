@@ -1,4 +1,29 @@
-import { useState, useEffect } from "react";
+import { Fragment, useState, useEffect } from "react";
+import ManualSearchSection from "./ManualSearchSection";
+import LlmSearchSupport from "./LlmSearchSupport";
+
+interface GoogleBooksCandidate {
+  google_books_id: string;
+  title: string | null;
+  subtitle: string | null;
+  authors: string[];
+  publisher: string | null;
+  publishedDate: string | null;
+  description: string | null;
+  isbn_10: string | null;
+  isbn_13: string | null;
+  pageCount: number | null;
+  categories: string[];
+  language: string | null;
+  infoLink: string | null;
+  previewLink: string | null;
+  score: number;
+  confidence: "high" | "medium" | "low";
+  match_reasons: string[];
+  ref_year: number | null;
+  cand_year: number | null;
+  year_diff: number | null;
+}
 
 interface ViewerCard {
   reference_id: string;
@@ -39,6 +64,18 @@ interface ViewerCard {
   crossref_method: string | null;
   pubmed_status: string | null;
   pubmed_method: string | null;
+  using_llm_parsed?: boolean;
+  mismatch_details?: {
+    title?: string;
+    authors?: string;
+    year?: string;
+    journal?: string;
+    volume?: string;
+    pages?: string;
+    doi?: string;
+  } | null;
+  journal_identity_match?: string | null;
+  journal_style_match?: string | null;
   llm_candidate: {
     title: string | null;
     book_title: string | null;
@@ -58,6 +95,34 @@ interface ViewerCard {
     warnings: string[];
   } | null;
   llm_flags: Record<string, boolean> | null;
+  google_books_candidates: GoogleBooksCandidate[] | null;
+  best_google_books_candidate: GoogleBooksCandidate | null;
+  google_books_candidate_count: number;
+  human_verification_status?: string | null;
+  human_verification_source?: string | null;
+  search_suggestions?: {
+    suggested_sources: string[];
+    search_queries: { source: string; query: string }[];
+    notes: string[];
+    recommended_action: string | null;
+  } | null;
+  deferred_info?: {
+    reason: string | null;
+    note: string | null;
+    deferred_at: string | null;
+  } | null;
+  llm_flags?: {
+    possible_missing_doi?: boolean;
+    likely_government_or_web_document?: boolean;
+    likely_book?: boolean;
+    year_mismatch_possible_edition?: boolean;
+    metadata_incomplete?: boolean;
+    reference_style_needs_check?: boolean;
+    bibliographic_accuracy_needs_check?: boolean;
+    citation_context_needs_check?: boolean;
+    needs_later_llm_check?: boolean;
+  } | null;
+  later_check_targets?: string[] | null;
 }
 
 interface ViewerSummary {
@@ -66,8 +131,11 @@ interface ViewerSummary {
   unmatched: number;
   suspicious: number;
   repaired: number;
+  later_llm_check: number;
+  deferred: number;
   crossref_matched: number;
   pubmed_matched: number;
+  google_books_candidate_count: number;
   unmatched_breakdown: Record<string, number>;
   generated_at: string;
 }
@@ -88,8 +156,11 @@ const TABS = [
   { key: "unmatched", label: "未照合" },
   { key: "suspicious", label: "要確認" },
   { key: "repaired", label: "補正候補" },
+  { key: "googlebooks", label: "Google Books" },
   { key: "crossref", label: "Crossref" },
   { key: "pubmed", label: "PubMed" },
+  { key: "deferred", label: "後ほど検討" },
+  { key: "later_llm", label: "後段LLM確認" },
 ];
 
 const TYPE_LABELS: Record<string, string> = {
@@ -111,6 +182,17 @@ const FLAG_LABELS: Record<string, string> = {
   likely_book: "書籍の可能性",
   likely_report_or_government_document: "報告書・政府文書の可能性",
   needs_human_review: "要確認",
+};
+
+const LLM_FLAG_LABELS: Record<string, string> = {
+  possible_missing_doi: "DOI欠落の可能性",
+  likely_government_or_web_document: "政府・Web文書の可能性",
+  likely_book: "書籍の可能性",
+  year_mismatch_possible_edition: "出版年版違いの可能性",
+  metadata_incomplete: "文献情報不足",
+  reference_style_needs_check: "引用形式確認が必要",
+  bibliographic_accuracy_needs_check: "書誌精度確認が必要",
+  citation_context_needs_check: "引用趣旨確認が必要",
 };
 
 const REASON_LABELS: Record<string, string> = {
@@ -137,6 +219,38 @@ const CONFIDENCE_LABELS: Record<string, string> = {
   high: "高",
   medium: "中",
   low: "低",
+};
+
+const GB_CONFIDENCE_LABELS: Record<string, string> = {
+  high: "高",
+  medium: "中",
+  low: "低",
+};
+
+const GB_REASON_LABELS: Record<string, string> = {
+  title_exact: "タイトル完全一致",
+  title_fuzzy: "タイトル類似",
+  title_contains: "タイトル部分一致",
+  title_partial: "タイトル部分一致",
+  author_exact: "著者一致",
+  author_partial: "著者部分一致",
+  year_match: "出版年一致",
+  year_near: "出版年近接",
+  publisher_exact: "出版社一致",
+  publisher_partial: "出版社部分一致",
+  isbn_match: "ISBN一致",
+  year_mismatch: "出版年違い",
+};
+
+const HV_STATUS_LABELS: Record<string, string> = {
+  human_verified: "人間確認済み",
+  accepted_as_is: "このまま受け入れ",
+};
+
+const HV_SOURCE_LABELS: Record<string, string> = {
+  human_selected: "DB候補を手動採用",
+  llm_reparsed_reference: "LLM補正を手動確認",
+  manuscript_reference: "原稿記載をそのまま受け入れ",
 };
 
 export default function ReferencesReviewViewer({ projectPath }: Props) {
@@ -213,16 +327,26 @@ export default function ReferencesReviewViewer({ projectPath }: Props) {
 
         {(activeTab === "verified" || activeTab === "unmatched" ||
           activeTab === "suspicious" || activeTab === "repaired" ||
-          activeTab === "crossref" || activeTab === "pubmed") && (
+          activeTab === "crossref" || activeTab === "pubmed" ||
+          activeTab === "googlebooks" || activeTab === "deferred" ||
+          activeTab === "later_llm") && (
           <CardList
             cards={filteredCards}
             tabKey={activeTab}
+            projectPath={projectPath}
+            onDataChanged={loadData}
             emptyMessage={
               activeTab === "repaired"
                 ? "補正候補はまだありません。DOI truncation 修正後に表示されます。"
                 : activeTab === "pubmed"
                   ? "PubMed DB照合結果がありません。citation-db-pubmed を先に実行してください。"
-                  : "該当する文献はありません。"
+                  : activeTab === "googlebooks"
+                    ? "Google Books候補がありません。citation-db-google-books を先に実行してください。"
+                    : activeTab === "deferred"
+                      ? "後ほど検討の文献はまだありません。"
+                      : activeTab === "later_llm"
+                        ? "後段LLM確認の文献はまだありません。「LLM文献フラグ生成」を実行してください。"
+                        : "該当する文献はありません。"
             }
           />
         )}
@@ -294,10 +418,14 @@ function CardList({
   cards,
   tabKey,
   emptyMessage,
+  projectPath,
+  onDataChanged,
 }: {
   cards: ViewerCard[];
   tabKey: string;
   emptyMessage: string;
+  projectPath: string;
+  onDataChanged: () => void;
 }) {
   if (cards.length === 0) {
     return <div className="viewer-empty">{emptyMessage}</div>;
@@ -306,7 +434,13 @@ function CardList({
   return (
     <div className="viewer-card-list">
       {cards.map((card) => (
-        <ReferenceCard key={card.reference_id} card={card} tabKey={tabKey} />
+        <ReferenceCard
+          key={card.reference_id}
+          card={card}
+          tabKey={tabKey}
+          projectPath={projectPath}
+          onDataChanged={onDataChanged}
+        />
       ))}
     </div>
   );
@@ -325,15 +459,19 @@ interface FieldRow {
   candidate: string;
   manuscript: string;
   llm?: string;
-  mismatch?: boolean;
+  mismatchType?: "substantive" | "formatting" | "none";
 }
 
 function ReferenceCard({
   card,
   tabKey,
+  projectPath,
+  onDataChanged,
 }: {
   card: ViewerCard;
   tabKey: string;
+  projectPath: string;
+  onDataChanged: () => void;
 }) {
   const statusClass = card.status;
   const statusLabel = STATUS_LABELS[card.status] || card.status;
@@ -345,8 +483,12 @@ function ReferenceCard({
   const hasMismatches = card.metadata_mismatches.length > 0;
   const candidate = card.correct_candidate;
   const llm = card.llm_candidate;
+  const gbCandidates = card.google_books_candidates;
 
   const hasLlm = llm != null;
+
+  // Lookup mismatch classifications from card
+  const md = card.mismatch_details;
 
   // Build comparison rows: label, candidate value, manuscript value, llm value
   const rows: FieldRow[] = [
@@ -359,24 +501,28 @@ function ReferenceCard({
         ? stripRefNumber(card.authors.join("; "))
         : "—",
       llm: llm?.authors?.length ? llm.authors.join(", ") : undefined,
+      mismatchType: md?.authors as FieldRow["mismatchType"],
     },
     {
       label: "年",
       candidate: candidate?.year != null ? String(candidate.year) : "—",
       manuscript: card.year != null ? String(card.year) : "—",
       llm: llm?.year != null ? String(llm.year) : undefined,
+      mismatchType: md?.year as FieldRow["mismatchType"],
     },
     {
       label: "タイトル",
       candidate: candidate?.title || "—",
       manuscript: card.title || "—",
       llm: llm?.title || undefined,
+      mismatchType: md?.title as FieldRow["mismatchType"],
     },
     {
       label: "雑誌名",
       candidate: candidate?.journal || "—",
       manuscript: card.journal || "—",
       llm: llm?.journal || undefined,
+      mismatchType: md?.journal as FieldRow["mismatchType"],
     },
     {
       label: "書名",
@@ -437,11 +583,11 @@ function ReferenceCard({
   // Flag DOI row if the candidate DOI is suspiciously short (truncation indicator)
   if (candidate?.doi && card.doi) {
     const doiRow = rows.find((r) => r.label === "DOI");
-    if (doiRow) {
+    if (doiRow && !doiRow.mismatchType) {
       const candLen = candidate.doi!.length;
       const msLen = card.doi.length;
       if (candLen < msLen || candLen < 20) {
-        doiRow.mismatch = true;
+        doiRow.mismatchType = "substantive";
       }
     }
   }
@@ -462,60 +608,78 @@ function ReferenceCard({
             信頼度: {confidenceLabel}
           </span>
         )}
+        {card.human_verification_status && (
+          <span className={`ref-hv-badge hv-${card.human_verification_status}`}
+                title={card.human_verification_source
+                  ? (HV_SOURCE_LABELS[card.human_verification_source] || card.human_verification_source)
+                  : undefined}>
+            {card.human_verification_source
+              ? (HV_SOURCE_LABELS[card.human_verification_source] || HV_SOURCE_LABELS[card.human_verification_status] || card.human_verification_status)
+              : (HV_STATUS_LABELS[card.human_verification_status] || card.human_verification_status)}
+          </span>
+        )}
+        {card.llm_flags?.needs_later_llm_check && (
+          <span className="ref-llm-flag-chip" title="LLMが後段チェック必要と判断">
+            後段LLM確認
+          </span>
+        )}
+        {card.llm_flags && !card.llm_flags.needs_later_llm_check && (
+          Object.entries(LLM_FLAG_LABELS).map(([key, label]) => {
+            if ((card.llm_flags as Record<string, boolean>)[key]) {
+              return (
+                <span key={key} className="ref-llm-flag-chip sub" title={label}>
+                  {label}
+                </span>
+              );
+            }
+            return null;
+          })
+        )}
       </div>
 
-      {/* Side-by-side comparison */}
+      {/* Row-based comparison grid */}
       <div className={`ref-compare ${hasLlm ? "ref-compare-llm" : ""}`}>
-        {/* Candidate (left) */}
-        <div className="ref-compare-col ref-compare-candidate">
-          <div className="ref-compare-col-header">正しい文献情報候補</div>
-          {rows.map((row) => (
-            <div
-              key={row.label}
-              className={`ref-compare-row ${row.mismatch ? "mismatch" : ""}`}
-            >
-              <span className="ref-compare-label">{row.label}</span>
-              <span className="ref-compare-value">{row.candidate}</span>
-            </div>
-          ))}
+        {/* Header row */}
+        <div className="ref-compare-header-spacer"></div>
+        <div className="ref-compare-col-header">正しい文献情報候補</div>
+        <div className="ref-compare-col-header">
+          原稿に記載された文献情報
+          {card.using_llm_parsed && (
+            <span className="ref-llm-badge">LLM分解結果を使用</span>
+          )}
         </div>
-
-        {/* Manuscript (middle) */}
-        <div className="ref-compare-col ref-compare-manuscript">
-          <div className="ref-compare-col-header">原稿に記載された文献情報</div>
-          {rows.map((row) => (
-            <div
-              key={row.label}
-              className={`ref-compare-row ${row.mismatch ? "mismatch" : ""}`}
-            >
-              <span className="ref-compare-label">{row.label}</span>
-              <span className="ref-compare-value">{row.manuscript}</span>
-            </div>
-          ))}
-        </div>
-
-        {/* LLM candidate (right) */}
         {hasLlm && (
-          <div className="ref-compare-col ref-compare-llm">
-            <div className="ref-compare-col-header">
-              LLM補正候補
-              {llm.confidence && (
-                <span className="ref-llm-confidence">
-                  ({CONFIDENCE_LABELS[llm.confidence] || llm.confidence})
-                </span>
-              )}
-            </div>
-            {rows.map((row) => (
-              <div
-                key={row.label}
-                className="ref-compare-row"
-              >
-                <span className="ref-compare-label">{row.label}</span>
-                <span className="ref-compare-value">{row.llm || "—"}</span>
-              </div>
-            ))}
+          <div className="ref-compare-col-header">
+            LLM補正候補
+            {llm.confidence && (
+              <span className="ref-llm-confidence">
+                ({CONFIDENCE_LABELS[llm.confidence] || llm.confidence})
+              </span>
+            )}
           </div>
         )}
+
+        {/* Data rows */}
+        {rows.map((row) => {
+          const mismatchClass =
+            row.mismatchType === "substantive" ? "mismatch-substantive"
+            : row.mismatchType === "formatting" ? "mismatch-formatting"
+            : "";
+          return (
+            <Fragment key={row.label}>
+              <div className="ref-compare-label">{row.label}</div>
+              <div className={`ref-compare-value ${mismatchClass}`}>
+                {row.candidate}
+              </div>
+              <div className={`ref-compare-value ${mismatchClass}`}>
+                {row.manuscript}
+              </div>
+              {hasLlm && (
+                <div className="ref-compare-value">{row.llm || "—"}</div>
+              )}
+            </Fragment>
+          );
+        })}
       </div>
 
       {/* LLM flags */}
@@ -596,6 +760,347 @@ function ReferenceCard({
           )}
         </div>
       )}
+
+      {/* Accept-as-is button for gov/web/report types (always show, even without URL) */}
+      {(tabKey === "unmatched" || tabKey === "repaired") &&
+        llm?.type &&
+        ["government_document", "web_document", "report"].includes(llm.type) && (
+        <div className="ref-card-section">
+          {llm?.url && (
+            <span className="gov-web-chip">
+              {llm.url.match(/\.go\.jp|\.gov\b|who\.int|cdc\.gov/i)
+                ? "政府・公的文書 — 外部DB照合不要候補"
+                : "Web文書 — 外部DB照合不要候補"}
+            </span>
+          )}
+          <AcceptAsIsButton
+            referenceId={card.reference_id}
+            reason={TYPE_LABELS[llm.type] || llm.type}
+            projectPath={projectPath}
+            onAccepted={onDataChanged}
+          />
+        </div>
+      )}
+
+      {/* Generic accept-as-is button (always available for unmatched/repaired references) */}
+      {(tabKey === "unmatched" || tabKey === "repaired") &&
+        (!llm?.type || !["government_document", "web_document", "report"].includes(llm.type)) && (
+        <div className="ref-card-section">
+          <AcceptAsIsButton
+            referenceId={card.reference_id}
+            reason="manuscript_reference_sufficient"
+            projectPath={projectPath}
+            onAccepted={onDataChanged}
+          />
+        </div>
+      )}
+
+      {/* Accept LLM-repaired candidate button */}
+      {(tabKey === "unmatched" || tabKey === "repaired" || tabKey === "googlebooks") &&
+        llm && llm.confidence && llm.confidence !== "low" && (
+        <div className="ref-card-section">
+          <AcceptLlmCandidateButton
+            referenceId={card.reference_id}
+            confidence={llm.confidence}
+            projectPath={projectPath}
+            onAccepted={onDataChanged}
+          />
+        </div>
+      )}
+
+      {/* Manual search section (replaces old external search links) */}
+      {(tabKey === "unmatched" || tabKey === "repaired" || tabKey === "googlebooks") && (
+        <ManualSearchSection
+          referenceId={card.reference_id}
+          card={card}
+          projectPath={projectPath}
+          onCandidateAccepted={onDataChanged}
+        />
+      )}
+
+      {/* LLM Search Support — show for unmatched/repaired/deferred */}
+      {(tabKey === "unmatched" || tabKey === "repaired" ||
+        tabKey === "deferred") && (
+        <LlmSearchSupport
+          referenceId={card.reference_id}
+          suggestions={card.search_suggestions ?? null}
+          deferredInfo={card.deferred_info ?? null}
+          projectPath={projectPath}
+          onDataChanged={onDataChanged}
+        />
+      )}
+
+      {/* Google Books candidates */}
+      {tabKey === "googlebooks" && gbCandidates && gbCandidates.length > 0 && (
+        <div className="ref-gb-candidates">
+          <div className="ref-card-section-label">
+            Google Books候補 ({gbCandidates.length}件)
+          </div>
+          {gbCandidates.map((gb, idx) => (
+            <div key={gb.google_books_id || idx} className="ref-gb-card">
+              <div className="ref-gb-header">
+                <span className="ref-gb-index">候補 #{idx + 1}</span>
+                <span className={`ref-gb-confidence gb-conf-${gb.confidence}`}>
+                  信頼度: {GB_CONFIDENCE_LABELS[gb.confidence] || gb.confidence}
+                </span>
+                <span className="ref-gb-score">
+                  スコア: {(gb.score * 100).toFixed(0)}%
+                </span>
+              </div>
+
+              <div className="ref-gb-fields">
+                <div className="ref-gb-field">
+                  <span className="ref-gb-label">タイトル</span>
+                  <span className="ref-gb-value">{gb.title || "—"}</span>
+                </div>
+                {gb.subtitle && (
+                  <div className="ref-gb-field">
+                    <span className="ref-gb-label">サブタイトル</span>
+                    <span className="ref-gb-value">{gb.subtitle}</span>
+                  </div>
+                )}
+                <div className="ref-gb-field">
+                  <span className="ref-gb-label">著者</span>
+                  <span className="ref-gb-value">
+                    {gb.authors?.length ? gb.authors.join(", ") : "—"}
+                  </span>
+                </div>
+                <div className="ref-gb-field">
+                  <span className="ref-gb-label">出版社</span>
+                  <span className="ref-gb-value">{gb.publisher || "—"}</span>
+                </div>
+                <div className="ref-gb-field">
+                  <span className="ref-gb-label">出版日</span>
+                  <span className="ref-gb-value">{gb.publishedDate || "—"}</span>
+                </div>
+                {(gb.isbn_10 || gb.isbn_13) && (
+                  <div className="ref-gb-field">
+                    <span className="ref-gb-label">ISBN</span>
+                    <span className="ref-gb-value">
+                      {gb.isbn_10 && `ISBN-10: ${gb.isbn_10}`}
+                      {gb.isbn_10 && gb.isbn_13 && " / "}
+                      {gb.isbn_13 && `ISBN-13: ${gb.isbn_13}`}
+                    </span>
+                  </div>
+                )}
+                {gb.pageCount != null && (
+                  <div className="ref-gb-field">
+                    <span className="ref-gb-label">ページ数</span>
+                    <span className="ref-gb-value">{gb.pageCount}</span>
+                  </div>
+                )}
+                {gb.categories?.length > 0 && (
+                  <div className="ref-gb-field">
+                    <span className="ref-gb-label">カテゴリ</span>
+                    <span className="ref-gb-value">
+                      {gb.categories.join(", ")}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {gb.match_reasons?.length > 0 && (
+                <div className="ref-gb-reasons">
+                  {gb.match_reasons.map((r) => (
+                    <span key={r} className="ref-gb-reason-tag">
+                      {GB_REASON_LABELS[r] || r}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* Year mismatch warning */}
+              {gb.year_diff != null && gb.year_diff > 5 && (
+                <div className="ref-gb-year-warning">
+                  原稿: {gb.ref_year ?? "?"} / GB: {gb.cand_year ?? "?"}
+                  {" "}(差: {gb.year_diff}年) — 版違い・再版の可能性
+                </div>
+              )}
+
+              <div className="ref-gb-links">
+                {gb.infoLink && (
+                  <a
+                    href={gb.infoLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="ref-gb-link"
+                  >
+                    Google Booksで見る
+                  </a>
+                )}
+                {gb.previewLink && (
+                  <a
+                    href={gb.previewLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="ref-gb-link"
+                  >
+                    プレビュー
+                  </a>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Accept-As-Is Button ───────────────────────────────────────────────── */
+
+function AcceptAsIsButton({
+  referenceId,
+  reason,
+  projectPath,
+  onAccepted,
+}: {
+  referenceId: string;
+  reason: string;
+  projectPath: string;
+  onAccepted: () => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+
+  const handleAcceptAsIs = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+
+      // Step 1: Accept as-is
+      const acceptCmd = Command.create("pra-cli", [
+        "accept-reference-as-is",
+        "--project", projectPath,
+        "--reference-id", referenceId,
+        "--reason", reason,
+      ]);
+      const acceptOutput = await acceptCmd.execute();
+      if (acceptOutput.code !== 0) {
+        setError(acceptOutput.stderr || `Accept failed with code ${acceptOutput.code}`);
+        return;
+      }
+
+      // Step 2: Regenerate viewer data
+      const viewerCmd = Command.create("pra-cli", [
+        "citation-viewer-data",
+        "--project", projectPath,
+      ]);
+      const viewerOutput = await viewerCmd.execute();
+      if (viewerOutput.code !== 0) {
+        setError(viewerOutput.stderr || `Viewer data regeneration failed with code ${viewerOutput.code}`);
+        return;
+      }
+
+      setDone(true);
+      onAccepted();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (done) {
+    return <span className="accept-as-is-done">このまま受け入れ済み</span>;
+  }
+
+  return (
+    <div className="accept-as-is-section">
+      <div className="ref-card-section-label">
+        この文献はURLが確認できる{reason}です
+      </div>
+      <button
+        className="accept-as-is-btn"
+        disabled={loading}
+        onClick={handleAcceptAsIs}
+      >
+        {loading ? "処理中..." : "原稿記載をそのまま受け入れる"}
+      </button>
+      {error && <div className="manual-search-error">{error}</div>}
+    </div>
+  );
+}
+
+/* ── Accept LLM Candidate Button ───────────────────────────────────────── */
+
+function AcceptLlmCandidateButton({
+  referenceId,
+  confidence,
+  projectPath,
+  onAccepted,
+}: {
+  referenceId: string;
+  confidence: string;
+  projectPath: string;
+  onAccepted: () => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+
+  const handleAcceptLlm = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+
+      // Step 1: Accept LLM candidate
+      const acceptCmd = Command.create("pra-cli", [
+        "accept-llm-reference-candidate",
+        "--project", projectPath,
+        "--reference-id", referenceId,
+      ]);
+      const acceptOutput = await acceptCmd.execute();
+      if (acceptOutput.code !== 0) {
+        setError(acceptOutput.stderr || `Accept failed with code ${acceptOutput.code}`);
+        return;
+      }
+
+      // Step 2: Regenerate viewer data
+      const viewerCmd = Command.create("pra-cli", [
+        "citation-viewer-data",
+        "--project", projectPath,
+      ]);
+      const viewerOutput = await viewerCmd.execute();
+      if (viewerOutput.code !== 0) {
+        setError(viewerOutput.stderr || `Viewer data regeneration failed with code ${viewerOutput.code}`);
+        return;
+      }
+
+      setDone(true);
+      onAccepted();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (done) {
+    return <span className="accept-llm-done">LLM補正候補を受け入れ済み</span>;
+  }
+
+  return (
+    <div className="accept-llm-section">
+      <div className="ref-card-section-label">
+        LLMが補正した文献情報をそのまま採用します
+        {confidence && (
+          <span className={`ref-llm-confidence-inline conf-${confidence}`}>
+            (信頼度: {CONFIDENCE_LABELS[confidence] || confidence})
+          </span>
+        )}
+      </div>
+      <button
+        className="accept-llm-btn"
+        disabled={loading}
+        onClick={handleAcceptLlm}
+      >
+        {loading ? "処理中..." : "LLM補正候補を受け入れる"}
+      </button>
+      {error && <div className="manual-search-error">{error}</div>}
     </div>
   );
 }

@@ -9,10 +9,57 @@ Also updates db_verified_references.json to remove suspicious matches.
 """
 
 import csv
+import html as _html
 import io
 import json
 import os
 import re
+
+_TAG_PATTERN = re.compile(r"<[^>]+>")
+_CHAR_CLEANUP = str.maketrans({"€": "-"})
+
+
+def _clean_text(text):
+    """Decode HTML entities and strip tags for comparison.
+    Handles double-encoded entities (e.g. &amp;ndash; → –) and encoding
+    corruptions (e.g. € → -)."""
+    if not text:
+        return ""
+    text = text.translate(_CHAR_CLEANUP)
+    decoded = text
+    for _ in range(3):
+        prev = decoded
+        decoded = _html.unescape(decoded)
+        if decoded == prev:
+            break
+    return " ".join(_TAG_PATTERN.sub("", decoded).split())
+
+
+def _word_overlap(text1, text2):
+    """Measure word containment between two texts.
+
+    Returns the fraction of words from the *shorter* text that also appear
+    in the longer text.  High overlap (>0.7) with corroborating evidence
+    (DOI + year + authors) indicates the same work despite title mismatch.
+
+    Uses containment (not Jaccard) because original titles are often
+    concatenated with journal/vol/pages/DOI by the regex parser, so the
+    word-set sizes can be very different — Jaccard would unfairly penalise
+    what is really just extra trailing metadata."""
+    if not text1 and not text2:
+        return 1.0
+    if not text1 or not text2:
+        return 0.0
+    t1 = _clean_text(text1).lower()
+    t2 = _clean_text(text2).lower()
+    words1 = set(w.strip(".,;:()[]\"'!?") for w in t1.split())
+    words2 = set(w.strip(".,;:()[]\"'!?") for w in t2.split())
+    if not words1 or not words2:
+        return 0.0
+    shorter = words1 if len(words1) <= len(words2) else words2
+    longer = words2 if len(words1) <= len(words2) else words1
+    overlap = sum(1 for w in shorter if w in longer)
+    return overlap / len(shorter)
 
 
 # ── Classification rules ───────────────────────────────────────────────
@@ -186,6 +233,45 @@ def find_suspicious_matches(pubmed_results, crossref_results):
             method = item.get("method", "")
             ref_id = item["reference_id"]
 
+            # Detect formatting-only mismatches (HTML tags, case, dashes)
+            orig_item = item.get("original", {})
+            orig_parsed = orig_item.get("parsed", {})
+            matched = (
+                item.get("pubmed_result") or
+                item.get("crossref_result") or {}
+            )
+
+            title_formatting_only = False
+            if comp.get("title_match") == "mismatch":
+                orig_t = _clean_text(orig_parsed.get("title") or "")
+                db_t = _clean_text(matched.get("title") or "")
+                if orig_t.lower() == db_t.lower():
+                    title_formatting_only = True
+                # Also check substring: original may have journal/vol/pages/DOI
+                # appended (regex parse concatenation).  If the DB title is
+                # embedded in the original or vice versa, it's formatting-only.
+                elif db_t and orig_t:
+                    ot = orig_t.lower()
+                    dt = db_t.lower()
+                    if dt in ot or ot in dt:
+                        title_formatting_only = True
+                    # Fuzzy word-level check: when DOI matches and year + authors
+                    # corroborate, use word overlap for lenient title match.
+                    # Handles Crossref data corruption (e.g. € consuming both
+                    # the hyphen AND the following character).
+                    elif (method == "doi"
+                          and comp.get("year_match") is True
+                          and comp.get("authors_match") in ("exact", "partial")):
+                        if _word_overlap(orig_t, db_t) >= 0.70:
+                            title_formatting_only = True
+
+            journal_formatting_only = False
+            if comp.get("journal_match") == "mismatch":
+                orig_j = _clean_text(orig_parsed.get("journal") or "")
+                db_j = _clean_text(matched.get("journal") or "")
+                if orig_j.lower() == db_j.lower():
+                    journal_formatting_only = True
+
             reasons = []
 
             # Title-only match with weak corroboration
@@ -194,16 +280,17 @@ def find_suspicious_matches(pubmed_results, crossref_results):
             if method == "title" and comp.get("year_match") is False:
                 reasons.append("title_only_with_year_mismatch")
 
-            # DOI matched but title mismatch
+            # DOI matched but title mismatch — skip if only formatting
             if method == "doi" and comp.get("title_match") == "mismatch":
-                reasons.append("doi_match_but_title_mismatch")
+                if not title_formatting_only:
+                    reasons.append("doi_match_but_title_mismatch")
 
-            # Multiple metadata mismatches
+            # Multiple metadata mismatches (exclude formatting-only)
             mismatch_count = sum([
-                comp.get("title_match") == "mismatch",
+                comp.get("title_match") == "mismatch" and not title_formatting_only,
                 comp.get("authors_match") == "mismatch",
                 comp.get("year_match") is False,
-                comp.get("journal_match") == "mismatch",
+                comp.get("journal_match") == "mismatch" and not journal_formatting_only,
             ])
             if mismatch_count >= 2:
                 reasons.append(f"multiple_mismatches({mismatch_count})")

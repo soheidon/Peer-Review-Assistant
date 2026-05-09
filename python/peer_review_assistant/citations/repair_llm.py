@@ -11,6 +11,7 @@ Outputs:
 
 import json
 import os
+import re as _re
 import time
 from datetime import datetime, timezone, timedelta
 
@@ -161,6 +162,10 @@ def generate_llm_repairs(project_dir, provider_obj):
         if batch_idx < total_batches - 1:
             time.sleep(0.5)
 
+    # ── Post-process: publisher extraction + gov/web detection ─────────
+    for item in all_repaired:
+        _postprocess_repaired_item(item)
+
     # ── Save outputs ──────────────────────────────────────────────────
     _save_json(citations_dir, all_repaired, targets)
     _save_markdown(citations_dir, all_repaired)
@@ -197,6 +202,116 @@ def generate_llm_repairs(project_dir, provider_obj):
             f"{n_missing_doi} possible missing DOI."
         ),
     }
+
+
+# ── Post-processing ───────────────────────────────────────────────────
+
+# Government / official document URL domain patterns
+_GOV_URL_PATTERNS = [
+    r"\.go\.jp",
+    r"\.gov\b",
+    r"mhlw\.go\.jp",
+    r"e-stat\.go\.jp",
+    r"who\.int",
+    r"cdc\.gov",
+    r"\.nhs\.uk",
+    r"europa\.eu",
+    r"\.oecd\.org",
+    r"unicef\.org",
+    r"undp\.org",
+    r"worldbank\.org",
+    r"\.un\.org",
+]
+
+
+def _detect_gov_url(url_text):
+    """Return True if the URL looks like a government/official document."""
+    if not url_text:
+        return False
+    url_lower = url_text.lower()
+    return any(
+        _re.search(pattern, url_lower)
+        for pattern in _GOV_URL_PATTERNS
+    )
+
+
+def _postprocess_repaired_item(item):
+    """Post-process a single LLM-repaired reference item.
+
+    Actions:
+    1. Extract publisher from book_title/title trailing parenthetical
+    2. Detect government/web documents from URL patterns
+    3. Set appropriate flags
+    """
+    from peer_review_assistant.citations.google_books import (
+        _extract_publisher_from_title,
+    )
+
+    parsed = item.get("parsed") or {}
+    if not parsed:
+        return
+
+    flags = item.setdefault("flags", {})
+
+    # ── 1. Extract publisher from book_title ──────────────────────────
+    book_title = parsed.get("book_title") or ""
+    if book_title:
+        extracted = _extract_publisher_from_title(book_title)
+        if extracted:
+            parsed["book_title"] = extracted["cleaned_title"]
+            if not parsed.get("publisher"):
+                parsed["publisher"] = extracted["publisher"]
+            if extracted.get("is_edited"):
+                if not parsed.get("editor"):
+                    parsed["editor"] = []
+            flags["likely_book"] = True
+            if not parsed.get("publication_type"):
+                parsed["publication_type"] = (
+                    "edited_book" if extracted.get("is_edited") else "book"
+                )
+
+    # ── 2. Extract publisher from title (journal articles sometimes have it) ──
+    title = parsed.get("title") or ""
+    if title:
+        extracted = _extract_publisher_from_title(title)
+        if extracted:
+            # Only treat as publisher if it's clearly a book (no journal info)
+            has_journal = bool(parsed.get("journal"))
+            if not has_journal:
+                parsed["title"] = extracted["cleaned_title"]
+                if not parsed.get("publisher"):
+                    parsed["publisher"] = extracted["publisher"]
+                if not parsed.get("book_title"):
+                    # Title with publisher = book title
+                    parsed["book_title"] = extracted["cleaned_title"]
+                flags["likely_book"] = True
+                if not parsed.get("publication_type"):
+                    parsed["publication_type"] = (
+                        "edited_book" if extracted.get("is_edited") else "book"
+                    )
+
+    # ── 3. Detect government / web document from URL ─────────────────
+    url = parsed.get("url")
+    if url:
+        flags["contains_url"] = True
+
+        if _detect_gov_url(url):
+            flags["likely_report_or_government_document"] = True
+            if not parsed.get("publication_type"):
+                parsed["publication_type"] = "government_document"
+        elif not parsed.get("journal") and not parsed.get("publication_type"):
+            # URL without journal = probable web document
+            if parsed.get("publication_type") not in (
+                "government_document", "report"
+            ):
+                if not parsed.get("publication_type"):
+                    parsed["publication_type"] = "web_document"
+
+    # ── 4. Ensure editorial flags are consistent ────────────────────
+    if parsed.get("editor") and not flags.get("likely_book"):
+        flags["likely_book"] = True
+    if parsed.get("isbn"):
+        flags["likely_book"] = True
 
 
 # ── File writers ──────────────────────────────────────────────────────

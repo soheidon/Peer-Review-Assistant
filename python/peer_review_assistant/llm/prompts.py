@@ -345,6 +345,25 @@ If the reference text contains a URL (http/https), extract it into the "url" fie
 
 Look for publisher names often in parentheses at the end: "(Oxford)", "(University of Chicago Press)", "(Routledge)".
 
+**CRITICAL**: If a book title ends with a publisher name in parentheses, you MUST:
+1. Set "publisher" to the content of the parentheses (e.g., "Oxford University Press")
+2. Set "book_title" WITHOUT the parenthetical publisher (e.g., "The Parental Brain" NOT "The Parental Brain (Oxford University Press)")
+3. Do NOT include the publisher in both book_title and publisher fields
+
+Common publisher keywords: Press, University Press, Routledge, Springer, Wiley, Elsevier, Sage, Guilford, APA, McGraw-Hill, Pearson, Macmillan, Basic Books, Jossey-Bass, Lippincott, Cengage, Norton, Harper, Penguin, Blackwell, Academic Press.
+
+## Government / official document detection
+
+If the reference contains a URL from a government domain, classify as government_document:
+- .go.jp, .gov, mhlw.go.jp, e-stat.go.jp
+- who.int, cdc.gov, .nhs.uk, europa.eu
+- oecd.org, unicef.org, undp.org, worldbank.org, .un.org
+
+For government documents with URLs, set:
+- publication_type: "government_document"
+- likely_report_or_government_document: true
+- needs_human_review: true (these should be verified by human)
+
 ## Editor extraction
 
 Look for "ed." or "eds." markers. Editor names should be extracted separately from authors.

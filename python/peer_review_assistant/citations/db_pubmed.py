@@ -1,5 +1,6 @@
 """PubMed / NCBI E-utilities database verification for reference entries."""
 
+import html as _html
 import json
 import os
 import sys
@@ -355,6 +356,25 @@ import re as _re_module  # local name for internal use; re imported at top
 
 re = _re_module  # prefer the real module for callers
 
+_TAG_RE = _re_module.compile(r"<[^>]+>")
+_CHAR_CLEANUP = str.maketrans({"€": "-"})
+
+
+def _clean_text(text):
+    """Decode HTML entities and strip tags for display in error messages.
+    Handles double-encoded entities (e.g. &amp;ndash; → –) and encoding
+    corruptions (e.g. € → -)."""
+    if not text:
+        return ""
+    text = text.translate(_CHAR_CLEANUP)
+    decoded = text
+    for _ in range(3):
+        prev = decoded
+        decoded = _html.unescape(decoded)
+        if decoded == prev:
+            break
+    return " ".join(_TAG_RE.sub("", decoded).split())
+
 
 def _compare(ref, pubmed_result, method):
     """Compare original reference with PubMed result."""
@@ -370,8 +390,8 @@ def _compare(ref, pubmed_result, method):
     metadata_errors = []
     if title_match == "mismatch":
         metadata_errors.append(
-            f"Title mismatch: original='{parsed.get('title')}', "
-            f"pubmed='{pubmed_result.get('title')}'")
+            f"Title mismatch: original='{_clean_text(parsed.get('title') or '')}', "
+            f"pubmed='{_clean_text(pubmed_result.get('title') or '')}'")
     if authors_match == "mismatch":
         metadata_errors.append("Authors mismatch")
     if year_match is False:
@@ -380,8 +400,8 @@ def _compare(ref, pubmed_result, method):
             f"pubmed={pubmed_result.get('year')}")
     if journal_match == "mismatch":
         metadata_errors.append(
-            f"Journal mismatch: original='{parsed.get('journal')}', "
-            f"pubmed='{pubmed_result.get('journal')}'")
+            f"Journal mismatch: original='{_clean_text(parsed.get('journal') or '')}', "
+            f"pubmed='{_clean_text(pubmed_result.get('journal') or '')}'")
 
     return {
         "exists": True,
@@ -395,9 +415,16 @@ def _compare(ref, pubmed_result, method):
 
 
 def _normalize(text):
-    """Normalize text for comparison."""
+    """Normalize text for comparison: decode HTML, lowercase, strip punctuation."""
     if not text:
         return ""
+    # Step 0: Fix encoding corruptions + strip tags + decode HTML entities
+    text = text.translate(_CHAR_CLEANUP)
+    for _ in range(3):
+        prev = text
+        text = _TAG_RE.sub("", _html.unescape(text))
+        if text == prev:
+            break
     text = text.lower().strip()
     result = []
     for ch in text:

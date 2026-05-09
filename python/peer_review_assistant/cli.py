@@ -1082,6 +1082,860 @@ def citation_db_unmatched_report_cmd(project_dir):
                   f"{summary['unmatched']} unmatched."))
 
 
+@main.command(name="citation-db-google-books")
+@click.option("--project", "project_dir", required=True,
+              type=click.Path(file_okay=False, writable=True),
+              help="Path to the project working folder.")
+@click.option("--max-results", default=5,
+              help="Max Google Books candidates per reference.")
+@click.option("--api-key", default=None,
+              help="Google Books API key (optional). "
+                   "Takes precedence over --api-key-env and "
+                   "GOOGLE_BOOKS_API_KEY env var.")
+@click.option("--api-key-env", default=None,
+              help="Name of environment variable containing the "
+                   "API key (optional). "
+                   "Falls back to GOOGLE_BOOKS_API_KEY env var.")
+def citation_db_google_books(project_dir, max_results, api_key, api_key_env):
+    """Search Google Books for book-like unmatched references."""
+    from peer_review_assistant.citations.google_books import search_google_books
+
+    emit("progress", task="citation-db-google-books", step="validate",
+         percent=0)
+
+    proj_path = os.path.join(project_dir, "project.json")
+    if not os.path.isfile(proj_path):
+        error("NO_PROJECT", "project.json not found. Run init-project first.")
+
+    refs_path = os.path.join(project_dir, "citations", "references_split.json")
+    if not os.path.isfile(refs_path):
+        error("NO_REFERENCES_SPLIT",
+              "citations/references_split.json not found. "
+              "Run extract-citations first.")
+
+    # Resolve API key:
+    #   --api-key arg > --api-key-env arg > GOOGLE_BOOKS_API_KEY env > None
+    resolved_api_key = api_key
+    if not resolved_api_key and api_key_env:
+        resolved_api_key = _get_env(api_key_env).strip()
+    if not resolved_api_key:
+        resolved_api_key = _get_env("GOOGLE_BOOKS_API_KEY").strip()
+    if not resolved_api_key:
+        resolved_api_key = None
+
+    emit("progress", task="citation-db-google-books", step="load",
+         percent=20)
+
+    with open(refs_path, "r", encoding="utf-8") as f:
+        references_split = json.load(f)
+
+    # Load LLM repairs (optional — used for book detection flags)
+    llm_repairs = None
+    llm_path = os.path.join(project_dir, "citations",
+                            "references_repaired_llm.json")
+    if os.path.isfile(llm_path):
+        with open(llm_path, "r", encoding="utf-8") as f:
+            llm_repairs = json.load(f)
+
+    emit("progress", task="citation-db-google-books", step="search",
+         percent=30)
+
+    result = search_google_books(references_split, llm_repairs,
+                                 resolved_api_key, max_results)
+
+    emit("progress", task="citation-db-google-books", step="save",
+         percent=85)
+
+    citations_dir = os.path.join(project_dir, "citations")
+    os.makedirs(citations_dir, exist_ok=True)
+
+    # db_google_books_results.json — full results (raw API responses,
+    # no API key)
+    gb_path = os.path.join(citations_dir, "db_google_books_results.json")
+    with open(gb_path, "w", encoding="utf-8") as f:
+        json.dump(result, f, indent=2, ensure_ascii=False)
+
+    # db_google_books_candidates.json — cleaned candidates for GUI
+    candidates = {
+        "total_searched": result["total_searched"],
+        "candidate_count": result["candidate_count"],
+        "no_candidate_count": result["no_candidate_count"],
+        "generated_at": datetime.now(JST).isoformat(),
+        "items": [],
+    }
+    for item in result.get("items", []):
+        cands = item.get("candidates", [])
+        entry = {
+            "reference_id": item["reference_id"],
+            "best_candidate": cands[0] if cands else None,
+            "all_candidates": cands,
+            "status": (
+                "book_candidate_" + cands[0]["confidence"]
+                if cands and cands[0].get("confidence")
+                else "book_candidate_high" if cands
+                else "no_google_books_candidate"
+            ),
+        }
+        candidates["items"].append(entry)
+
+    candidates_path = os.path.join(citations_dir,
+                                   "db_google_books_candidates.json")
+    with open(candidates_path, "w", encoding="utf-8") as f:
+        json.dump(candidates, f, indent=2, ensure_ascii=False)
+
+    emit("progress", task="citation-db-google-books", step="update_status",
+         percent=95)
+
+    # Log
+    log_path = os.path.join(project_dir, "logs", "citation_db.log")
+    now = datetime.now(JST).isoformat()
+    log_entry = (
+        f"[{now}] citation-db-google-books: "
+        f"searched={result['total_searched']}, "
+        f"candidates={result['candidate_count']}, "
+        f"no_candidate={result['no_candidate_count']}\n"
+    )
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    with open(log_path, "a", encoding="utf-8") as f:
+        f.write(log_entry)
+
+    # Update task_status.json
+    status_path = os.path.join(project_dir, "status", "task_status.json")
+    if os.path.isfile(status_path):
+        with open(status_path, "r", encoding="utf-8") as f:
+            task_status = json.load(f)
+        task_status["google_books"] = "done"
+        with open(status_path, "w", encoding="utf-8") as f:
+            json.dump(task_status, f, indent=2, ensure_ascii=False)
+
+    # Mark relevant project flags for the GUI
+    with open(proj_path, "r", encoding="utf-8") as f:
+        proj = json.load(f)
+    proj["updated_at"] = datetime.now(JST).isoformat()
+    proj["google_books_done"] = True
+    with open(proj_path, "w", encoding="utf-8") as f:
+        json.dump(proj, f, indent=2, ensure_ascii=False)
+
+    emit("done",
+         task="citation-db-google-books",
+         candidates_found=result["candidate_count"],
+         no_candidate=result["no_candidate_count"],
+         searched=result["total_searched"],
+         message=(f"Google Books search complete: "
+                  f"{result['candidate_count']} candidates found, "
+                  f"{result['no_candidate_count']} with no candidates."))
+
+
+@main.command(name="check-env")
+@click.option("--name", "env_name", required=True,
+              help="Name of the environment variable to check.")
+def check_env_cmd(env_name):
+    """Check whether an environment variable is set (no value revealed)."""
+    val = _get_env(env_name).strip()
+    emit("env_check", name=env_name, set=bool(val))
+
+
+@main.command(name="test-google-books")
+@click.option("--api-key", default=None,
+              help="Google Books API key (optional).")
+@click.option("--api-key-env", default=None,
+              help="Name of environment variable containing the "
+                   "API key (optional).")
+def test_google_books_cmd(api_key, api_key_env):
+    """Lightweight connection test against the Google Books API.
+
+    Queries a known ISBN (9780261103573) and reports success/failure.
+    Does NOT log the API key value.
+    """
+    import urllib.request
+    import urllib.error
+
+    # Resolve API key
+    resolved_key = api_key
+    if not resolved_key and api_key_env:
+        resolved_key = _get_env(api_key_env).strip()
+    if not resolved_key:
+        resolved_key = _get_env("GOOGLE_BOOKS_API_KEY").strip()
+    if not resolved_key:
+        resolved_key = None
+
+    # Lightweight query: The Hobbit (known ISBN)
+    url = "https://www.googleapis.com/books/v1/volumes?q=isbn:9780261103573"
+    if resolved_key:
+        url += f"&key={resolved_key}"
+
+    emit("progress", task="test-google-books", step="request", percent=30)
+
+    try:
+        req = urllib.request.Request(url)
+        req.add_header("User-Agent", "PeerReviewAssistant/0.1")
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            body = resp.read().decode("utf-8")
+            data = json.loads(body)
+            total = data.get("totalItems", 0)
+            emit("done",
+                 task="test-google-books",
+                 status="ok",
+                 total_items=total,
+                 message=f"Google Books API connection OK "
+                         f"(totalItems={total}).")
+    except urllib.error.HTTPError as e:
+        code = e.code
+        if code == 401:
+            emit("done", task="test-google-books", status="error",
+                 error_code=401,
+                 message="Google Books API returned 401 Unauthorized. "
+                         "Check your API key.")
+        elif code == 403:
+            emit("done", task="test-google-books", status="error",
+                 error_code=403,
+                 message="Google Books API returned 403 Forbidden. "
+                         "Check your API key permissions.")
+        elif code == 429:
+            emit("done", task="test-google-books", status="error",
+                 error_code=429,
+                 message="Google Books API returned 429 Too Many Requests. "
+                         "An API key may help increase the rate limit.")
+        else:
+            emit("done", task="test-google-books", status="error",
+                 error_code=code,
+                 message=f"Google Books API returned HTTP {code}.")
+    except (urllib.error.URLError, OSError) as e:
+        emit("done", task="test-google-books", status="error",
+             error_code="network",
+             message=f"Network error reaching Google Books API: {e}")
+    except Exception as e:
+        emit("done", task="test-google-books", status="error",
+             error_code="unknown",
+             message=f"Unexpected error: {e}")
+
+
+@main.command(name="search-reference-candidates")
+@click.option("--project", "project_dir", required=True,
+              type=click.Path(file_okay=False, writable=True),
+              help="Path to the project working folder.")
+@click.option("--reference-id", required=True,
+              help="Reference ID (e.g., R001).")
+@click.option("--source", required=True,
+              type=click.Choice(["crossref", "pubmed", "google_books", "semantic_scholar"]),
+              help="Source to search: crossref, pubmed, google_books, semantic_scholar.")
+@click.option("--fields", default="title,author,year",
+              help="Comma-separated field keys to build the search query.")
+@click.option("--max-results", default=5, type=int,
+              help="Maximum candidates to return.")
+@click.option("--api-key", default=None,
+              help="API key for the source (Google Books or Semantic Scholar).")
+@click.option("--api-key-env", default=None,
+              help="Name of environment variable containing the API key.")
+def search_reference_candidates_cmd(project_dir, reference_id, source,
+                                     fields, max_results, api_key, api_key_env):
+    """Search a single reference against a specific source.
+
+    Reads the reference from references_split.json (and LLM repairs if
+    available), builds a search query from the selected fields, and
+    returns candidates as JSON Lines events.
+    """
+    from peer_review_assistant.citations.manual_search import (
+        search_manual, _fields_hash,
+    )
+
+    emit("progress", task="search-reference-candidates", step="validate",
+         percent=0)
+
+    proj_path = os.path.join(project_dir, "project.json")
+    if not os.path.isfile(proj_path):
+        error("NO_PROJECT", "project.json not found. Run init-project first.")
+
+    # Resolve API key based on source
+    resolved_api_key = api_key
+    if not resolved_api_key and api_key_env:
+        resolved_api_key = _get_env(api_key_env).strip()
+    if not resolved_api_key:
+        if source == "google_books":
+            resolved_api_key = _get_env("GOOGLE_BOOKS_API_KEY").strip()
+        elif source == "semantic_scholar":
+            resolved_api_key = _get_env("SEMANTIC_SCHOLAR_API_KEY").strip()
+    if not resolved_api_key:
+        resolved_api_key = None
+
+    emit("progress", task="search-reference-candidates", step="search",
+         percent=30, reference_id=reference_id, source=source, fields=fields)
+
+    try:
+        candidates = search_manual(
+            project_dir, reference_id, source, fields,
+            max_results=max_results, api_key=resolved_api_key,
+        )
+    except ValueError as e:
+        error("SEARCH_ERROR", str(e))
+    except Exception as e:
+        error("SEARCH_ERROR", f"Search failed: {e}")
+
+    emit("progress", task="search-reference-candidates", step="save",
+         percent=80)
+
+    # Emit each candidate as a JSON Lines event
+    for cand in candidates:
+        emit("candidate", **cand)
+
+    # Save to file
+    out_dir = os.path.join(project_dir, "citations",
+                           "manual_search_candidates")
+    os.makedirs(out_dir, exist_ok=True)
+    fhash = _fields_hash(source, fields)
+    out_name = f"{reference_id}_{source}_{fhash}.json"
+    out_path = os.path.join(out_dir, out_name)
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump({
+            "reference_id": reference_id,
+            "source": source,
+            "fields": fields,
+            "candidates": candidates,
+            "generated_at": datetime.now(JST).isoformat(),
+        }, f, indent=2, ensure_ascii=False)
+
+    emit("done",
+         task="search-reference-candidates",
+         reference_id=reference_id,
+         source=source,
+         candidate_count=len(candidates),
+         saved_to=out_name,
+         message=f"Found {len(candidates)} candidates for {reference_id}")
+
+
+@main.command(name="accept-reference-candidate")
+@click.option("--project", "project_dir", required=True,
+              type=click.Path(file_okay=False, writable=True),
+              help="Path to the project working folder.")
+@click.option("--reference-id", required=True,
+              help="Reference ID (e.g., R001).")
+@click.option("--candidate-id", required=True,
+              help="Candidate ID (e.g., google_books:abc123).")
+def accept_reference_candidate_cmd(project_dir, reference_id, candidate_id):
+    """Accept a manually selected candidate for a reference.
+
+    Reads the candidate from manual_search_candidates/ and writes to
+    human_verified_references.json.
+    """
+    emit("progress", task="accept-reference-candidate", step="validate",
+         percent=0)
+
+    proj_path = os.path.join(project_dir, "project.json")
+    if not os.path.isfile(proj_path):
+        error("NO_PROJECT", "project.json not found.")
+
+    # Find the candidate in manual_search_candidates/
+    search_dir = os.path.join(project_dir, "citations",
+                              "manual_search_candidates")
+    candidate = None
+    if os.path.isdir(search_dir):
+        for fname in os.listdir(search_dir):
+            if not fname.endswith(".json"):
+                continue
+            fpath = os.path.join(search_dir, fname)
+            try:
+                with open(fpath, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if data.get("reference_id") != reference_id:
+                    continue
+                for cand in data.get("candidates", []):
+                    if cand.get("candidate_id") == candidate_id:
+                        candidate = cand
+                        break
+                if candidate:
+                    break
+            except (json.JSONDecodeError, OSError):
+                continue
+
+    if not candidate:
+        error("CANDIDATE_NOT_FOUND",
+              f"Candidate {candidate_id} not found for {reference_id}")
+
+    emit("progress", task="accept-reference-candidate", step="save",
+         percent=50)
+
+    # Load human_verified_references.json
+    hv_path = os.path.join(project_dir, "citations",
+                           "human_verified_references.json")
+    hv_data = {"total_verified": 0, "items": []}
+    if os.path.isfile(hv_path):
+        try:
+            with open(hv_path, "r", encoding="utf-8") as f:
+                hv_data = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass  # Start fresh if corrupt
+
+    # Remove any existing entry for this reference (idempotent)
+    hv_data["items"] = [
+        it for it in hv_data.get("items", [])
+        if it.get("reference_id") != reference_id
+    ]
+
+    entry = {
+        "reference_id": reference_id,
+        "status": "human_verified",
+        "source": "human_selected",
+        "accepted_candidate_id": candidate_id,
+        "accepted_at": datetime.now(JST).isoformat(),
+        "candidate": candidate,
+    }
+    hv_data["items"].append(entry)
+    hv_data["total_verified"] = len(hv_data["items"])
+
+    os.makedirs(os.path.dirname(hv_path), exist_ok=True)
+    with open(hv_path, "w", encoding="utf-8") as f:
+        json.dump(hv_data, f, indent=2, ensure_ascii=False)
+
+    emit("done",
+         task="accept-reference-candidate",
+         reference_id=reference_id,
+         candidate_id=candidate_id,
+         message=f"Accepted candidate {candidate_id} for {reference_id}")
+
+
+@main.command(name="accept-reference-as-is")
+@click.option("--project", "project_dir", required=True,
+              type=click.Path(file_okay=False, writable=True),
+              help="Path to the project working folder.")
+@click.option("--reference-id", required=True,
+              help="Reference ID (e.g., R024).")
+@click.option("--reason", default="",
+              help="Optional reason for accepting as-is.")
+def accept_reference_as_is_cmd(project_dir, reference_id, reason):
+    """Accept a reference as-is without a database candidate.
+
+    Suitable for government documents, web documents, and reports
+    where URLs serve as the primary identifier.
+    """
+    emit("progress", task="accept-reference-as-is", step="validate",
+         percent=0)
+
+    proj_path = os.path.join(project_dir, "project.json")
+    if not os.path.isfile(proj_path):
+        error("NO_PROJECT", "project.json not found.")
+
+    # Load reference from references_split.json (as lightweight original)
+    refs_path = os.path.join(project_dir, "citations",
+                             "references_split.json")
+    if not os.path.isfile(refs_path):
+        error("NO_REFERENCES_SPLIT",
+              "citations/references_split.json not found.")
+    with open(refs_path, "r", encoding="utf-8") as f:
+        refs = json.load(f)
+    ref = next(
+        (r for r in refs.get("items", [])
+         if r.get("reference_id") == reference_id),
+        None,
+    )
+    if not ref:
+        error("REFERENCE_NOT_FOUND",
+              f"Reference {reference_id} not found.")
+
+    emit("progress", task="accept-reference-as-is", step="save", percent=50)
+
+    # Load human_verified_references.json
+    hv_path = os.path.join(project_dir, "citations",
+                           "human_verified_references.json")
+    hv_data = {"total_verified": 0, "items": []}
+    if os.path.isfile(hv_path):
+        try:
+            with open(hv_path, "r", encoding="utf-8") as f:
+                hv_data = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # Remove any existing entry for this reference (idempotent)
+    hv_data["items"] = [
+        it for it in hv_data.get("items", [])
+        if it.get("reference_id") != reference_id
+    ]
+
+    entry = {
+        "reference_id": reference_id,
+        "status": "accepted_as_is",
+        "source": "manuscript_reference",
+        "accepted_at": datetime.now(JST).isoformat(),
+        "reason": reason,
+    }
+    hv_data["items"].append(entry)
+    hv_data["total_verified"] = len(hv_data["items"])
+
+    os.makedirs(os.path.dirname(hv_path), exist_ok=True)
+    with open(hv_path, "w", encoding="utf-8") as f:
+        json.dump(hv_data, f, indent=2, ensure_ascii=False)
+
+    emit("done",
+         task="accept-reference-as-is",
+         reference_id=reference_id,
+         message=f"Accepted {reference_id} as-is")
+
+
+@main.command(name="accept-llm-reference-candidate")
+@click.option("--project", "project_dir", required=True,
+              type=click.Path(file_okay=False, writable=True),
+              help="Path to the project working folder.")
+@click.option("--reference-id", required=True,
+              help="Reference ID (e.g., R001).")
+def accept_llm_reference_candidate_cmd(project_dir, reference_id):
+    """Accept an LLM-repaired reference candidate as-is.
+
+    Reads the LLM-repaired data from references_repaired_llm.json
+    and saves it as a human-verified reference. Suitable when the
+    LLM has cleanly parsed the reference and no external DB candidate
+    is available or needed.
+    """
+    emit("progress", task="accept-llm-reference-candidate",
+         step="validate", percent=0)
+
+    proj_path = os.path.join(project_dir, "project.json")
+    if not os.path.isfile(proj_path):
+        error("NO_PROJECT", "project.json not found.")
+
+    # Load LLM-repaired data
+    llm_path = os.path.join(project_dir, "citations",
+                            "references_repaired_llm.json")
+    if not os.path.isfile(llm_path):
+        error("NO_LLM_REPAIR",
+              "references_repaired_llm.json not found. Run repair-references-llm first.")
+    with open(llm_path, "r", encoding="utf-8") as f:
+        llm_data = json.load(f)
+    llm_item = next(
+        (it for it in llm_data.get("items", [])
+         if it.get("reference_id") == reference_id),
+        None,
+    )
+    if not llm_item:
+        error("REFERENCE_NOT_FOUND",
+              f"Reference {reference_id} not found in LLM-repaired data.")
+
+    # Load original reference
+    refs_path = os.path.join(project_dir, "citations",
+                             "references_split.json")
+    with open(refs_path, "r", encoding="utf-8") as f:
+        refs = json.load(f)
+    ref = next(
+        (r for r in refs.get("items", [])
+         if r.get("reference_id") == reference_id),
+        None,
+    )
+
+    emit("progress", task="accept-llm-reference-candidate",
+         step="save", percent=50)
+
+    # Load human_verified_references.json
+    hv_path = os.path.join(project_dir, "citations",
+                           "human_verified_references.json")
+    hv_data = {"total_verified": 0, "items": []}
+    if os.path.isfile(hv_path):
+        try:
+            with open(hv_path, "r", encoding="utf-8") as f:
+                hv_data = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # Remove any existing entry for this reference (idempotent)
+    hv_data["items"] = [
+        it for it in hv_data.get("items", [])
+        if it.get("reference_id") != reference_id
+    ]
+
+    llm_parsed = llm_item.get("parsed") or {}
+
+    entry = {
+        "reference_id": reference_id,
+        "status": "human_verified",
+        "source": "llm_reparsed_reference",
+        "accepted_at": datetime.now(JST).isoformat(),
+        "accepted_reference": {
+            "title": llm_parsed.get("title"),
+            "book_title": llm_parsed.get("book_title"),
+            "authors": llm_parsed.get("authors", []),
+            "year": llm_parsed.get("year"),
+            "journal": llm_parsed.get("journal"),
+            "publisher": llm_parsed.get("publisher"),
+            "volume": llm_parsed.get("volume"),
+            "issue": llm_parsed.get("issue"),
+            "pages": llm_parsed.get("pages"),
+            "doi": llm_parsed.get("doi"),
+            "url": llm_parsed.get("url"),
+            "isbn": llm_parsed.get("isbn"),
+            "type": llm_parsed.get("publication_type"),
+        },
+        "raw_reference_text": ref.get("raw_text", "") if ref else llm_item.get("raw_reference_text", ""),
+        "llm_confidence": llm_item.get("confidence"),
+        "llm_warnings": llm_item.get("warnings", []),
+        "llm_flags": llm_item.get("flags", {}),
+    }
+    hv_data["items"].append(entry)
+    hv_data["total_verified"] = len(hv_data["items"])
+
+    os.makedirs(os.path.dirname(hv_path), exist_ok=True)
+    with open(hv_path, "w", encoding="utf-8") as f:
+        json.dump(hv_data, f, indent=2, ensure_ascii=False)
+
+    emit("done",
+         task="accept-llm-reference-candidate",
+         reference_id=reference_id,
+         message=f"Accepted LLM candidate for {reference_id}")
+
+
+@main.command(name="generate-llm-search-suggestions")
+@click.option("--project", "project_dir", required=True,
+              type=click.Path(file_okay=False, writable=True),
+              help="Path to the project working folder.")
+@click.option("--slot", required=True,
+              help="LLM slot name (e.g., reviewer_reasoning).")
+@click.option("--provider", required=True,
+              help="LLM provider (e.g., deepseek, openai).")
+@click.option("--base-url", required=True,
+              help="LLM API base URL.")
+@click.option("--model", required=True,
+              help="LLM model name.")
+@click.option("--api-key", default="",
+              help="LLM API key.")
+@click.option("--api-key-env", default=None,
+              help="Environment variable name containing the API key.")
+def generate_llm_search_suggestions_cmd(project_dir, slot, provider,
+                                         base_url, model, api_key, api_key_env):
+    """Generate LLM-powered search queries for unmatched references.
+
+    Reads unmatched/suspicious references and asks an LLM to suggest
+    search queries for Semantic Scholar, Google Scholar, Web search, etc.
+    Outputs llm_search_suggestions.json and .md report.
+    """
+    from peer_review_assistant.llm import LLMProvider
+    from peer_review_assistant.citations.llm_search_support import (
+        generate_search_suggestions,
+    )
+
+    # Resolve API key: 1. --api-key  2. --api-key-env  3. PRA_LLM_KEY_<SLOT>
+    if not api_key and api_key_env:
+        api_key = _get_env(api_key_env).strip()
+    if not api_key:
+        api_key = _get_env(f"PRA_LLM_KEY_{slot.upper()}").strip()
+
+    emit("progress", task="generate-llm-search-suggestions",
+         step="validate", percent=0, slot=slot)
+
+    proj_path = os.path.join(project_dir, "project.json")
+    if not os.path.isfile(proj_path):
+        error("NO_PROJECT", "project.json not found.")
+
+    emit("progress", task="generate-llm-search-suggestions",
+         step="load_inputs", percent=20, slot=slot,
+         provider=provider, model=model)
+
+    prov = LLMProvider(
+        provider=provider,
+        base_url=base_url,
+        model=model,
+        api_key=api_key,
+    )
+
+    emit("progress", task="generate-llm-search-suggestions",
+         step="calling_llm", percent=40, slot=slot, model=model)
+
+    try:
+        summary = generate_search_suggestions(project_dir, prov)
+    except Exception as e:
+        error("SEARCH_SUGGESTIONS_FAILED",
+              f"LLM search suggestions failed: {e}")
+
+    emit("progress", task="generate-llm-search-suggestions",
+         step="saving", percent=90, slot=slot)
+
+    # Update project.json status
+    try:
+        with open(proj_path, "r", encoding="utf-8") as f:
+            proj = json.load(f)
+        proj.setdefault("search_suggestions", {})[slot] = {
+            "status": "done",
+            "generated_at": datetime.now(JST).isoformat(),
+        }
+        with open(proj_path, "w", encoding="utf-8") as f:
+            json.dump(proj, f, indent=2, ensure_ascii=False)
+    except Exception:
+        pass
+
+    emit("done",
+         task="generate-llm-search-suggestions",
+         slot=slot,
+         **{k: v for k, v in summary.items() if k != "message"},
+         message=summary["message"])
+
+
+@main.command(name="generate-llm-reference-flags")
+@click.option("--project", "project_dir", required=True,
+              type=click.Path(file_okay=False, writable=True),
+              help="Path to the project working folder.")
+@click.option("--slot", required=True,
+              help="LLM slot name (e.g., reviewer1).")
+@click.option("--provider", required=True,
+              help="LLM provider (e.g., openai, deepseek).")
+@click.option("--base-url", required=True,
+              help="LLM API base URL.")
+@click.option("--model", required=True,
+              help="LLM model name.")
+@click.option("--api-key", default=None,
+              help="LLM API key.")
+@click.option("--api-key-env", default=None,
+              help="Environment variable name containing the API key.")
+def generate_llm_reference_flags_cmd(project_dir, slot, provider, base_url,
+                                      model, api_key, api_key_env):
+    """Generate per-reference LLM flags for later-check classification.
+
+    Analyzes unmatched references and sets flags for:
+    - possible_missing_doi
+    - likely_government_or_web_document
+    - likely_book
+    - year_mismatch_possible_edition
+    - metadata_incomplete
+    - reference_style_needs_check
+    - bibliographic_accuracy_needs_check
+    - citation_context_needs_check
+    - needs_later_llm_check (overall)
+
+    Outputs citations/reference_llm_flags.json.
+    The API key value is never logged.
+    """
+    from peer_review_assistant.llm import LLMProvider
+    from peer_review_assistant.citations.llm_reference_flags import (
+        generate_reference_flags,
+    )
+
+    # Resolve API key
+    if not api_key and api_key_env:
+        api_key = _get_env(api_key_env).strip()
+    if not api_key:
+        api_key = _get_env(f"PRA_LLM_KEY_{slot.upper()}").strip()
+    if not api_key:
+        error("NO_API_KEY",
+              f"No API key provided. Use --api-key, --api-key-env, or set "
+              f"PRA_LLM_KEY_{slot.upper()} environment variable.")
+
+    emit("progress", task="generate-llm-reference-flags",
+         step="validate", percent=0, slot=slot)
+
+    proj_path = os.path.join(project_dir, "project.json")
+    if not os.path.isfile(proj_path):
+        error("NO_PROJECT", "project.json not found.")
+
+    emit("progress", task="generate-llm-reference-flags",
+         step="analyze", percent=30, slot=slot,
+         provider=provider, model=model)
+
+    prov = LLMProvider(
+        provider=provider,
+        base_url=base_url,
+        model=model,
+        api_key=api_key,
+    )
+
+    result = generate_reference_flags(project_dir, prov)
+
+    emit("progress", task="generate-llm-reference-flags",
+         step="save", percent=80)
+
+    # Save to file
+    out_path = os.path.join(project_dir, "citations",
+                            "reference_llm_flags.json")
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(result, f, indent=2, ensure_ascii=False)
+
+    later_count = sum(
+        1 for it in result.get("items", [])
+        if it.get("llm_flags", {}).get("needs_later_llm_check")
+    )
+
+    emit("done",
+         task="generate-llm-reference-flags",
+         total_analyzed=result.get("total_analyzed", 0),
+         flagged_for_later=later_count,
+         saved_to=os.path.basename(out_path),
+         message=(f"LLM flags generated: {result.get('total_analyzed', 0)} "
+                  f"analyzed, {later_count} flagged for later LLM check."))
+
+
+@main.command(name="defer-reference")
+@click.option("--project", "project_dir", required=True,
+              type=click.Path(file_okay=False, writable=True),
+              help="Path to the project working folder.")
+@click.option("--reference-id", required=True,
+              help="Reference ID (e.g., R018).")
+@click.option("--reason", required=True,
+              type=click.Choice([
+                  "reference_style",
+                  "bibliographic_accuracy",
+                  "metadata_completion",
+                  "citation_context_match",
+              ]),
+              help="Reason for deferral.")
+@click.option("--note", default="",
+              help="Optional free-text note.")
+def defer_reference_cmd(project_dir, reference_id, reason, note):
+    """Defer a reference for later review.
+
+    Marks a reference as deferred when it cannot be found in any database
+    and the human reviewer decides to revisit it later.
+    """
+    emit("progress", task="defer-reference", step="validate", percent=0)
+
+    proj_path = os.path.join(project_dir, "project.json")
+    if not os.path.isfile(proj_path):
+        error("NO_PROJECT", "project.json not found.")
+
+    # Load existing deferred references
+    deferred_path = os.path.join(project_dir, "citations",
+                                  "deferred_references.json")
+    deferred_data = {"total_deferred": 0, "items": []}
+    if os.path.isfile(deferred_path):
+        try:
+            with open(deferred_path, "r", encoding="utf-8") as f:
+                deferred_data = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    emit("progress", task="defer-reference", step="save", percent=50)
+
+    # Remove existing entry for this reference (idempotent)
+    deferred_data["items"] = [
+        it for it in deferred_data.get("items", [])
+        if it.get("reference_id") != reference_id
+    ]
+
+    # Load reference text
+    refs_path = os.path.join(project_dir, "citations",
+                             "references_split.json")
+    with open(refs_path, "r", encoding="utf-8") as f:
+        refs = json.load(f)
+    ref = next(
+        (r for r in refs.get("items", [])
+         if r.get("reference_id") == reference_id),
+        None,
+    )
+
+    entry = {
+        "reference_id": reference_id,
+        "deferred_at": datetime.now(JST).isoformat(),
+        "reason": reason,
+        "note": note,
+        "raw_reference_text": ref.get("raw_text", "") if ref else "",
+    }
+    deferred_data["items"].append(entry)
+    deferred_data["total_deferred"] = len(deferred_data["items"])
+
+    os.makedirs(os.path.dirname(deferred_path), exist_ok=True)
+    with open(deferred_path, "w", encoding="utf-8") as f:
+        json.dump(deferred_data, f, indent=2, ensure_ascii=False)
+
+    emit("done",
+         task="defer-reference",
+         reference_id=reference_id,
+         reason=reason,
+         message=f"Deferred {reference_id} ({reason})")
+
+
 @main.command(name="citation-viewer-data")
 @click.option("--project", "project_dir", required=True,
               type=click.Path(file_okay=False, writable=True),
@@ -1161,8 +2015,10 @@ def citation_viewer_data_cmd(project_dir):
 @click.option("--model", required=True,
               help="Model name.")
 @click.option("--api-key", default=None,
-              help="API key. Falls back to PRA_LLM_KEY_<SLOT> env var.")
-def repair_references_llm_cmd(project_dir, slot, provider, base_url, model, api_key):
+              help="API key. Falls back to --api-key-env or PRA_LLM_KEY_<SLOT> env var.")
+@click.option("--api-key-env", default=None,
+              help="Environment variable name containing the API key.")
+def repair_references_llm_cmd(project_dir, slot, provider, base_url, model, api_key, api_key_env):
     """Use LLM to re-parse unmatched/suspicious reference text into structured fields."""
     from peer_review_assistant.llm import LLMProvider
     from peer_review_assistant.citations.repair_llm import generate_llm_repairs
@@ -1181,16 +2037,15 @@ def repair_references_llm_cmd(project_dir, slot, provider, base_url, model, api_
               "citations/references_split.json not found. "
               "Run extract-citations first.")
 
-    # Resolve API key
+    # Resolve API key: 1. --api-key  2. --api-key-env  3. PRA_LLM_KEY_<SLOT>
+    if not api_key and api_key_env:
+        api_key = _get_env(api_key_env).strip()
     if not api_key:
-        env_var = f"PRA_LLM_KEY_{slot.upper()}"
-        api_key = os.environ.get(env_var)
+        api_key = _get_env(f"PRA_LLM_KEY_{slot.upper()}").strip()
     if not api_key:
         error("NO_API_KEY",
-              f"No API key provided. Use --api-key or set "
+              f"No API key provided. Use --api-key, --api-key-env, or set "
               f"PRA_LLM_KEY_{slot.upper()} environment variable.")
-
-    key_info = f"key={api_key[:4]}...{api_key[-4:]}" if len(api_key) > 8 else "key=****"
 
     emit("progress", task="repair-references-llm", step="load_inputs", percent=20,
          slot=slot, provider=provider, model=model)
@@ -1255,17 +2110,21 @@ def repair_references_llm_cmd(project_dir, slot, provider, base_url, model, api_
 @click.option("--model", required=True,
               help="Model name (e.g., gpt-4o, claude-opus-4-7).")
 @click.option("--api-key", default=None,
-              help="API key. Falls back to PRA_LLM_KEY_<SLOT> env var.")
-def test_llm(slot, provider, base_url, model, api_key):
+              help="API key. Falls back to --api-key-env or PRA_LLM_KEY_<SLOT> env var.")
+@click.option("--api-key-env", default=None,
+              help="Environment variable name containing the API key.")
+def test_llm(slot, provider, base_url, model, api_key, api_key_env):
     """Test connection to an LLM endpoint."""
     from peer_review_assistant.llm import LLMProvider, test_connection
 
+    # Resolve API key: 1. --api-key  2. --api-key-env  3. PRA_LLM_KEY_<SLOT>  4. none
+    if not api_key and api_key_env:
+        api_key = _get_env(api_key_env).strip()
     if not api_key:
-        env_var = f"PRA_LLM_KEY_{slot.upper()}"
-        api_key = os.environ.get(env_var)
+        api_key = _get_env(f"PRA_LLM_KEY_{slot.upper()}").strip()
     if not api_key:
         error("NO_API_KEY",
-              f"No API key provided. Use --api-key or set "
+              f"No API key provided. Use --api-key, --api-key-env, or set "
               f"PRA_LLM_KEY_{slot.upper()} environment variable.")
 
     emit("progress", task="test-llm", step="connect", percent=30,
@@ -1296,6 +2155,185 @@ def test_llm(slot, provider, base_url, model, api_key):
              code="LLM_CONNECTION_FAILED",
              message=result["error"] or "Unknown error",
              latency_ms=result.get("latency_ms"))
+
+
+@main.command(name="test-pubmed")
+@click.option("--api-key", default=None,
+              help="NCBI API key. Falls back to --api-key-env or NCBI_API_KEY env var.")
+@click.option("--api-key-env", default=None,
+              help="Environment variable name containing the NCBI API key.")
+@click.option("--email", default=None,
+              help="Email address (NCBI recommends). Falls back to NCBI_EMAIL env var.")
+@click.option("--email-env", default=None,
+              help="Environment variable name containing the email.")
+@click.option("--tool", default="peer-review-assistant",
+              help="Tool name (default: peer-review-assistant).")
+def test_pubmed_cmd(api_key, api_key_env, email, email_env, tool):
+    """Test connection to PubMed / NCBI E-utilities API.
+
+    Uses a lightweight ESearch query. The API key value is never logged.
+    """
+    import urllib.request
+    import urllib.parse
+    import urllib.error
+
+    # Resolve API key: 1. --api-key  2. --api-key-env  3. NCBI_API_KEY
+    resolved_key = api_key
+    if not resolved_key and api_key_env:
+        resolved_key = _get_env(api_key_env).strip()
+    if not resolved_key:
+        resolved_key = _get_env("NCBI_API_KEY").strip()
+
+    # Resolve email: 1. --email  2. --email-env  3. NCBI_EMAIL
+    resolved_email = email
+    if not resolved_email and email_env:
+        resolved_email = _get_env(email_env).strip()
+    if not resolved_email:
+        resolved_email = _get_env("NCBI_EMAIL").strip()
+
+    # Resolve tool
+    resolved_tool = tool
+
+    emit("progress", task="test-pubmed", step="connect", percent=30,
+         key_provided=bool(resolved_key),
+         email_provided=bool(resolved_email),
+         tool_provided=bool(resolved_tool))
+
+    params = {
+        "db": "pubmed",
+        "term": "child maltreatment",
+        "retmode": "json",
+        "retmax": "1",
+    }
+    if resolved_key:
+        params["api_key"] = resolved_key
+    if resolved_email:
+        params["email"] = resolved_email
+    if resolved_tool:
+        params["tool"] = resolved_tool
+
+    url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?" \
+          + urllib.parse.urlencode(params)
+
+    emit("progress", task="test-pubmed", step="request", percent=60)
+
+    try:
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            body = resp.read().decode("utf-8")
+            data = json.loads(body)
+            count = data.get("esearchresult", {}).get("count", "0")
+            emit("done",
+                 task="test-pubmed",
+                 status="ok",
+                 result_count=count,
+                 message=f"PubMed API connection OK "
+                         f"(count={count}).")
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            emit("done", task="test-pubmed", status="error",
+                 error_code=401,
+                 message="PubMed API returned 401 Unauthorized. "
+                         "Check your API key.")
+        elif e.code == 403:
+            emit("done", task="test-pubmed", status="error",
+                 error_code=403,
+                 message="PubMed API returned 403 Forbidden. "
+                         "Check your API key permissions.")
+        elif e.code == 429:
+            emit("done", task="test-pubmed", status="error",
+                 error_code=429,
+                 message="PubMed API returned 429 Too Many Requests. "
+                         "An API key may help increase the rate limit.")
+        else:
+            emit("done", task="test-pubmed", status="error",
+                 error_code=e.code,
+                 message=f"PubMed API returned HTTP {e.code}.")
+    except (urllib.error.URLError, OSError) as e:
+        emit("done", task="test-pubmed", status="error",
+             error_code="network",
+             message=f"Network error reaching PubMed API: {e}")
+    except Exception as e:
+        emit("done", task="test-pubmed", status="error",
+             error_code="unknown",
+             message=f"Unexpected error: {e}")
+
+
+@main.command(name="test-semantic-scholar")
+@click.option("--api-key", default=None,
+              help="Semantic Scholar API key. Falls back to --api-key-env or SEMANTIC_SCHOLAR_API_KEY env var.")
+@click.option("--api-key-env", default=None,
+              help="Environment variable name containing the Semantic Scholar API key.")
+def test_semantic_scholar_cmd(api_key, api_key_env):
+    """Test connection to Semantic Scholar API.
+
+    Uses a lightweight paper search query. The API key value is never logged.
+    """
+    import urllib.request
+    import urllib.parse
+    import urllib.error
+
+    # Resolve API key: 1. --api-key  2. --api-key-env  3. SEMANTIC_SCHOLAR_API_KEY
+    resolved_key = api_key
+    if not resolved_key and api_key_env:
+        resolved_key = _get_env(api_key_env).strip()
+    if not resolved_key:
+        resolved_key = _get_env("SEMANTIC_SCHOLAR_API_KEY").strip()
+
+    emit("progress", task="test-semantic-scholar", step="connect", percent=30,
+         key_provided=bool(resolved_key))
+
+    # Lightweight search for a known paper
+    params = {"query": "attention is all you need", "limit": "1",
+              "fields": "title"}
+    url = "https://api.semanticscholar.org/graph/v1/paper/search?" \
+          + urllib.parse.urlencode(params)
+
+    emit("progress", task="test-semantic-scholar", step="request", percent=60)
+
+    try:
+        req = urllib.request.Request(url)
+        req.add_header("User-Agent", "PeerReviewAssistant/0.1")
+        if resolved_key:
+            req.add_header("x-api-key", resolved_key)
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            body = resp.read().decode("utf-8")
+            data = json.loads(body)
+            total = data.get("total", 0)
+            emit("done",
+                 task="test-semantic-scholar",
+                 status="ok",
+                 total_results=total,
+                 message=f"Semantic Scholar API connection OK "
+                         f"(total={total}).")
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            emit("done", task="test-semantic-scholar", status="error",
+                 error_code=401,
+                 message="Semantic Scholar API returned 401 Unauthorized. "
+                         "Check your API key.")
+        elif e.code == 403:
+            emit("done", task="test-semantic-scholar", status="error",
+                 error_code=403,
+                 message="Semantic Scholar API returned 403 Forbidden. "
+                         "Check your API key permissions.")
+        elif e.code == 429:
+            emit("done", task="test-semantic-scholar", status="error",
+                 error_code=429,
+                 message="Semantic Scholar API returned 429 Too Many Requests. "
+                         "An API key may help increase the rate limit.")
+        else:
+            emit("done", task="test-semantic-scholar", status="error",
+                 error_code=e.code,
+                 message=f"Semantic Scholar API returned HTTP {e.code}.")
+    except (urllib.error.URLError, OSError) as e:
+        emit("done", task="test-semantic-scholar", status="error",
+             error_code="network",
+             message=f"Network error reaching Semantic Scholar API: {e}")
+    except Exception as e:
+        emit("done", task="test-semantic-scholar", status="error",
+             error_code="unknown",
+             message=f"Unexpected error: {e}")
 
 
 @main.command(name="test-db")
@@ -1426,8 +2464,10 @@ _VALID_CHECKS = {"structure", "expression", "methods_stats"}
 @click.option("--model", required=True,
               help="Model name.")
 @click.option("--api-key", default=None,
-              help="API key. Falls back to PRA_LLM_KEY_<SLOT> env var.")
-def run_check(project_dir, check_name, slot, provider, base_url, model, api_key):
+              help="API key. Falls back to --api-key-env or PRA_LLM_KEY_<SLOT> env var.")
+@click.option("--api-key-env", default=None,
+              help="Environment variable name containing the API key.")
+def run_check(project_dir, check_name, slot, provider, base_url, model, api_key, api_key_env):
     """Run an LLM review check on the manuscript."""
     from peer_review_assistant.llm import LLMProvider, chat_completion
     from peer_review_assistant.llm.prompts import (
@@ -1451,16 +2491,15 @@ def run_check(project_dir, check_name, slot, provider, base_url, model, api_key)
     if not os.path.isfile(proj_path):
         error("NO_PROJECT", "project.json not found. Run init-project first.")
 
-    # Resolve API key
+    # Resolve API key: 1. --api-key  2. --api-key-env  3. PRA_LLM_KEY_<SLOT>
+    if not api_key and api_key_env:
+        api_key = _get_env(api_key_env).strip()
     if not api_key:
-        env_var = f"PRA_LLM_KEY_{slot.upper()}"
-        api_key = os.environ.get(env_var)
+        api_key = _get_env(f"PRA_LLM_KEY_{slot.upper()}").strip()
     if not api_key:
         error("NO_API_KEY",
-              f"No API key provided. Use --api-key or set "
+              f"No API key provided. Use --api-key, --api-key-env, or set "
               f"PRA_LLM_KEY_{slot.upper()} environment variable.")
-
-    key_info = f"key={api_key[:4]}...{api_key[-4:]}" if len(api_key) > 8 else "key=****"
 
     # Load inputs
     emit("progress", task="run-check", step="load_inputs", percent=20,

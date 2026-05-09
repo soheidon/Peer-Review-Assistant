@@ -12,7 +12,14 @@ interface CitationReviewPanelProps {
   llmRepairDone: boolean;
   llmRepairGenerating: boolean;
   onLlmRepair: (slotName: string) => void;
-  llmSlots: { name: string; provider: string; model: string; apiKey: string }[];
+  llmSlots: { name: string; provider: string; model: string; apiKey: string; apiKeyMode?: string; apiKeyEnvName?: string }[];
+  googleBooksDone: boolean;
+  googleBooksGenerating: boolean;
+  googleBooksCandidateCount?: number;
+  onGoogleBooks: () => void;
+  llmFlagsDone: boolean;
+  llmFlagsGenerating: boolean;
+  onGenerateLlmFlags: (slotName: string) => void;
   statusMessage: {text: string; type: "ok" | "error" | "info"} | null;
 }
 
@@ -27,6 +34,13 @@ export default function CitationReviewPanel({
   llmRepairGenerating,
   onLlmRepair,
   llmSlots,
+  googleBooksDone,
+  googleBooksGenerating,
+  googleBooksCandidateCount,
+  onGoogleBooks,
+  llmFlagsDone,
+  llmFlagsGenerating,
+  onGenerateLlmFlags,
   statusMessage,
 }: CitationReviewPanelProps) {
   const [suspiciousCount, setSuspiciousCount] = useState<number>(0);
@@ -117,6 +131,68 @@ export default function CitationReviewPanel({
               <div style={{ fontSize: 11, color: "#888", marginTop: 4 }}>
                 LLM再パース後、「文献確認データを再作成」を押して結果を反映してください。
               </div>
+            )}
+          </div>
+        )}
+
+        {/* LLM reference flags generation */}
+        {viewerDataReady && (
+          <div style={{ marginTop: 12 }}>
+            <div className="row">
+              <span style={{ fontSize: 12, fontWeight: 600, color: "#555", marginRight: 8 }}>
+                LLM文献フラグ生成:
+              </span>
+              {llmSlots.filter(s => s.name.startsWith("reviewer") && s.provider.trim()).map((slot) => {
+                const isRunning = llmFlagsGenerating;
+                return (
+                  <button
+                    key={slot.name}
+                    onClick={() => onGenerateLlmFlags(slot.name)}
+                    disabled={isRunning}
+                    style={{ fontSize: 11, height: 24 }}
+                  >
+                    {isRunning ? "フラグ生成中..." : `${slotDisplayName(slot.name)}`}
+                  </button>
+                );
+              })}
+              {llmFlagsGenerating && <span className="status-chip running">実行中...</span>}
+              {llmFlagsDone && !llmFlagsGenerating && <span className="status-chip ok">完了</span>}
+              {!llmFlagsDone && !llmFlagsGenerating && <span className="status-chip unrun">未実行</span>}
+            </div>
+            {llmFlagsDone && (
+              <div style={{ fontSize: 11, color: "#888", marginTop: 4 }}>
+                LLMフラグ生成後、「文献確認データを再作成」を押して結果を反映してください。
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Google Books candidate search */}
+        {viewerDataReady && (
+          <div style={{ marginTop: 12 }}>
+            <div className="row">
+              <button
+                onClick={onGoogleBooks}
+                disabled={!projectPath || googleBooksGenerating || !llmRepairDone}
+              >
+                {googleBooksGenerating
+                  ? "Google Books検索中..."
+                  : "Google Booksで書籍候補を検索"}
+              </button>
+              {googleBooksGenerating && (
+                <span className="status-chip running">実行中...</span>
+              )}
+              {googleBooksDone && !googleBooksGenerating && (
+                <span className="status-chip ok">
+                  取得済{googleBooksCandidateCount != null ? ` (${googleBooksCandidateCount}件)` : ""}
+                </span>
+              )}
+              {!googleBooksDone && !googleBooksGenerating && (
+                <span className="status-chip unrun">未実行</span>
+              )}
+            </div>
+            {!llmRepairDone && projectPath && !googleBooksGenerating && (
+              <div className="disabled-reason">先にLLM文献再パースを実行してください</div>
             )}
           </div>
         )}

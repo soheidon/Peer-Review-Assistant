@@ -53,6 +53,7 @@ interface LlmSlot {
   apiKey: string;
   apiKeyMode: "direct" | "env_var";
   apiKeyEnvName: string;
+  enabled?: boolean;
 }
 
 interface JournalPanelProps {
@@ -144,7 +145,7 @@ export default function JournalPanel({
   const rp = jp.review_policy;
 
   const configuredSlots = llmSlots.filter(
-    (s) => s.provider.trim() && s.baseUrl.trim() && s.model.trim()
+    (s) => s.enabled !== false && s.provider.trim() && s.baseUrl.trim() && s.model.trim()
   );
   const [llmSlot, setLlmSlot] = React.useState(
     configuredSlots.length > 0 ? configuredSlots[0].name : ""

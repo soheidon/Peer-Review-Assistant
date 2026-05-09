@@ -6,6 +6,7 @@ interface LlmSlot {
   baseUrl: string;
   model: string;
   apiKey: string;
+  enabled?: boolean;
 }
 
 interface ReviewChecksPanelProps {
@@ -57,8 +58,8 @@ export default function ReviewChecksPanel({
   onNavigateToSettings,
   statusMessage,
 }: ReviewChecksPanelProps) {
-  const reviewers = llmSlots.filter((s) => s.name.startsWith("reviewer"));
-  const allReviewersConfigured = reviewers.every(
+  const reviewers = llmSlots.filter((s) => s.name.startsWith("reviewer") && s.enabled !== false);
+  const allReviewersConfigured = reviewers.length > 0 && reviewers.every(
     (s) => s.provider.trim() && s.baseUrl.trim() && s.model.trim() && s.apiKey.trim()
   );
   const anyReviewerDone = (results: Record<string, string>) =>

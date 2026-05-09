@@ -20,6 +20,7 @@ interface LlmSlot {
   apiKey: string;
   apiKeyMode: "direct" | "env_var";
   apiKeyEnvName: string;
+  enabled: boolean;
 }
 
 interface LogEntry {
@@ -71,6 +72,12 @@ function App() {
   const [pubmedApiKeyEnvName, setPubmedApiKeyEnvName] = useState("NCBI_API_KEY");
   const [pubmedEnvCheckResult, setPubmedEnvCheckResult] = useState("");
   const [pubmedConnectionTestResult, setPubmedConnectionTestResult] = useState("");
+
+  // DB API enabled state
+  const [pubmedEnabled, setPubmedEnabled] = useState(true);
+  const [googleBooksEnabled, setGoogleBooksEnabled] = useState(false);
+  const [semanticScholarEnabled, setSemanticScholarEnabled] = useState(false);
+
   const [structureCheckResults, setStructureCheckResults] = useState<Record<string, string>>({});
   const [structureMergeDone, setStructureMergeDone] = useState(false);
   const [structureMergeRunning, setStructureMergeRunning] = useState(false);
@@ -171,10 +178,10 @@ function App() {
     reviewer3: "PRA_LLM_KEY_REVIEWER3",
   };
   const defaultSlots: LlmSlot[] = [
-    { name: "summary", provider: "", baseUrl: "", model: "", apiKey: "", apiKeyMode: "env_var", apiKeyEnvName: "PRA_LLM_KEY_SUMMARY" },
-    { name: "reviewer1", provider: "", baseUrl: "", model: "", apiKey: "", apiKeyMode: "env_var", apiKeyEnvName: "PRA_LLM_KEY_REVIEWER1" },
-    { name: "reviewer2", provider: "", baseUrl: "", model: "", apiKey: "", apiKeyMode: "env_var", apiKeyEnvName: "PRA_LLM_KEY_REVIEWER2" },
-    { name: "reviewer3", provider: "", baseUrl: "", model: "", apiKey: "", apiKeyMode: "env_var", apiKeyEnvName: "PRA_LLM_KEY_REVIEWER3" },
+    { name: "summary", provider: "", baseUrl: "", model: "", apiKey: "", apiKeyMode: "env_var", apiKeyEnvName: "PRA_LLM_KEY_SUMMARY", enabled: true },
+    { name: "reviewer1", provider: "", baseUrl: "", model: "", apiKey: "", apiKeyMode: "env_var", apiKeyEnvName: "PRA_LLM_KEY_REVIEWER1", enabled: true },
+    { name: "reviewer2", provider: "", baseUrl: "", model: "", apiKey: "", apiKeyMode: "env_var", apiKeyEnvName: "PRA_LLM_KEY_REVIEWER2", enabled: true },
+    { name: "reviewer3", provider: "", baseUrl: "", model: "", apiKey: "", apiKeyMode: "env_var", apiKeyEnvName: "PRA_LLM_KEY_REVIEWER3", enabled: false },
   ];
   const [llmSlots, setLlmSlots] = useState(defaultSlots);
   const [llmTestResults, setLlmTestResults] = useState<Record<string, string>>({});
@@ -1176,7 +1183,7 @@ function App() {
     }
   };
 
-  const updateSlot = (slotName: string, field: string, value: string) => {
+  const updateSlot = (slotName: string, field: string, value: string | boolean) => {
     setLlmSlots((prev) =>
       prev.map((s) => (s.name === slotName ? { ...s, [field]: value } : s))
     );
@@ -1992,6 +1999,7 @@ function App() {
               googleBooksDone={googleBooksDone}
               googleBooksGenerating={googleBooksGenerating}
               googleBooksCandidateCount={googleBooksCandidateCount}
+              googleBooksEnabled={googleBooksEnabled}
               onGoogleBooks={runGoogleBooksDb}
               llmFlagsDone={llmFlagsDone}
               llmFlagsGenerating={llmFlagsGenerating}
@@ -2059,6 +2067,8 @@ function App() {
               onCheckGbEnv={checkGbEnv}
               gbConnectionTestResult={gbConnectionTestResult}
               onTestGbConnection={testGbConnection}
+              googleBooksEnabled={googleBooksEnabled}
+              onGoogleBooksEnabledChange={setGoogleBooksEnabled}
               semanticScholarApiKey={semanticScholarApiKey}
               onSemanticScholarApiKeyChange={setSemanticScholarApiKey}
               semanticScholarApiKeyMode={semanticScholarApiKeyMode}
@@ -2069,6 +2079,8 @@ function App() {
               onCheckSsEnv={checkSsEnv}
               ssConnectionTestResult={ssConnectionTestResult}
               onTestSsConnection={testSsConnection}
+              semanticScholarEnabled={semanticScholarEnabled}
+              onSemanticScholarEnabledChange={setSemanticScholarEnabled}
               pubmedApiKey={pubmedApiKey}
               onPubmedApiKeyChange={setPubmedApiKey}
               pubmedApiKeyMode={pubmedApiKeyMode}
@@ -2079,6 +2091,8 @@ function App() {
               onCheckPubmedEnv={checkPubmedEnv}
               pubmedConnectionTestResult={pubmedConnectionTestResult}
               onTestPubmedConnection={testPubmedConnection}
+              pubmedEnabled={pubmedEnabled}
+              onPubmedEnabledChange={setPubmedEnabled}
             />
           )}
         </div>

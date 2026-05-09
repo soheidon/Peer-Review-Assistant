@@ -12,10 +12,11 @@ interface CitationReviewPanelProps {
   llmRepairDone: boolean;
   llmRepairGenerating: boolean;
   onLlmRepair: (slotName: string) => void;
-  llmSlots: { name: string; provider: string; model: string; apiKey: string; apiKeyMode?: string; apiKeyEnvName?: string }[];
+  llmSlots: { name: string; provider: string; model: string; apiKey: string; apiKeyMode?: string; apiKeyEnvName?: string; enabled?: boolean }[];
   googleBooksDone: boolean;
   googleBooksGenerating: boolean;
   googleBooksCandidateCount?: number;
+  googleBooksEnabled: boolean;
   onGoogleBooks: () => void;
   llmFlagsDone: boolean;
   llmFlagsGenerating: boolean;
@@ -37,6 +38,7 @@ export default function CitationReviewPanel({
   googleBooksDone,
   googleBooksGenerating,
   googleBooksCandidateCount,
+  googleBooksEnabled,
   onGoogleBooks,
   llmFlagsDone,
   llmFlagsGenerating,
@@ -110,7 +112,7 @@ export default function CitationReviewPanel({
               <span style={{ fontSize: 12, fontWeight: 600, color: "#555", marginRight: 8 }}>
                 LLM文献再パース:
               </span>
-              {llmSlots.filter(s => s.name.startsWith("reviewer") && s.provider.trim()).map((slot) => {
+              {llmSlots.filter(s => s.name.startsWith("reviewer") && s.enabled !== false && s.provider.trim()).map((slot) => {
                 const isRunning = llmRepairGenerating;
                 return (
                   <button
@@ -142,7 +144,7 @@ export default function CitationReviewPanel({
               <span style={{ fontSize: 12, fontWeight: 600, color: "#555", marginRight: 8 }}>
                 LLM文献フラグ生成:
               </span>
-              {llmSlots.filter(s => s.name.startsWith("reviewer") && s.provider.trim()).map((slot) => {
+              {llmSlots.filter(s => s.name.startsWith("reviewer") && s.enabled !== false && s.provider.trim()).map((slot) => {
                 const isRunning = llmFlagsGenerating;
                 return (
                   <button
@@ -168,7 +170,7 @@ export default function CitationReviewPanel({
         )}
 
         {/* Google Books candidate search */}
-        {viewerDataReady && (
+        {viewerDataReady && googleBooksEnabled && (
           <div style={{ marginTop: 12 }}>
             <div className="row">
               <button

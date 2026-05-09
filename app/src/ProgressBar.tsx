@@ -64,7 +64,7 @@ export default function ProgressBar(props: ProgressBarProps) {
               style={props.onStepClick ? { cursor: "pointer" } : undefined}
             >
               <div className="progress-circle">
-                {isDone ? "✓" : isActive ? (doneCount + 1) : i + 1}
+                {isDone ? "✓" : isActive ? (firstPending + 1) : i + 1}
               </div>
               <span className="progress-label">{stage.label}</span>
             </div>

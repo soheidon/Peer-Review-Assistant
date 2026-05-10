@@ -1,5 +1,6 @@
 import React from "react";
 import { slotDisplayName } from "../slotLabels";
+import { parseLooseJsonObject } from "../utils";
 
 interface ReferenceStyle {
   style_name: string;
@@ -50,6 +51,9 @@ interface LlmSlot {
   provider: string;
   baseUrl: string;
   model: string;
+  proModel: string;
+  flashModel: string;
+  reasoningMode: "separate_models" | "same_model_with_thinking" | "none_or_unknown";
   apiKey: string;
   apiKeyMode: "direct" | "env_var";
   apiKeyEnvName: string;
@@ -60,21 +64,17 @@ interface JournalPanelProps {
   projectPath: string;
   journalProfile: JournalProfile;
   journalLoaded: boolean;
+  journalSaved: boolean;
   journalLlmRunning: boolean;
   journalLoading: boolean;
-  journalExternalPrompt: string;
-  journalImportText: string;
-  journalImportPreview: JournalProfile | null;
-  journalImportError: string;
+  journalLlmPreview: JournalProfile | null;
   llmSlots: LlmSlot[];
   onUpdateField: (path: string, value: unknown) => void;
   onSave: () => void;
   onLoad: () => void;
   onLlmGenerate: (slotName: string) => void;
-  onGenerateExternalPrompt: () => void;
-  onImportTextChange: (text: string) => void;
-  onImportParse: () => void;
-  onImportConfirm: () => void;
+  onApplyJournalPreview: (profile: JournalProfile) => void;
+  onClearLlmPreview: () => void;
   statusMessage: { text: string; type: "ok" | "error" | "info" } | null;
 }
 
@@ -118,37 +118,495 @@ const JOURNAL_TITLE_OPTIONS = [
   { value: "unknown", label: "不明" },
 ];
 
-/** Heuristic: check if a model name suggests a "Pro" tier capable of accurate research. */
-function isProModel(model: string): boolean {
-  const m = model.toLowerCase();
-  // Pro/advanced model patterns
-  const proPatterns = [
-    /\bpro\b/, /\bopus\b/, /\bsonnet\b/,
-    /gpt-4/, /gpt-4o/, /claude/,
-    /gemini.*(?:pro|ultra)/, /gemini-2/,
-  ];
-  return proPatterns.some((p) => p.test(m));
+/* ── Status helper ─────────────────────────────────────────────────── */
+
+function getJournalStatus(
+  profile: JournalProfile,
+  loaded: boolean,
+  saved: boolean,
+  llmPreview: JournalProfile | null,
+): { text: string; chip: "ok" | "info" | "unrun" } {
+  const hasData = !!profile.journal_name.trim() || loaded;
+  if (!hasData && !llmPreview) return { text: "未取得", chip: "unrun" };
+  if (llmPreview) return { text: "API取得済み・未保存", chip: "info" };
+  if (!saved) {
+    if (profile.source === "llm") return { text: "API取得済み・未保存", chip: "info" };
+    if (profile.source === "external") return { text: "外部AI結果を取り込み済み・未保存", chip: "info" };
+    return { text: "未保存", chip: "info" };
+  }
+  if (saved && loaded) return { text: "保存済み", chip: "ok" };
+  return { text: "未取得", chip: "unrun" };
 }
+
+/* ── Journal acquisition modal ─────────────────────────────────────── */
+
+function JournalAcquisitionModal({
+  journalProfile,
+  llmSlots,
+  journalLlmRunning,
+  journalLlmPreview,
+  onLlmGenerate,
+  onApplyToJournal,
+  onClearLlmPreview,
+  onClose,
+}: {
+  journalProfile: JournalProfile;
+  llmSlots: LlmSlot[];
+  journalLlmRunning: boolean;
+  journalLlmPreview: JournalProfile | null;
+  onLlmGenerate: (slotName: string) => void;
+  onApplyToJournal: (profile: JournalProfile) => void;
+  onClearLlmPreview: () => void;
+  onClose: () => void;
+}) {
+  type ModalTab = "api" | "external";
+  const [activeTab, setActiveTab] = React.useState<ModalTab>("api");
+
+  // ── API tab state ──
+  const configuredSlots = llmSlots.filter(
+    (s) => s.enabled !== false && s.provider.trim() && s.baseUrl.trim() && s.proModel.trim()
+  );
+  const [apiSlot, setApiSlot] = React.useState(
+    configuredSlots.length > 0 ? configuredSlots[0].name : ""
+  );
+  const selectedSlot = configuredSlots.find((s) => s.name === apiSlot);
+
+  // ── External AI tab state ──
+  const [extPrompt, setExtPrompt] = React.useState("");
+  const [extPasteText, setExtPasteText] = React.useState("");
+  const [extPreview, setExtPreview] = React.useState<JournalProfile | null>(null);
+  const [extError, setExtError] = React.useState("");
+
+  const generateExternalPrompt = () => {
+    const jn = journalProfile.journal_name.trim();
+    const ju = journalProfile.journal_url.trim();
+    const at = journalProfile.article_type;
+    const defaultProfile: JournalProfile = {
+      journal_name: "",
+      journal_url: "",
+      publisher: "",
+      article_type: "Article",
+      reference_style: {
+        style_name: "",
+        in_text_citation: "numeric",
+        reference_list_order: "order_of_appearance",
+        doi_required: "recommended_or_required_if_available",
+        url_access_date_required: null,
+        journal_title_style: "abbreviated_or_full",
+        example_reference: "",
+      },
+      submission_guidelines: {
+        word_limit: null,
+        abstract_limit: null,
+        figure_table_limits: null,
+        supplementary_material_policy: "",
+        data_availability_policy: "",
+        ethics_policy: "",
+        conflict_of_interest_policy: "",
+        funding_statement_policy: "",
+      },
+      review_policy: {
+        novelty_requirement: "",
+        methodological_requirements: "",
+        statistical_reporting_expectations: "",
+        reporting_guidelines: [],
+        reviewer_guidance: "",
+        editorial_policy_summary: "",
+      },
+      notes: "",
+      source: "external",
+      source_details: "",
+      updated_at: "",
+    };
+    const parts = [
+      `Please research the following journal and produce a structured JSON profile:`,
+      ``,
+      `Journal Name: ${jn || "(please fill in)"}`,
+      `Journal URL: ${ju || "(please fill in)"}`,
+      `Article Type: ${at}`,
+      ``,
+      `The JSON must match this schema and contain accurate information from the journal's official submission guidelines:`,
+      ``,
+      `\`\`\`json`,
+      JSON.stringify(defaultProfile, null, 2),
+      `\`\`\``,
+      ``,
+      `Output ONLY valid JSON — no markdown, no explanations, no code fences.`,
+    ];
+    setExtPrompt(parts.join("\n"));
+  };
+
+  const copyToClipboard = async (text: string) => {
+    try { await navigator.clipboard.writeText(text); } catch { /* ignore */ }
+  };
+
+  const parseExternalResult = () => {
+    const text = extPasteText.trim();
+    if (!text) {
+      setExtError("JSONを貼り付けてください。");
+      return;
+    }
+    const result = parseLooseJsonObject(text);
+    if (result.ok && result.value) {
+      // Deep merge with defaults
+      const defaultProfile: JournalProfile = {
+        journal_name: "",
+        journal_url: "",
+        publisher: "",
+        article_type: "Article",
+        reference_style: {
+          style_name: "",
+          in_text_citation: "numeric",
+          reference_list_order: "order_of_appearance",
+          doi_required: "recommended_or_required_if_available",
+          url_access_date_required: null,
+          journal_title_style: "abbreviated_or_full",
+          example_reference: "",
+        },
+        submission_guidelines: {
+          word_limit: null,
+          abstract_limit: null,
+          figure_table_limits: null,
+          supplementary_material_policy: "",
+          data_availability_policy: "",
+          ethics_policy: "",
+          conflict_of_interest_policy: "",
+          funding_statement_policy: "",
+        },
+        review_policy: {
+          novelty_requirement: "",
+          methodological_requirements: "",
+          statistical_reporting_expectations: "",
+          reporting_guidelines: [],
+          reviewer_guidance: "",
+          editorial_policy_summary: "",
+        },
+        notes: "",
+        source: "external",
+        source_details: "pasted JSON",
+        updated_at: "",
+      };
+      const merged = JSON.parse(JSON.stringify(defaultProfile));
+      const deepMerge = (target: Record<string, unknown>, source: Record<string, unknown>) => {
+        for (const key of Object.keys(source)) {
+          if (source[key] !== null && typeof source[key] === "object" && !Array.isArray(source[key]) && typeof target[key] === "object" && target[key] !== null && !Array.isArray(target[key])) {
+            deepMerge(target[key] as Record<string, unknown>, source[key] as Record<string, unknown>);
+          } else if (source[key] !== undefined) {
+            target[key] = source[key];
+          }
+        }
+      };
+      deepMerge(merged, result.value!);
+      setExtPreview(merged as JournalProfile);
+      setExtError(result.warnings.length > 0 ? result.warnings.join("\n") : "");
+    } else {
+      setExtError(result.error || "JSONパースに失敗しました。");
+      // Keep pasteText — user can edit and re-parse
+    }
+  };
+
+  const clearExternal = () => {
+    setExtPasteText("");
+    setExtPreview(null);
+    setExtError("");
+  };
+
+  // Which preview is currently relevant
+  const activePreview = activeTab === "api" ? journalLlmPreview : extPreview;
+
+  const handleApply = () => {
+    if (activePreview) {
+      onApplyToJournal(activePreview);
+      if (activeTab === "api") {
+        onClearLlmPreview();
+      } else {
+        clearExternal();
+      }
+    }
+  };
+
+  /* ── Styles ── */
+  const overlayStyle: React.CSSProperties = {
+    position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+    background: "rgba(0,0,0,0.35)", zIndex: 1000,
+    display: "flex", alignItems: "center", justifyContent: "center",
+  };
+  const modalStyle: React.CSSProperties = {
+    background: "#fff", borderRadius: 8, padding: 20,
+    width: 700, maxHeight: "85vh", overflowY: "auto",
+    boxShadow: "0 4px 24px rgba(0,0,0,0.2)",
+  };
+  const tabBtnBase: React.CSSProperties = {
+    padding: "6px 14px",
+    border: "1px solid #ccc",
+    background: "#f0f0f0",
+    cursor: "pointer",
+    fontSize: 12,
+    fontWeight: 600,
+    borderRadius: "4px 4px 0 0",
+    marginRight: 2,
+  };
+  const cardStyle: React.CSSProperties = {
+    border: "1px solid #e0e0e0",
+    borderRadius: 6,
+    padding: 14,
+    background: "#fafafa",
+    marginBottom: 10,
+  };
+  const txtStyle: React.CSSProperties = {
+    width: "100%",
+    minHeight: "80px",
+    fontFamily: "inherit",
+    fontSize: "11px",
+  };
+
+  return (
+    <div style={overlayStyle} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={modalStyle}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <h3 style={{ margin: 0, fontSize: 15 }}>ジャーナル情報取得</h3>
+          <button onClick={onClose} style={{ fontSize: 11 }}>閉じる</button>
+        </div>
+
+        {/* Tab switcher */}
+        <div style={{ display: "flex", marginBottom: 0 }}>
+          <button
+            style={{ ...tabBtnBase, background: activeTab === "api" ? "#fff" : "#f0f0f0", borderBottom: activeTab === "api" ? "2px solid #0078d4" : "1px solid #ccc", color: activeTab === "api" ? "#0078d4" : "#555" }}
+            onClick={() => setActiveTab("api")}
+          >
+            APIで取得
+          </button>
+          <button
+            style={{ ...tabBtnBase, background: activeTab === "external" ? "#fff" : "#f0f0f0", borderBottom: activeTab === "external" ? "2px solid #0078d4" : "1px solid #ccc", color: activeTab === "external" ? "#0078d4" : "#555" }}
+            onClick={() => setActiveTab("external")}
+          >
+            外部AI用プロンプトで作成
+          </button>
+          <div style={{ flex: 1, borderBottom: "1px solid #ccc" }} />
+        </div>
+
+        <div style={{ border: "1px solid #ccc", borderTop: "none", borderRadius: "0 0 6px 6px", padding: 14, background: "#fff" }}>
+          {/* ── API tab ──────────────────────────────────────────────── */}
+          {activeTab === "api" && (
+            <div>
+              <p style={{ fontSize: 11, color: "#888", margin: "0 0 12px 0", lineHeight: 1.5 }}>
+                設定済みのPro/reasoningモデルを使って、投稿先ジャーナルの投稿規定・引用形式・査読方針を取得します。
+              </p>
+
+              {configuredSlots.length > 0 ? (
+                <>
+                  <div style={cardStyle}>
+                    <div style={{ marginBottom: 8 }}>
+                      <label style={{ fontSize: 11, fontWeight: 600, color: "#555" }}>使用するLLMスロット</label>
+                      <select
+                        value={apiSlot}
+                        onChange={(e) => setApiSlot(e.target.value)}
+                        disabled={journalLlmRunning}
+                        style={{ width: "100%", marginTop: 2 }}
+                      >
+                        {configuredSlots.map((s) => (
+                          <option key={s.name} value={s.name}>
+                            {slotDisplayName(s.name)} (Pro: {s.proModel})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {selectedSlot && (
+                      <div style={{ marginBottom: 8 }}>
+                        <label style={{ fontSize: 11, fontWeight: 600, color: "#555" }}>使用モデル名</label>
+                        <div style={{ fontSize: 11, marginTop: 2, padding: "3px 8px", background: "#e8f5e9", borderRadius: 3, color: "#107c10" }}>
+                          {selectedSlot.proModel}
+                        </div>
+                      </div>
+                    )}
+
+                    <button
+                      onClick={() => onLlmGenerate(apiSlot)}
+                      disabled={journalLlmRunning || !journalProfile.journal_name.trim()}
+                      style={{ width: "100%" }}
+                    >
+                      {journalLlmRunning ? "生成中..." : "APIで取得"}
+                    </button>
+                    {journalLlmRunning && (
+                      <span className="status-chip running" style={{ marginTop: 4 }}>実行中...</span>
+                    )}
+                    {!journalProfile.journal_name.trim() && (
+                      <div className="disabled-reason" style={{ marginTop: 4 }}>先に「ジャーナル名」を入力してください</div>
+                    )}
+                  </div>
+
+                  {/* LLM preview */}
+                  {journalLlmPreview && (
+                    <div style={cardStyle}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: "#107c10", marginBottom: 8 }}>
+                        取得結果プレビュー
+                      </div>
+                      <JournalPreviewTable profile={journalLlmPreview} />
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div style={{ fontSize: 11, color: "#999", padding: 12 }}>
+                  Pro/reasoningモデルが設定されているLLMスロットがありません。「設定」タブでProモデルを設定してください。
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── External AI tab ──────────────────────────────────────── */}
+          {activeTab === "external" && (
+            <div>
+              <p style={{ fontSize: 11, color: "#888", margin: "0 0 12px 0", lineHeight: 1.5 }}>
+                ChatGPT、GeminiなどWeb検索可能なAIにプロンプトを貼り付け、取得したJSONをここに貼り付けてください。
+              </p>
+
+              {/* Prompt generation */}
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
+                  <button onClick={generateExternalPrompt} style={{ flex: 1 }}>
+                    外部AI用プロンプトを作成
+                  </button>
+                  {extPrompt && (
+                    <button onClick={() => copyToClipboard(extPrompt)} style={{ fontSize: 11, height: 28 }}>
+                      コピー
+                    </button>
+                  )}
+                </div>
+                {extPrompt ? (
+                  <pre style={{
+                    background: "#f5f5f5", border: "1px solid #ddd", borderRadius: 4,
+                    padding: 10, fontSize: 10, maxHeight: 200, overflowY: "auto",
+                    whiteSpace: "pre-wrap", wordBreak: "break-word", margin: 0,
+                  }}>
+                    {extPrompt}
+                  </pre>
+                ) : (
+                  <p style={{ fontSize: 11, color: "#bbb", margin: 0 }}>
+                    プロンプト作成ボタンを押すと、ここに表示されます。
+                  </p>
+                )}
+              </div>
+
+              {/* Paste area */}
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ fontSize: 11, fontWeight: 600, color: "#555", display: "block", marginBottom: 2 }}>
+                  外部AI結果を貼り付け
+                </label>
+                <textarea
+                  style={txtStyle}
+                  placeholder="ChatGPTやGeminiで取得したJSONを貼り付けてください（JSON以外の説明文が混ざっていても抽出します）..."
+                  value={extPasteText}
+                  onChange={(e) => setExtPasteText(e.target.value)}
+                />
+                <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 4 }}>
+                  <button onClick={parseExternalResult} disabled={!extPasteText.trim()} style={{ fontSize: 11 }}>
+                    パース
+                  </button>
+                  <button onClick={clearExternal} style={{ fontSize: 10 }}>クリア</button>
+                  {extError && (
+                    <span style={{ fontSize: 10, color: "#c42b1c", whiteSpace: "pre-wrap", flex: 1 }}>
+                      {extError}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* External preview */}
+              {extPreview && (
+                <div style={cardStyle}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#107c10", marginBottom: 8 }}>
+                    取り込み前プレビュー
+                  </div>
+                  <JournalPreviewTable profile={extPreview} />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Action buttons */}
+          <div style={{ display: "flex", gap: 8, marginTop: 14, paddingTop: 10, borderTop: "1px solid #eee" }}>
+            <button
+              onClick={handleApply}
+              disabled={!activePreview}
+              style={{ fontWeight: 600, flex: 1 }}
+            >
+              この内容を取り込む
+            </button>
+            <button onClick={onClose} style={{ fontSize: 11 }}>
+              閉じる
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Preview table shared between API and external tabs ───────────── */
+
+function JournalPreviewTable({ profile }: { profile: JournalProfile }) {
+  const rows: [string, string][] = [
+    ["ジャーナル名", profile.journal_name || "(空欄)"],
+    ["URL", profile.journal_url || "(空欄)"],
+    ["出版社", profile.publisher || "(空欄)"],
+    ["論文種別", profile.article_type || "(空欄)"],
+    ["情報源", profile.source || "manual"],
+  ];
+  if (profile.source_details) {
+    rows.push(["情報源詳細", profile.source_details]);
+  }
+  if (profile.updated_at) {
+    rows.push(["更新日時", profile.updated_at]);
+  }
+  // Show a few key fields from nested sections
+  if (profile.reference_style?.in_text_citation) {
+    rows.push(["本文中引用形式", profile.reference_style.in_text_citation]);
+  }
+  if (profile.reference_style?.example_reference) {
+    rows.push(["書式例", profile.reference_style.example_reference.slice(0, 100) + (profile.reference_style.example_reference.length > 100 ? "..." : "")]);
+  }
+  if (profile.submission_guidelines?.word_limit != null) {
+    rows.push(["Word制限", String(profile.submission_guidelines.word_limit)]);
+  }
+  if (profile.submission_guidelines?.abstract_limit != null) {
+    rows.push(["Abstract制限", String(profile.submission_guidelines.abstract_limit)]);
+  }
+  if (profile.notes) {
+    rows.push(["備考", profile.notes.slice(0, 100) + (profile.notes.length > 100 ? "..." : "")]);
+  }
+
+  return (
+    <table style={{ width: "100%", fontSize: 10, borderCollapse: "collapse" }}>
+      <tbody>
+        {rows.map(([label, value]) => (
+          <tr key={label}>
+            <td style={{ padding: "2px 8px 2px 0", fontWeight: 600, color: "#555", whiteSpace: "nowrap", verticalAlign: "top" }}>{label}</td>
+            <td style={{ padding: "2px 0", wordBreak: "break-word" }}>{value}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+/* ── Main JournalPanel ─────────────────────────────────────────────── */
 
 export default function JournalPanel({
   projectPath,
   journalProfile,
   journalLoaded,
+  journalSaved,
   journalLlmRunning,
   journalLoading,
-  journalExternalPrompt,
-  journalImportText,
-  journalImportPreview,
-  journalImportError,
+  journalLlmPreview,
   llmSlots,
   onUpdateField,
   onSave,
   onLoad,
   onLlmGenerate,
-  onGenerateExternalPrompt,
-  onImportTextChange,
-  onImportParse,
-  onImportConfirm,
+  onApplyJournalPreview,
+  onClearLlmPreview,
   statusMessage,
 }: JournalPanelProps) {
   const jp = journalProfile;
@@ -156,15 +614,7 @@ export default function JournalPanel({
   const sg = jp.submission_guidelines;
   const rp = jp.review_policy;
 
-  const configuredSlots = llmSlots.filter(
-    (s) => s.enabled !== false && s.provider.trim() && s.baseUrl.trim() && s.model.trim()
-  );
-  const [llmSlot, setLlmSlot] = React.useState(
-    configuredSlots.length > 0 ? configuredSlots[0].name : ""
-  );
-
-  const selectedSlot = configuredSlots.find((s) => s.name === llmSlot);
-  const selectedIsPro = selectedSlot ? isProModel(selectedSlot.model) : false;
+  const [showModal, setShowModal] = React.useState(false);
 
   // Collapsible section state
   const [expanded, setExpanded] = React.useState<Record<string, boolean>>({
@@ -177,13 +627,7 @@ export default function JournalPanel({
   const toggle = (key: string) =>
     setExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
 
-  const copyToClipboard = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      // ignore
-    }
-  };
+  const status = getJournalStatus(jp, journalLoaded, journalSaved, journalLlmPreview);
 
   const txtStyle: React.CSSProperties = {
     width: "100%",
@@ -210,15 +654,8 @@ export default function JournalPanel({
     userSelect: "none",
   };
 
-  // Two-column card style
-  const cardStyle: React.CSSProperties = {
-    flex: 1,
-    minWidth: 0,
-    border: "1px solid #e0e0e0",
-    borderRadius: 6,
-    padding: 14,
-    background: "#fafafa",
-  };
+  const statusChipColor = status.chip === "ok" ? "#107c10" : status.chip === "info" ? "#0078d4" : "#888";
+  const statusBgColor = status.chip === "ok" ? "#e8f5e9" : status.chip === "info" ? "#e3f2fd" : "#f5f5f5";
 
   return (
     <div>
@@ -228,21 +665,38 @@ export default function JournalPanel({
         </div>
       )}
 
-      {/* ── 推奨操作 ────────────────────────────────────────────────── */}
-      <section className="panel">
-        <h2>推奨操作</h2>
-        <ol style={{ fontSize: "12px", color: "#555", margin: "4px 0 0 16px", lineHeight: 1.8 }}>
-          <li>API設定でProモデルを設定</li>
-          <li>ジャーナル名とURLを入力</li>
-          <li>APIで取得、または外部AI用プロンプトを作成</li>
-          <li>結果を確認して保存</li>
-          <li>文献形式チェック・査読チェックへ進む</li>
-        </ol>
+      {/* ── 状態表示 ────────────────────────────────────────────────── */}
+      <section className="panel" style={{ paddingBottom: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: "#555" }}>状態:</span>
+          <span style={{
+            fontSize: 11, fontWeight: 600,
+            padding: "2px 10px", borderRadius: 12,
+            background: statusBgColor, color: statusChipColor,
+          }}>
+            {status.text}
+          </span>
+          {jp.source && jp.source !== "manual" && (
+            <span style={{ fontSize: 10, color: "#888" }}>
+              情報源: {jp.source}
+            </span>
+          )}
+          {jp.source_details && (
+            <span style={{ fontSize: 10, color: "#888" }}>
+              ({jp.source_details})
+            </span>
+          )}
+          {jp.updated_at && (
+            <span style={{ fontSize: 10, color: "#aaa" }}>
+              最終更新: {jp.updated_at.slice(0, 16).replace("T", " ")}
+            </span>
+          )}
+        </div>
       </section>
 
-      {/* ── ① ジャーナル情報（最小入力） ──────────────────────────── */}
+      {/* ── ① ジャーナル基本情報 ──────────────────────────────────── */}
       <section className="panel">
-        <h2>ジャーナル情報</h2>
+        <h2>ジャーナル基本情報</h2>
         <div className="row" style={{ marginBottom: 6 }}>
           <span style={labelStyle}>ジャーナル名</span>
           <input
@@ -278,187 +732,17 @@ export default function JournalPanel({
         </div>
       </section>
 
-      {/* ── ② 2カラム: APIで取得 | 外部AI用プロンプトで作成 ────────── */}
+      {/* ── ② 操作ボタン ──────────────────────────────────────────── */}
       <section className="panel">
-        <h2>情報を取得</h2>
-        <div className="row" style={{ gap: 14, alignItems: "stretch" }}>
-
-          {/* ─── 左カラム: APIで取得 ─── */}
-          <div style={cardStyle}>
-            <h3 style={{ fontSize: "13px", fontWeight: 700, color: "#333", margin: "0 0 6px 0" }}>
-              APIで取得
-            </h3>
-            <p style={{ fontSize: "11px", color: "#888", margin: "0 0 10px 0", lineHeight: 1.5 }}>
-              設定済みのLLMを使って、投稿先ジャーナルの投稿規定・引用形式・査読方針を取得します。
-              <strong> 正確性のためProモデルを推奨します。</strong>
-            </p>
-
-            {configuredSlots.length > 0 ? (
-              <>
-                {/* Slot selector */}
-                <div className="row" style={{ marginBottom: 8, gap: 6, alignItems: "center" }}>
-                  <select
-                    value={llmSlot}
-                    onChange={(e) => setLlmSlot(e.target.value)}
-                    disabled={journalLlmRunning}
-                    style={{ flex: 1 }}
-                  >
-                    {configuredSlots.map((s) => (
-                      <option key={s.name} value={s.name}>
-                        {slotDisplayName(s.name)} ({s.model})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Model tier chip */}
-                {selectedSlot && (
-                  <div style={{ marginBottom: 8 }}>
-                    <span
-                      className={`status-chip ${selectedIsPro ? "ok" : "err"}`}
-                      style={{ fontSize: 11 }}
-                    >
-                      {selectedIsPro ? "Proモデル" : "軽量モデル（非推奨）"}
-                    </span>
-                    {!selectedIsPro && (
-                      <div className="disabled-reason" style={{ marginTop: 4 }}>
-                        ジャーナル投稿規定の取得には高精度モデルを推奨します。Proモデルを設定してください。
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Execute button */}
-                <button
-                  onClick={() => onLlmGenerate(llmSlot)}
-                  disabled={journalLlmRunning || !jp.journal_name.trim()}
-                  style={{ width: "100%", marginBottom: 4 }}
-                >
-                  {journalLlmRunning ? "生成中..." : "APIでジャーナル情報を取得"}
-                </button>
-                {journalLlmRunning && (
-                  <span className="status-chip running">実行中...</span>
-                )}
-                {!jp.journal_name.trim() && (
-                  <div className="disabled-reason">先に「ジャーナル名」を入力してください</div>
-                )}
-              </>
-            ) : (
-              <div style={{ fontSize: 11, color: "#999" }}>
-                LLMスロットが未設定です。「API設定」タブでLLMの設定を行ってください。
-              </div>
-            )}
-          </div>
-
-          {/* ─── 右カラム: 外部AI用プロンプトで作成 ─── */}
-          <div style={cardStyle}>
-            <h3 style={{ fontSize: "13px", fontWeight: 700, color: "#333", margin: "0 0 6px 0" }}>
-              外部AI用プロンプトで作成
-            </h3>
-            <p style={{ fontSize: "11px", color: "#888", margin: "0 0 10px 0", lineHeight: 1.5 }}>
-              ChatGPT、DeepSeek Pro、GeminiなどWeb検索可能なAIに貼り付けるプロンプトを作成します。
-              取得したJSONを下の貼り付け欄に貼り付けてください。
-            </p>
-
-            <div className="row" style={{ gap: 8, marginBottom: 8 }}>
-              <button onClick={onGenerateExternalPrompt} style={{ flex: 1 }}>
-                外部AI用プロンプトを作成
-              </button>
-              {journalExternalPrompt && (
-                <button
-                  onClick={() => copyToClipboard(journalExternalPrompt)}
-                  style={{ fontSize: 11, height: 28 }}
-                >
-                  プロンプトをコピー
-                </button>
-              )}
-            </div>
-
-            {journalExternalPrompt ? (
-              <pre
-                style={{
-                  background: "#f5f5f5",
-                  border: "1px solid #ddd",
-                  borderRadius: 4,
-                  padding: 10,
-                  fontSize: 10.5,
-                  maxHeight: 220,
-                  overflowY: "auto",
-                  whiteSpace: "pre-wrap",
-                  wordBreak: "break-word",
-                  margin: 0,
-                }}
-              >
-                {journalExternalPrompt}
-              </pre>
-            ) : (
-              <p style={{ fontSize: 11, color: "#bbb", margin: 0 }}>
-                プロンプト作成ボタンを押すと、ここに表示されます。
-              </p>
-            )}
-          </div>
-        </div>
-      </section>
-
-      {/* ── ③ 外部AI結果の貼り付け取り込み ──────────────────────────── */}
-      <section className="panel">
-        <h2>外部AI結果の貼り付け取り込み</h2>
-        <div className="row" style={{ marginBottom: 6 }}>
-          <textarea
-            style={{ ...txtStyle, minHeight: "100px" }}
-            placeholder="ChatGPTやDeepSeekで取得したJSONを貼り付けてください..."
-            value={journalImportText}
-            onChange={(e) => onImportTextChange(e.target.value)}
-          />
-        </div>
-        <div className="row" style={{ gap: 8 }}>
-          <button onClick={onImportParse} disabled={!journalImportText.trim()}>
-            パース
+        <h2>操作</h2>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <button
+            onClick={() => setShowModal(true)}
+            disabled={!projectPath || journalLlmRunning}
+            style={{ fontWeight: 600 }}
+          >
+            ジャーナル情報を取得・取り込む
           </button>
-          {journalImportError && (
-            <span style={{ fontSize: 12, color: "#c42b1c" }}>{journalImportError}</span>
-          )}
-        </div>
-        {journalImportPreview && (
-          <div style={{ marginTop: 8 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "#107c10", marginBottom: 6 }}>
-              プレビュー（取り込み前に確認してください）
-            </div>
-            <div style={{ fontSize: 11, maxHeight: 200, overflowY: "auto", background: "#f9f9f9", padding: 8, borderRadius: 4 }}>
-              {Object.entries(journalImportPreview).map(([k, v]) => {
-                if (typeof v === "object" && v !== null) {
-                  return (
-                    <div key={k} style={{ marginBottom: 4 }}>
-                      <strong>{k}:</strong>
-                      <pre style={{ margin: "2px 0 0 16px", fontSize: 10 }}>
-                        {JSON.stringify(v, null, 2)}
-                      </pre>
-                    </div>
-                  );
-                }
-                return (
-                  <div key={k}>
-                    <strong>{k}:</strong> {String(v ?? "(null)")}
-                  </div>
-                );
-              })}
-            </div>
-            <div className="row" style={{ marginTop: 8 }}>
-              <button onClick={onImportConfirm}>
-                この内容で取り込む
-              </button>
-            </div>
-          </div>
-        )}
-      </section>
-
-      {/* ── ④ 保存・読み込み ──────────────────────────────────────── */}
-      <section className="panel">
-        <h2>保存・読み込み</h2>
-        <p style={{ fontSize: "11px", color: "#888", margin: "0 0 8px 0" }}>
-          取得・取り込み・編集したジャーナル情報を journal_profile.json に保存します。
-        </p>
-        <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
           <button onClick={onSave} disabled={!projectPath || journalLoading}>
             {journalLoading ? "保存中..." : "保存"}
           </button>
@@ -469,13 +753,16 @@ export default function JournalPanel({
             <span className="status-chip ok">読込済</span>
           )}
         </div>
+        <p style={{ fontSize: 11, color: "#888", margin: "8px 0 0 0" }}>
+          取得・取り込み後、内容を確認してから「保存」を押してください。保存すると journal_profile.json に書き出されます。
+        </p>
       </section>
 
-      {/* ── ⑤ ジャーナル形式・投稿規定の確認（折りたたみ） ────────── */}
+      {/* ── ③ 取得済み情報の確認（折りたたみ） ────────────────────── */}
       <section className="panel">
-        <h2>ジャーナル形式・投稿規定の確認</h2>
+        <h2>取得済み情報の確認</h2>
 
-        {/* ── 引用・文献形式（折りたたみ） ── */}
+        {/* ── 引用・文献形式 ── */}
         <div>
           <div style={collapsibleHeaderStyle} onClick={() => toggle("reference_style")}>
             {expanded.reference_style ? "▼" : "▶"} 引用・文献形式
@@ -557,7 +844,7 @@ export default function JournalPanel({
           )}
         </div>
 
-        {/* ── 投稿規定（折りたたみ） ── */}
+        {/* ── 投稿規定 ── */}
         <div>
           <div style={collapsibleHeaderStyle} onClick={() => toggle("submission_guidelines")}>
             {expanded.submission_guidelines ? "▼" : "▶"} 投稿規定
@@ -621,7 +908,7 @@ export default function JournalPanel({
           )}
         </div>
 
-        {/* ── 査読・掲載方針（折りたたみ） ── */}
+        {/* ── 査読・掲載方針 ── */}
         <div>
           <div style={collapsibleHeaderStyle} onClick={() => toggle("review_policy")}>
             {expanded.review_policy ? "▼" : "▶"} 査読・掲載方針
@@ -676,7 +963,7 @@ export default function JournalPanel({
           )}
         </div>
 
-        {/* ── 備考（折りたたみ） ── */}
+        {/* ── 備考 ── */}
         <div>
           <div style={collapsibleHeaderStyle} onClick={() => toggle("notes")}>
             {expanded.notes ? "▼" : "▶"} 備考
@@ -728,10 +1015,28 @@ export default function JournalPanel({
       <div className="next-step">
         {!projectPath && "プロジェクトを作成してください。"}
         {projectPath && !journalLoaded && !jp.journal_name.trim() &&
-          "ジャーナル名とURLを入力し、APIで取得するか外部AI用プロンプトを作成してください。"}
-        {projectPath && journalLoaded &&
+          "ジャーナル名とURLを入力し、「ジャーナル情報を取得・取り込む」から情報を取得してください。"}
+        {projectPath && (journalLoaded || jp.journal_name.trim()) && !journalSaved &&
+          "取得した情報を確認し、「保存」を押してください。"}
+        {projectPath && journalLoaded && journalSaved &&
           "ジャーナル情報を編集後、「保存」を押してください。次の工程（文献確認・査読チェック）で自動参照されます。"}
       </div>
+
+      {/* Acquisition modal */}
+      {showModal && (
+        <JournalAcquisitionModal
+          journalProfile={journalProfile}
+          llmSlots={llmSlots}
+          journalLlmRunning={journalLlmRunning}
+          journalLlmPreview={journalLlmPreview}
+          onLlmGenerate={onLlmGenerate}
+          onApplyToJournal={(profile) => {
+            onApplyJournalPreview(profile);
+          }}
+          onClearLlmPreview={onClearLlmPreview}
+          onClose={() => setShowModal(false)}
+        />
+      )}
     </div>
   );
 }

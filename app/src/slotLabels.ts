@@ -8,9 +8,9 @@ export const SLOT_LABELS: Record<string, string> = {
 
 /** Short descriptions explaining each LLM slot's role. */
 export const SLOT_DESCRIPTIONS: Record<string, string> = {
-  summary: "複数AIの結果を統合し、最終コメント作成に使うAI",
-  reviewer1: "構成・表現・方法統計などを評価するAI",
-  reviewer2: "評価AI 1とは別視点で確認するAI",
+  summary: "最終コメント統合、ジャーナル情報取得、文献形式チェック、引用趣旨チェック",
+  reviewer1: "方法・統計、構成、重要な査読判断",
+  reviewer2: "表現チェック、文献再パース、検索クエリ生成",
   reviewer3: "必要に応じて追加する第三の評価AI",
 };
 

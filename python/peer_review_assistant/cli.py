@@ -156,6 +156,7 @@ def init_project(project_dir):
         "outputs/final",
         "status",
         "logs",
+        "translations",
     ]
     for d in dirs:
         os.makedirs(os.path.join(project_dir, d), exist_ok=True)
@@ -2229,7 +2230,11 @@ def repair_references_llm_cmd(project_dir, slot, provider, base_url, model, api_
               help="API key. Falls back to --api-key-env or PRA_LLM_KEY_<SLOT> env var.")
 @click.option("--api-key-env", default=None,
               help="Environment variable name containing the API key.")
-def test_llm(slot, provider, base_url, model, api_key, api_key_env):
+@click.option("--thinking-enabled", is_flag=True, default=False,
+              help="Enable thinking/reasoning mode (Moonshot/Kimi K2.6 etc.).")
+@click.option("--temperature", type=float, default=None,
+              help="Temperature (0.0-2.0). Kimi/Moonshot auto-normalized to 1.")
+def test_llm(slot, provider, base_url, model, api_key, api_key_env, thinking_enabled, temperature):
     """Test connection to an LLM endpoint."""
     from peer_review_assistant.llm import LLMProvider, test_connection
 
@@ -2244,7 +2249,8 @@ def test_llm(slot, provider, base_url, model, api_key, api_key_env):
               f"PRA_LLM_KEY_{slot.upper()} environment variable.")
 
     emit("progress", task="test-llm", step="connect", percent=30,
-         slot=slot, provider=provider, model=model)
+         slot=slot, provider=provider, model=model,
+         thinking_enabled=thinking_enabled)
 
     prov = LLMProvider(
         name=slot,
@@ -2254,15 +2260,17 @@ def test_llm(slot, provider, base_url, model, api_key, api_key_env):
         api_key=api_key,
     )
 
-    result = test_connection(prov)
+    result = test_connection(prov, thinking_enabled=thinking_enabled, temperature=temperature)
 
     if result["ok"]:
+        has_reasoning = bool(result.get("reasoning_content"))
         emit("done",
              task="test-llm",
              slot=slot,
              model=result["model"],
              latency_ms=result["latency_ms"],
              response_sample=result["response_sample"],
+             reasoning_content_present=has_reasoning,
              message=f"Connection to {slot} ({model}) successful.")
     else:
         emit("error",
@@ -2990,6 +2998,247 @@ def final_merge_cmd(project_dir):
          recommendation=result["recommendation"],
          message=f"Final review generated ({result['total_comments']} comments, "
                  f"recommendation: {result['recommendation']}).")
+
+
+def _save_translations(translations_dir, sections_map, project_dir):
+    """Write translations JSON and update project.json timestamp."""
+    os.makedirs(translations_dir, exist_ok=True)
+    now = datetime.now(JST)
+    output = {
+        "sections": sections_map,
+        "generated_at": now.isoformat(),
+    }
+    out_path = os.path.join(translations_dir, "section_translations_ja.json")
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(output, f, indent=2, ensure_ascii=False)
+
+    proj_path = os.path.join(project_dir, "project.json")
+    if os.path.isfile(proj_path):
+        with open(proj_path, "r", encoding="utf-8") as f:
+            proj = json.load(f)
+        proj["updated_at"] = now.isoformat()
+        with open(proj_path, "w", encoding="utf-8") as f:
+            json.dump(proj, f, indent=2, ensure_ascii=False)
+
+
+TRANSLATION_SYSTEM_PROMPT = (
+    "あなたは医学・心理学・社会科学分野の学術論文を正確に読むための翻訳支援AIです。\n"
+    "以下の英語本文を、日本語で正確に翻訳してください。\n"
+    "\n"
+    "要件：\n"
+    "- 原文の意味を変えない\n"
+    "- 査読用なので、意訳しすぎない\n"
+    "- 統計用語、尺度名、固有名詞、引用表記は保持する\n"
+    "- 見出し構造を保持する\n"
+    "- 省略しない\n"
+    "- 原文にない解釈や評価を加えない\n"
+    "- 出力は日本語訳のみ"
+)
+
+
+@main.command(name="translate-sections-ja")
+@click.option("--project", "project_dir", required=True,
+              type=click.Path(file_okay=False, writable=True),
+              help="Path to the project working folder.")
+@click.option("--slot", required=True,
+              help="LLM slot name (e.g., summary).")
+@click.option("--provider", required=True,
+              help="LLM provider (e.g., openai, deepseek).")
+@click.option("--base-url", required=True,
+              help="LLM API base URL.")
+@click.option("--model", required=True,
+              help="LLM model name (use the Pro model for best translation quality).")
+@click.option("--api-key", default=None,
+              help="API key. Falls back to --api-key-env or PRA_LLM_KEY_<SLOT> env var.")
+@click.option("--api-key-env", default=None,
+              help="Environment variable name containing the API key.")
+@click.option("--thinking-enabled", is_flag=True, default=False,
+              help="Enable reasoning/thinking mode (Moonshot/Kimi K2.6 etc.).")
+@click.option("--temperature", type=float, default=None,
+              help="LLM temperature (Kimi/Moonshot auto-adjusted to 1.0).")
+@click.option("--force", "force_retranslate", is_flag=True, default=False,
+              help="Re-translate all sections even if hashes match existing translations.")
+@click.option("--section-id", "section_id", default=None,
+              help="Translate only the specified section ID (e.g., 'introduction').")
+def translate_sections_ja(project_dir, slot, provider, base_url, model,
+                          api_key, api_key_env, thinking_enabled,
+                          temperature, force_retranslate, section_id):
+    """Translate manuscript sections from English to Japanese using LLM.
+
+    Translates each H1/H2 section independently and saves results with
+    SHA-256 hashes for staleness detection. Uses the specified LLM slot's
+    Pro model. Partial results are saved on error.
+    """
+    from peer_review_assistant.llm import LLMProvider, chat_completion
+
+    # ── Resolve API key ──────────────────────────────────────────
+    if not api_key and api_key_env:
+        api_key = _get_env(api_key_env).strip()
+    if not api_key:
+        api_key = _get_env(f"PRA_LLM_KEY_{slot.upper()}").strip()
+    if not api_key:
+        error("NO_API_KEY",
+              f"No API key provided. Use --api-key, --api-key-env, or set "
+              f"PRA_LLM_KEY_{slot.upper()} environment variable.")
+
+    # ── Validate project ─────────────────────────────────────────
+    proj_path = os.path.join(project_dir, "project.json")
+    if not os.path.isfile(proj_path):
+        error("NO_PROJECT", "project.json not found. Run init-project first.")
+
+    section_map_path = os.path.join(project_dir, "sections", "section_map.json")
+    if not os.path.isfile(section_map_path):
+        error("NO_SECTION_MAP",
+              "sections/section_map.json not found. Run preprocess-docx first.")
+
+    with open(section_map_path, "r", encoding="utf-8") as f:
+        section_map = json.load(f)
+
+    all_sections = section_map.get("sections", [])
+    if not all_sections:
+        error("NO_SECTIONS", "No sections found in section_map.json.")
+
+    # ── Collect sections to translate ────────────────────────────
+    all_sec_by_name = {s["name"]: s for s in all_sections}
+
+    if section_id:
+        # Single-section mode
+        if section_id not in all_sec_by_name:
+            error("BAD_SECTION_ID",
+                  f"Section '{section_id}' not found in section_map.json.")
+        sections_to_translate = [all_sec_by_name[section_id]]
+    else:
+        # Full mode: all H1 + H2 sections that have text
+        priority_names = [
+            "abstract", "introduction", "aim_objective",
+            "methods", "results", "discussion", "conclusion",
+        ]
+        sections_to_translate = []
+        seen = set()
+        for sec in all_sections:
+            name = sec["name"]
+            level = sec.get("level")
+            if name in priority_names or level in (0, 1, None):
+                if name not in seen:
+                    sections_to_translate.append(sec)
+                    seen.add(name)
+
+    # ── Load section text ────────────────────────────────────────
+    # IMPORTANT: Only use the section's OWN .txt file for translation.
+    # Never fall back to aggregated text (which includes children).
+    # H1 sections with no direct text (e.g., "Results") will be skipped.
+    sections_dir = os.path.join(project_dir, "sections")
+    section_texts = {}
+    for sec in sections_to_translate:
+        name = sec["name"]
+        path = os.path.join(sections_dir, f"{name}.txt")
+        content = None
+        if os.path.isfile(path):
+            with open(path, "r", encoding="utf-8") as f:
+                content = f.read().strip()
+        if content:
+            section_texts[name] = content
+
+    if not section_texts:
+        error("NO_SECTION_TEXT", "No section text files found.")
+
+    # ── Load existing translations ───────────────────────────────
+    translations_dir = os.path.join(project_dir, "translations")
+    existing = {}
+    existing_path = os.path.join(translations_dir, "section_translations_ja.json")
+    if os.path.isfile(existing_path):
+        with open(existing_path, "r", encoding="utf-8") as f:
+            existing_data = json.load(f)
+        existing = existing_data.get("sections", {})
+
+    # ── Build LLM provider ───────────────────────────────────────
+    prov = LLMProvider(
+        name=slot,
+        provider=provider,
+        base_url=base_url,
+        model=model,
+        api_key=api_key,
+    )
+
+    # ── Translate each section ───────────────────────────────────
+    translations = dict(existing)  # Preserve existing translations
+    total = len([s for s in sections_to_translate if s["name"] in section_texts])
+    completed = sum(
+        1 for s in sections_to_translate
+        if s["name"] in existing
+        and existing[s["name"]].get("original_text_hash")
+        == hashlib.sha256(
+            section_texts.get(s["name"], "").encode("utf-8")
+        ).hexdigest()
+    )
+
+    for sec in sections_to_translate:
+        name = sec["name"]
+        text = section_texts.get(name)
+        if not text:
+            continue
+
+        text_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+        # Skip if already translated and hash matches (unless forced)
+        if not force_retranslate and name in existing:
+            if existing[name].get("original_text_hash") == text_hash:
+                continue
+
+        # Emit progress
+        emit("progress",
+             task="translate-sections-ja",
+             step="translating",
+             section=name,
+             heading=sec.get("heading") or name,
+             index=completed + 1,
+             total=total)
+
+        try:
+            messages = [
+                {"role": "system", "content": TRANSLATION_SYSTEM_PROMPT},
+                {"role": "user",
+                 "content": f"## Section: {sec.get('heading') or name}\n\n{text}"},
+            ]
+            # Estimate tokens: Japanese typically needs ~2x characters
+            max_tok = min(len(text) * 4, 16384)
+            max_tok = max(max_tok, 256)
+
+            result = chat_completion(
+                prov, messages,
+                max_tokens=max_tok,
+                temperature=temperature,
+                timeout_seconds=120,
+                thinking_enabled=thinking_enabled,
+            )
+
+            if not result["ok"]:
+                # Save partial results before exiting
+                _save_translations(translations_dir, translations, project_dir)
+                error("LLM_TRANSLATION_FAILED",
+                      f"Translation failed for section '{name}': "
+                      f"{result.get('error', 'Unknown error')}")
+
+            translations[name] = {
+                "original_text_hash": text_hash,
+                "translated_text": result["content"].strip() if result["content"] else "",
+                "translated_at": datetime.now(JST).isoformat(),
+            }
+            completed += 1
+
+            # Save after each section (incremental persistence)
+            _save_translations(translations_dir, translations, project_dir)
+
+        except Exception as e:
+            _save_translations(translations_dir, translations, project_dir)
+            error("LLM_TRANSLATION_FAILED",
+                  f"Translation failed for section '{name}': {e}")
+
+    emit("done",
+         task="translate-sections-ja",
+         sections_translated=len(translations),
+         total=total,
+         message=f"Translation complete: {len(translations)}/{total} sections translated.")
 
 
 if __name__ == "__main__":

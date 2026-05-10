@@ -388,6 +388,105 @@ body {
   color: #1a1a1a;
 }
 
+/* ── Translation controls ────────────────────────────────────────────────── */
+
+.translation-controls {
+  padding: 8px 16px;
+  border-bottom: 1px solid #e0e0e0;
+  background: #fafafa;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.translation-disabled-hint {
+  font-size: 11px;
+  color: #999;
+  font-style: italic;
+}
+
+.translation-progress {
+  font-size: 12px;
+  color: #0078d4;
+  font-weight: 500;
+}
+
+.translation-cancel-btn {
+  padding: 4px 12px;
+  font-size: 11px;
+  background: #fde7e9;
+  color: #c42b1c;
+  border: 1px solid #f5a3a3;
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+  height: 26px;
+}
+
+.translation-cancel-btn:hover {
+  background: #f9d2d5;
+  border-color: #e08888;
+}
+
+/* ── Split panes ─────────────────────────────────────────────────────────── */
+
+.section-viewer-split {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.section-viewer-pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.section-viewer-pane-left {
+  border-right: 1px solid #e0e0e0;
+}
+
+.translation-pane-header {
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #666;
+  background: #f5f5f5;
+  border-bottom: 1px solid #e0e0e0;
+  flex-shrink: 0;
+}
+
+.translation-stale-badge {
+  padding: 4px 12px;
+  font-size: 10px;
+  color: #c42b1c;
+  background: #fde7e9;
+  border-bottom: 1px solid #f5a3a3;
+  flex-shrink: 0;
+}
+
+.section-viewer-split .section-viewer-text {
+  flex: 1;
+  padding: 12px 16px;
+  overflow-y: auto;
+  font-family: "Cascadia Code", "Consolas", monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  color: #1a1a1a;
+}
+
+/* ── Section list translation badge ──────────────────────────────────────── */
+
+.section-list-item-ja-badge {
+  font-size: 10px;
+  margin-left: 4px;
+  opacity: 0.7;
+}
+
 /* ── Panels (shared) ───────────────────────────────────────────────────── */
 
 .panel {

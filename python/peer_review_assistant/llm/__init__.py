@@ -9,19 +9,40 @@ import urllib.request
 import urllib.error
 
 
+def _sanitize_single_line(value: str) -> str:
+    """Remove control characters (CR, LF, TAB, etc.) and strip whitespace."""
+    return "".join(ch for ch in str(value).strip() if ch >= " " and ch not in "\r\n\t")
+
+
 class LLMProvider:
     """Configuration for one LLM endpoint."""
 
     def __init__(self, name, provider, base_url, model, api_key):
-        self.name = name
-        self.provider = provider
-        self.base_url = base_url.rstrip("/")
-        self.model = model
+        self.name = _sanitize_single_line(name)
+        self.provider = _sanitize_single_line(provider)
+        self.base_url = _sanitize_single_line(base_url).rstrip("/")
+        self.model = _sanitize_single_line(model)
         self.api_key = api_key
 
 
-def chat_completion(provider, messages, max_tokens=1024, temperature=0.0,
-                    timeout_seconds=30):
+def _normalize_temperature(provider, base_url, model, temperature):
+    """Normalize temperature for providers with special requirements.
+
+    Kimi / Moonshot only supports temperature=1.
+    Returns the (possibly adjusted) temperature value.
+    """
+    provider_l = (provider or "").lower()
+    base_l = (base_url or "").lower()
+    model_l = (model or "").lower()
+
+    if "moonshot" in provider_l or "moonshot.ai" in base_l or "kimi" in model_l:
+        return 1.0
+
+    return temperature
+
+
+def chat_completion(provider, messages, max_tokens=1024, temperature=None,
+                    timeout_seconds=30, thinking_enabled=False):
     """Send a chat completion request.
 
     Uses OpenAI-compatible API format: POST {base_url}/chat/completions
@@ -30,20 +51,31 @@ def chat_completion(provider, messages, max_tokens=1024, temperature=0.0,
         provider: LLMProvider instance
         messages: list of {"role": str, "content": str} dicts
         max_tokens: int
-        temperature: float
+        temperature: float or None. If None, omitted from the request body.
+            If provided, normalized per-provider (e.g. Kimi → 1.0).
         timeout_seconds: float, HTTP timeout (default 30)
+        thinking_enabled: bool, if True adds "thinking": {"type": "enabled"}
+            to the request body (used by Moonshot/Kimi K2.6 and similar
+            providers that toggle reasoning via a thinking parameter rather
+            than separate model names).
 
     Returns:
         dict with keys: ok (bool), content (str|null), model (str|null),
-            usage (dict|null), error (str|null), latency_ms (int)
+            usage (dict|null), error (str|null), latency_ms (int),
+            reasoning_content (str|null)
     """
     url = f"{provider.base_url}/chat/completions"
     body = {
         "model": provider.model,
         "messages": messages,
         "max_tokens": max_tokens,
-        "temperature": temperature,
     }
+    if temperature is not None:
+        body["temperature"] = _normalize_temperature(
+            provider.provider, provider.base_url, provider.model, temperature
+        )
+    if thinking_enabled:
+        body["thinking"] = {"type": "enabled"}
 
     t0 = time.time()
     status, resp_body = _http_post(url, provider.api_key, body, timeout_seconds)
@@ -114,6 +146,7 @@ def chat_completion(provider, messages, max_tokens=1024, temperature=0.0,
         }
 
     content = choices[0].get("message", {}).get("content", "")
+    reasoning_content = choices[0].get("message", {}).get("reasoning_content")
 
     return {
         "ok": True,
@@ -122,23 +155,29 @@ def chat_completion(provider, messages, max_tokens=1024, temperature=0.0,
         "usage": data.get("usage"),
         "error": None,
         "latency_ms": latency_ms,
+        "reasoning_content": reasoning_content,
     }
 
 
-def test_connection(provider):
+def test_connection(provider, thinking_enabled=False, temperature=None):
     """Test an LLM connection with a minimal ping.
 
     Args:
         provider: LLMProvider instance
+        thinking_enabled: bool, pass thinking: {type: enabled} in the request
+        temperature: float or None, passed through to chat_completion
 
     Returns:
         dict with keys: ok (bool), model (str|null),
-            response_sample (str|null), latency_ms (int), error (str|null)
+            response_sample (str|null), latency_ms (int), error (str|null),
+            reasoning_content (str|null)
     """
     result = chat_completion(
         provider,
         messages=[{"role": "user", "content": "Hello"}],
         max_tokens=50,
+        thinking_enabled=thinking_enabled,
+        temperature=temperature,
     )
 
     return {
@@ -147,6 +186,7 @@ def test_connection(provider):
         "response_sample": result["content"][:200] if result["content"] else None,
         "latency_ms": result["latency_ms"],
         "error": result["error"],
+        "reasoning_content": result.get("reasoning_content"),
     }
 
 

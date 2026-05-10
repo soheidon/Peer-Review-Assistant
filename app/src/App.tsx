@@ -1,6 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { slotDisplayName } from "./slotLabels";
+import { sanitizeSingleLine, sanitizeUrl } from "./utils";
+
 import Sidebar from "./Sidebar";
 import ProgressBar from "./ProgressBar";
 import ProjectPanel from "./panels/ProjectPanel";
@@ -17,9 +19,13 @@ interface LlmSlot {
   provider: string;
   baseUrl: string;
   model: string;
+  proModel: string;
+  flashModel: string;
+  reasoningMode: "separate_models" | "same_model_with_thinking" | "none_or_unknown";
   apiKey: string;
   apiKeyMode: "direct" | "env_var";
   apiKeyEnvName: string;
+  apiKeyStorage: "none" | "windows_hello";
   enabled: boolean;
 }
 
@@ -89,6 +95,17 @@ function App() {
   const [expressionMergeRunning, setExpressionMergeRunning] = useState(false);
   const [finalMergeDone, setFinalMergeDone] = useState(false);
   const [finalMergeRunning, setFinalMergeRunning] = useState(false);
+
+  // Translation state
+  const [translateJaRunning, setTranslateJaRunning] = useState(false);
+  const [translateJaDone, setTranslateJaDone] = useState(false);
+  const [translateJaProgress, setTranslateJaProgress] = useState<{
+    section: string; heading: string; index: number; total: number;
+  } | null>(null);
+  const translateJaChildRef = useRef<{ kill: () => Promise<void> } | null>(null);
+  const [selectedSection, setSelectedSection] = useState<string | null>(null);
+  // Trigger SectionViewerPanel to reload translations from disk
+  const [translationReloadKey, setTranslationReloadKey] = useState(0);
   const [selectedResultFile, setSelectedResultFile] = useState("final_review.md");
   const [resultFileContent, setResultFileContent] = useState("");
   const [resultFileLoading, setResultFileLoading] = useState(false);
@@ -123,6 +140,20 @@ function App() {
       return () => clearTimeout(timer);
     }
   }, [statusMessage]);
+
+  // Check Windows Hello availability on mount
+  useEffect(() => {
+    const check = async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const available = await invoke<boolean>("windows_hello_available");
+        setWindowsHelloAvailable(available);
+      } catch {
+        setWindowsHelloAvailable(false);
+      }
+    };
+    check();
+  }, []);
 
   // Journal tab state
   const defaultJournalProfile: JournalProfile = {
@@ -166,10 +197,8 @@ function App() {
   const [journalLoaded, setJournalLoaded] = useState(false);
   const [journalLlmRunning, setJournalLlmRunning] = useState(false);
   const [journalLoading, setJournalLoading] = useState(false);
-  const [journalExternalPrompt, setJournalExternalPrompt] = useState("");
-  const [journalImportText, setJournalImportText] = useState("");
-  const [journalImportPreview, setJournalImportPreview] = useState<JournalProfile | null>(null);
-  const [journalImportError, setJournalImportError] = useState("");
+  const [journalSaved, setJournalSaved] = useState(true);
+  const [journalLlmPreview, setJournalLlmPreview] = useState<JournalProfile | null>(null);
 
   const defaultSlotEnvNames: Record<string, string> = {
     summary: "PRA_LLM_KEY_SUMMARY",
@@ -178,14 +207,20 @@ function App() {
     reviewer3: "PRA_LLM_KEY_REVIEWER3",
   };
   const defaultSlots: LlmSlot[] = [
-    { name: "summary", provider: "", baseUrl: "", model: "", apiKey: "", apiKeyMode: "env_var", apiKeyEnvName: "PRA_LLM_KEY_SUMMARY", enabled: true },
-    { name: "reviewer1", provider: "", baseUrl: "", model: "", apiKey: "", apiKeyMode: "env_var", apiKeyEnvName: "PRA_LLM_KEY_REVIEWER1", enabled: true },
-    { name: "reviewer2", provider: "", baseUrl: "", model: "", apiKey: "", apiKeyMode: "env_var", apiKeyEnvName: "PRA_LLM_KEY_REVIEWER2", enabled: true },
-    { name: "reviewer3", provider: "", baseUrl: "", model: "", apiKey: "", apiKeyMode: "env_var", apiKeyEnvName: "PRA_LLM_KEY_REVIEWER3", enabled: false },
+    { name: "summary", provider: "", baseUrl: "", model: "", proModel: "", flashModel: "", reasoningMode: "separate_models", apiKey: "", apiKeyMode: "env_var", apiKeyEnvName: "PRA_LLM_KEY_SUMMARY", apiKeyStorage: "none", enabled: true },
+    { name: "reviewer1", provider: "", baseUrl: "", model: "", proModel: "", flashModel: "", reasoningMode: "separate_models", apiKey: "", apiKeyMode: "env_var", apiKeyEnvName: "PRA_LLM_KEY_REVIEWER1", apiKeyStorage: "none", enabled: true },
+    { name: "reviewer2", provider: "", baseUrl: "", model: "", proModel: "", flashModel: "", reasoningMode: "separate_models", apiKey: "", apiKeyMode: "env_var", apiKeyEnvName: "PRA_LLM_KEY_REVIEWER2", apiKeyStorage: "none", enabled: true },
+    { name: "reviewer3", provider: "", baseUrl: "", model: "", proModel: "", flashModel: "", reasoningMode: "separate_models", apiKey: "", apiKeyMode: "env_var", apiKeyEnvName: "PRA_LLM_KEY_REVIEWER3", apiKeyStorage: "none", enabled: false },
   ];
   const [llmSlots, setLlmSlots] = useState(defaultSlots);
-  const [llmTestResults, setLlmTestResults] = useState<Record<string, string>>({});
+  const [llmProTestResults, setLlmProTestResults] = useState<Record<string, string>>({});
+  const [llmFlashTestResults, setLlmFlashTestResults] = useState<Record<string, string>>({});
   const [llmEnvCheckResults, setLlmEnvCheckResults] = useState<Record<string, string>>({});
+  const [llmProReasoningResults, setLlmProReasoningResults] = useState<Record<string, boolean>>({});
+  const [llmTestErrorMessages, setLlmTestErrorMessages] = useState<Record<string, string>>({});
+  const [windowsHelloAvailable, setWindowsHelloAvailable] = useState(false);
+  const [windowsHelloStatus, setWindowsHelloStatus] = useState<Record<string, "not_saved" | "saved">>({});
+  const [windowsHelloDecrypted, setWindowsHelloDecrypted] = useState<Set<string>>(new Set());
 
   const addLog = (entry: LogEntry) => {
     setLogs((prev) => [...prev, entry]);
@@ -263,6 +298,21 @@ function App() {
                 viewerData: parts.join("、"),
               }));
             }
+            if (parsed.task === "translate-sections-ja") {
+              setTranslateJaDone(true);
+              setTranslateJaProgress(null);
+            }
+          }
+          // Translation progress
+          if (parsed.event === "progress" && parsed.task === "translate-sections-ja") {
+            if (parsed.step === "translating" || parsed.step === "skipping") {
+              setTranslateJaProgress({
+                section: parsed.section as string,
+                heading: (parsed.heading || parsed.section) as string,
+                index: parsed.index as number,
+                total: parsed.total as number,
+              });
+            }
           }
         } catch {
           addLog({ event: "stdout", message: line });
@@ -317,6 +367,9 @@ function App() {
   };
 
   const openExistingProject = async () => {
+    // Save current settings before switching projects
+    await saveAppSettings();
+
     const selected = await open({
       directory: true,
       multiple: false,
@@ -374,6 +427,7 @@ function App() {
         if (await checkFile("citations/references_repaired_llm.json")) setLlmRepairDone(true);
         if (await checkFile("citations/db_google_books_candidates.json")) setGoogleBooksDone(true);
         if (await checkFile("citations/reference_llm_flags.json")) setLlmFlagsDone(true);
+        if (await checkFile("translations/section_translations_ja.json")) setTranslateJaDone(true);
 
         // Check for journal profile
         try {
@@ -392,7 +446,12 @@ function App() {
           deepMerge(merged, jpParsed);
           setJournalProfile(merged as JournalProfile);
           setJournalLoaded(true);
+          setJournalSaved(true);
         } catch { /* journal_profile.json not found — that's fine */ }
+
+        // Restore app settings (LLM slot config, DB API config — no API keys)
+        // Pass explicit path since React state hasn't updated yet
+        await loadAppSettings(selected);
 
         // Check merge results
         if (await checkFile("outputs/structure/merged.section.json")) setStructureMergeDone(true);
@@ -443,6 +502,9 @@ function App() {
   };
 
   const createProject = async () => {
+    // Save current settings before creating a new project (projectPath may change)
+    await saveAppSettings();
+
     if (!projectPath.trim()) {
       addLog({ event: "error", message: "Please select a project folder first." });
       return;
@@ -475,6 +537,11 @@ function App() {
 
       if (output.code === 0) {
         setProjectCreated(true);
+        setTranslateJaDone(false);
+        // Try to load existing app settings for this project
+        await loadAppSettings();
+        // Persist current session settings to the new project
+        await saveAppSettings();
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -845,8 +912,8 @@ function App() {
     }
 
     const slot = llmSlots.find((s) => s.name === slotName);
-    if (!slot || !slot.provider.trim() || !slot.baseUrl.trim() || !slot.model.trim()) {
-      addLog({ event: "error", message: `LLM slot ${slotName} is not configured.` });
+    if (!slot || !slot.provider.trim() || !slot.baseUrl.trim() || !slot.flashModel.trim()) {
+      addLog({ event: "error", message: `LLM slot ${slotName} is not configured (flash model required).` });
       return;
     }
 
@@ -856,15 +923,12 @@ function App() {
 
     try {
       const { Command } = await import("@tauri-apps/plugin-shell");
-      const cmd = Command.create("pra-cli", [
+      const args = buildLlmArgs(slot, [
         "repair-references-llm",
         "--project", projectPath,
         "--slot", slotName,
-        "--provider", slot.provider,
-        "--base-url", slot.baseUrl,
-        "--model", slot.model,
-        "--api-key", slot.apiKey,
-      ]);
+      ], slot.flashModel, "flash");
+      const cmd = Command.create("pra-cli", args);
       const output = await cmd.execute();
       parseOutput(output.stdout);
       if (output.stderr) addLog({ event: "stderr", message: output.stderr });
@@ -957,7 +1021,7 @@ function App() {
         "generate-llm-reference-flags",
         "--project", projectPath,
         "--slot", slotName,
-      ]);
+      ], slot.proModel, "pro");
       const cmd = Command.create("pra-cli", args);
       const output = await cmd.execute();
       parseOutput(output.stdout);
@@ -976,6 +1040,32 @@ function App() {
     }
   };
 
+  // Add state for the combined process
+  const [llmReferenceProcessRunning, setLlmReferenceProcessRunning] = useState(false);
+
+  /** Run LLM re-parse + flags + viewer data refresh in one operation.
+   *  Human decisions in human_reference_decisions.json are automatically
+   *  reflected during flag generation. */
+  const runLlmReferenceProcess = async (slotName: string) => {
+    if (!projectPath.trim()) {
+      addLog({ event: "error", message: "Please create a project first." });
+      return;
+    }
+    setLlmReferenceProcessRunning(true);
+    setStatusMessage(null);
+    addLog({ event: "info", message: `LLMで文献情報を整理中 (${slotDisplayName(slotName)})...` });
+
+    // Run all three steps sequentially. Each step handles its own errors
+    // and sets its own state flags (llmRepairDone / llmFlagsDone).
+    // If a step fails, subsequent steps will still run (idempotent — they'll
+    // work with whatever data is available from previous steps).
+    await runLlmRepair(slotName);
+    await runLlmFlags(slotName);
+    await runViewerData();
+
+    setLlmReferenceProcessRunning(false);
+  };
+
   // ── Journal tab handlers ────────────────────────────────────────────────
 
   /** Update a nested field in journalProfile using dot-notation path. */
@@ -990,6 +1080,7 @@ function App() {
       target[keys[keys.length - 1]] = value;
       return next;
     });
+    setJournalSaved(false);
   };
 
   /** Save journal profile to project directory. */
@@ -1004,6 +1095,7 @@ function App() {
       await invoke("write_text_file", { path: jsonPath, content: JSON.stringify(payload, null, 2) });
       setJournalProfile(payload);
       setJournalLoaded(true);
+      setJournalSaved(true);
       setStatusMessage({ text: "ジャーナル情報を保存しました。", type: "ok" });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -1038,6 +1130,7 @@ function App() {
       deepMerge(merged, parsed);
       setJournalProfile(merged as JournalProfile);
       setJournalLoaded(true);
+      setJournalSaved(true);
       setStatusMessage({ text: "ジャーナル情報を読み込みました。", type: "ok" });
     } catch {
       setStatusMessage({ text: "journal_profile.json が見つかりません。", type: "error" });
@@ -1046,7 +1139,7 @@ function App() {
     }
   };
 
-  /** Run LLM journal profile generation via CLI. */
+  /** Run LLM journal profile generation via CLI. Sets journalLlmPreview on success. */
   const runJournalLlm = async (slotName: string) => {
     if (!projectPath.trim()) {
       addLog({ event: "error", message: "Please create a project first." });
@@ -1060,6 +1153,7 @@ function App() {
     }
 
     setJournalLlmRunning(true);
+    setJournalLlmPreview(null);
     setStatusMessage(null);
     addLog({ event: "info", message: `Running journal profile generation on ${slotDisplayName(slotName)}...` });
 
@@ -1070,7 +1164,7 @@ function App() {
         "--project", projectPath,
         "--slot", slotName,
         "--journal-name", journalProfile.journal_name.trim(),
-      ]);
+      ], slot.proModel, "pro");
       if (journalProfile.journal_url.trim()) {
         args.push("--journal-url", journalProfile.journal_url.trim());
       }
@@ -1082,10 +1176,28 @@ function App() {
       parseOutput(output.stdout);
       if (output.stderr) addLog({ event: "stderr", message: output.stderr });
       if (output.code === 0) {
-        // Load the generated profile
-        setJournalLlmRunning(false);
-        await loadJournal();
-        setStatusMessage({ text: `LLMでジャーナル情報を取得しました (${slotDisplayName(slotName)})。`, type: "ok" });
+        // Read the generated profile into preview (do NOT auto-load into main profile)
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          const jsonPath = `${projectPath.replace(/\\/g, "/")}/journal_profile.json`;
+          const raw = await invoke<string>("read_text_file", { path: jsonPath });
+          const parsed = JSON.parse(raw);
+          const merged = JSON.parse(JSON.stringify(defaultJournalProfile));
+          const deepMerge = (target: Record<string, unknown>, source: Record<string, unknown>) => {
+            for (const key of Object.keys(source)) {
+              if (source[key] !== null && typeof source[key] === "object" && !Array.isArray(source[key]) && typeof target[key] === "object" && target[key] !== null && !Array.isArray(target[key])) {
+                deepMerge(target[key] as Record<string, unknown>, source[key] as Record<string, unknown>);
+              } else if (source[key] !== undefined) {
+                target[key] = source[key];
+              }
+            }
+          };
+          deepMerge(merged, parsed);
+          setJournalLlmPreview(merged as JournalProfile);
+          setStatusMessage({ text: `LLMでジャーナル情報を取得しました (${slotDisplayName(slotName)})。内容を確認して「取り込む」を押してください。`, type: "ok" });
+        } catch {
+          setStatusMessage({ text: "ジャーナル情報の生成は成功しましたが、ファイルの読み込みに失敗しました。", type: "error" });
+        }
         return;
       } else {
         setStatusMessage({ text: "LLMでのジャーナル情報取得に失敗しました。", type: "error" });
@@ -1098,88 +1210,296 @@ function App() {
     }
   };
 
-  /** Generate a prompt string for external AI tools. */
-  const generateExternalPrompt = () => {
-    const jn = journalProfile.journal_name.trim();
-    const ju = journalProfile.journal_url.trim();
-    const at = journalProfile.article_type;
-    const parts = [
-      `Please research the following journal and produce a structured JSON profile:`,
-      ``,
-      `Journal Name: ${jn || "(please fill in)"}`,
-      `Journal URL: ${ju || "(please fill in)"}`,
-      `Article Type: ${at}`,
-      ``,
-      `The JSON must match this schema and contain accurate information from the journal's official submission guidelines:`,
-      ``,
-      `\`\`\`json`,
-      JSON.stringify(defaultJournalProfile, null, 2),
-      `\`\`\``,
-      ``,
-      `Output ONLY valid JSON — no markdown, no explanations, no code fences.`,
-    ];
-    setJournalExternalPrompt(parts.join("\n"));
+  /** Apply a journal profile preview (from LLM or external AI) to the main profile state. */
+  const applyJournalPreview = (profile: JournalProfile) => {
+    setJournalProfile(profile);
+    setJournalSaved(false);
   };
 
-  /** Parse pasted JSON for import. */
-  const parseImportJournal = () => {
-    const text = journalImportText.trim();
-    if (!text) {
-      setJournalImportError("JSONを貼り付けてください。");
-      return;
-    }
+  /** Clear the LLM-generated preview. */
+  const clearLlmPreview = () => {
+    setJournalLlmPreview(null);
+  };
+
+  /** Persist API settings (enabled, provider, model, roles — NOT api keys unless encrypted). */
+  const saveAppSettings = async () => {
+    if (!projectPath.trim()) return;
     try {
-      // Strip code fences if present
-      let cleaned = text;
-      if (cleaned.startsWith("```")) {
-        cleaned = cleaned.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "");
-      }
-      const parsed = JSON.parse(cleaned);
-      const merged = JSON.parse(JSON.stringify(defaultJournalProfile));
-      const deepMerge = (target: Record<string, unknown>, source: Record<string, unknown>) => {
-        for (const key of Object.keys(source)) {
-          if (source[key] !== null && typeof source[key] === "object" && !Array.isArray(source[key]) && typeof target[key] === "object" && target[key] !== null && !Array.isArray(target[key])) {
-            deepMerge(target[key] as Record<string, unknown>, source[key] as Record<string, unknown>);
-          } else if (source[key] !== undefined) {
-            target[key] = source[key];
-          }
-        }
+      const { invoke } = await import("@tauri-apps/api/core");
+      const settingsPath = `${projectPath.replace(/\\/g, "/")}/app_settings.json`;
+      const payload = {
+        llm_slots: Object.fromEntries(
+          llmSlots.map((s) => [s.name, {
+            enabled: s.enabled,
+            provider: sanitizeSingleLine(s.provider),
+            base_url: sanitizeUrl(s.baseUrl),
+            reasoning_mode: s.reasoningMode,
+            pro_model: sanitizeSingleLine(s.proModel),
+            flash_model: sanitizeSingleLine(s.flashModel),
+            api_key_mode: s.apiKeyMode,
+            api_key_env_name: sanitizeSingleLine(s.apiKeyEnvName),
+            api_key_storage: s.apiKeyStorage,
+          }])
+        ),
+        literature_databases: {
+          pubmed: {
+            enabled: pubmedEnabled,
+            api_key_mode: pubmedApiKeyMode,
+            api_key_env_name: pubmedApiKeyEnvName,
+          },
+          google_books: {
+            enabled: googleBooksEnabled,
+            api_key_mode: googleBooksApiKeyMode,
+            api_key_env_name: googleBooksApiKeyEnvName,
+          },
+          semantic_scholar: {
+            enabled: semanticScholarEnabled,
+            api_key_mode: semanticScholarApiKeyMode,
+            api_key_env_name: semanticScholarApiKeyEnvName,
+          },
+        },
       };
-      deepMerge(merged, parsed);
-      setJournalImportPreview(merged as JournalProfile);
-      setJournalImportError("");
+      await invoke("write_text_file", { path: settingsPath, content: JSON.stringify(payload, null, 2) });
+
+      addLog({
+        event: "app_settings_save",
+        path: settingsPath,
+        project_path: projectPath,
+        slot_count: llmSlots.length,
+        saved: true,
+      });
+
+      // Check for Windows Hello secrets
+      let helloSlots: string[] = [];
+      for (const [k, v] of Object.entries(windowsHelloStatus)) {
+        if (v === "saved") helloSlots.push(k);
+      }
+      const helloNote = helloSlots.length > 0
+        ? `\nAPIキーはWindows Helloで保護され、app_settings.secrets.jsonに暗号化保存されています。`
+        : "";
+
+      setStatusMessage({
+        text: `API設定を保存しました: ${settingsPath}${helloNote}`,
+        type: "ok",
+      });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      setJournalImportError(`JSONパースエラー: ${msg}`);
-      setJournalImportPreview(null);
+      addLog({ event: "error", message: msg });
+      setStatusMessage({ text: "API設定の保存に失敗しました。", type: "error" });
     }
   };
 
-  /** Confirm import: merge preview into profile and save. */
-  const confirmImportJournal = async () => {
-    if (!journalImportPreview) return;
-    setJournalProfile(journalImportPreview);
-    setJournalImportPreview(null);
-    setJournalImportText("");
-    setJournalImportError("");
-    // Save immediately
-    if (projectPath.trim()) {
-      setJournalLoading(true);
-      try {
-        const { invoke } = await import("@tauri-apps/api/core");
-        const jsonPath = `${projectPath.replace(/\\/g, "/")}/journal_profile.json`;
-        const payload = { ...journalImportPreview, updated_at: new Date().toISOString() };
-        await invoke("write_text_file", { path: jsonPath, content: JSON.stringify(payload, null, 2) });
-        setJournalProfile(payload);
-        setJournalLoaded(true);
-        setStatusMessage({ text: "外部AI結果を取り込み、保存しました。", type: "ok" });
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        addLog({ event: "error", message: msg });
-        setStatusMessage({ text: "保存に失敗しました。", type: "error" });
-      } finally {
-        setJournalLoading(false);
+  /** Load API settings from app_settings.json (restore enabled, provider, model, env names — NOT api keys).
+   *  Accepts optional pathOverride to work around React state staleness during project open. */
+  const loadAppSettings = async (pathOverride?: string) => {
+    const effectivePath = pathOverride || projectPath;
+    if (!effectivePath.trim()) return;
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const settingsPath = `${effectivePath.replace(/\\/g, "/")}/app_settings.json`;
+      const raw = await invoke<string>("read_text_file", { path: settingsPath });
+      const data = JSON.parse(raw);
+
+      addLog({
+        event: "app_settings_load",
+        path: settingsPath,
+        found: true,
+        loaded_slots: data.llm_slots ? Object.keys(data.llm_slots) : [],
+      });
+
+      // Restore LLM slots (merge onto defaults to keep all fields)
+      if (data.llm_slots && typeof data.llm_slots === "object") {
+        setLlmSlots((prev) =>
+          prev.map((s) => {
+            const saved = data.llm_slots[s.name];
+            if (saved && typeof saved === "object") {
+              return {
+                ...s,
+                enabled: typeof saved.enabled === "boolean" ? saved.enabled : s.enabled,
+                provider: typeof saved.provider === "string" ? sanitizeSingleLine(saved.provider) : s.provider,
+                baseUrl: typeof saved.base_url === "string" ? sanitizeUrl(saved.base_url) : s.baseUrl,
+                reasoningMode: (saved.reasoning_mode === "separate_models" || saved.reasoning_mode === "same_model_with_thinking" || saved.reasoning_mode === "none_or_unknown") ? saved.reasoning_mode : s.reasoningMode,
+                proModel: typeof saved.pro_model === "string" ? sanitizeSingleLine(saved.pro_model) : s.proModel,
+                flashModel: typeof saved.flash_model === "string" ? sanitizeSingleLine(saved.flash_model) : s.flashModel,
+                apiKeyMode: (saved.api_key_mode === "direct" || saved.api_key_mode === "env_var") ? saved.api_key_mode : s.apiKeyMode,
+                apiKeyEnvName: typeof saved.api_key_env_name === "string" ? sanitizeSingleLine(saved.api_key_env_name) : s.apiKeyEnvName,
+                apiKeyStorage: (saved.api_key_storage === "none" || saved.api_key_storage === "windows_hello") ? saved.api_key_storage : "none",
+              };
+            }
+            return s;
+          })
+        );
       }
+
+      // Restore DB API settings
+      const dbs = data.literature_databases;
+      if (dbs && typeof dbs === "object") {
+        const restoreDb = (dbData: unknown, setEnabled: (v: boolean) => void, setMode: (v: "direct" | "env_var") => void, setEnv: (v: string) => void) => {
+          if (dbData && typeof dbData === "object") {
+            const d = dbData as Record<string, unknown>;
+            if (typeof d.enabled === "boolean") setEnabled(d.enabled);
+            if (d.api_key_mode === "direct" || d.api_key_mode === "env_var") setMode(d.api_key_mode);
+            if (typeof d.api_key_env_name === "string") setEnv(d.api_key_env_name);
+          }
+        };
+        restoreDb(dbs.pubmed, setPubmedEnabled, setPubmedApiKeyMode, setPubmedApiKeyEnvName);
+        restoreDb(dbs.google_books, setGoogleBooksEnabled, setGoogleBooksApiKeyMode, setGoogleBooksApiKeyEnvName);
+        restoreDb(dbs.semantic_scholar, setSemanticScholarEnabled, setSemanticScholarApiKeyMode, setSemanticScholarApiKeyEnvName);
+      }
+
+      // Check for Windows Hello-protected secrets
+      const helloStatus: Record<string, "not_saved" | "saved"> = {};
+      const dpapiEntries: string[] = [];
+      try {
+        const secretsPath = `${effectivePath.replace(/\\/g, "/")}/app_settings.secrets.json`;
+        const secretsRaw = await invoke<string>("read_text_file", { path: secretsPath });
+        const secretsData = JSON.parse(secretsRaw);
+
+        for (const [key, value] of Object.entries(secretsData)) {
+          if (value && typeof value === "object" && (value as Record<string, unknown>).type === "dpapi") {
+            const slotName = key.startsWith("llm_") ? key.slice(4) : null;
+            if (slotName) {
+              helloStatus[slotName] = "saved";
+              dpapiEntries.push(key);
+            }
+          }
+        }
+        setWindowsHelloStatus(helloStatus);
+        setWindowsHelloDecrypted(new Set());
+
+        if (dpapiEntries.length > 0) {
+          addLog({
+            event: "app_settings_secrets_load",
+            path: secretsPath,
+            dpapi_entries: dpapiEntries,
+          });
+          setStatusMessage({ text: "API設定を読み込みました。Windows Helloで保護されたAPIキーがあります（「Windows Helloで復号」でメモリに復元してください）。", type: "info" });
+        } else {
+          setStatusMessage({ text: "API設定を読み込みました。", type: "info" });
+        }
+      } catch {
+        // No secrets file — fine
+        setStatusMessage({ text: "API設定を読み込みました。", type: "info" });
+      }
+    } catch {
+      // app_settings.json not found — that's fine, use defaults
+    }
+  };
+
+  /** Clear decrypted keys from memory. */
+  const lockSecrets = () => {
+    // Clear apiKey fields from all slots (keep other settings)
+    setLlmSlots((prev) => prev.map((s) => ({ ...s, apiKey: "" })));
+    setPubmedApiKey("");
+    setGoogleBooksApiKey("");
+    setSemanticScholarApiKey("");
+    setWindowsHelloDecrypted(new Set());
+    setStatusMessage({ text: "APIキーをロックしました。", type: "info" });
+  };
+
+  /** Windows Hello: Save API key with DPAPI protection. */
+  const windowsHelloSaveKey = async (slotName: string, apiKey: string): Promise<boolean> => {
+    if (!projectPath.trim() || !apiKey.trim()) return false;
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const encrypted = await invoke<string>("windows_hello_protect", {
+        data: apiKey,
+        keyName: `llm.${slotName}`,
+      });
+
+      // Read existing secrets, merge in DPAPI blob, write back
+      const base = projectPath.replace(/\\/g, "/");
+      const secretsPath = `${base}/app_settings.secrets.json`;
+      let secrets: Record<string, unknown> = {};
+      try {
+        const raw = await invoke<string>("read_text_file", { path: secretsPath });
+        secrets = JSON.parse(raw);
+      } catch { /* file doesn't exist yet */ }
+
+      secrets[`llm_${slotName}`] = { type: "dpapi", blob: encrypted };
+      await invoke("write_text_file", { path: secretsPath, content: JSON.stringify(secrets, null, 2) });
+
+      setWindowsHelloStatus((prev) => ({ ...prev, [slotName]: "saved" }));
+      setStatusMessage({ text: `${slotDisplayName(slotName)}のAPIキーをWindows Helloで保護して保存しました。`, type: "ok" });
+      return true;
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog({ event: "error", message: `Windows Hello protect failed for ${slotName}: ${msg}` });
+      setStatusMessage({ text: "Windows Helloでの保存に失敗しました。", type: "error" });
+      return false;
+    }
+  };
+
+  /** Windows Hello: Decrypt API key into memory. */
+  const windowsHelloDecryptKey = async (slotName: string): Promise<string | null> => {
+    if (!projectPath.trim()) return null;
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const base = projectPath.replace(/\\/g, "/");
+      const secretsPath = `${base}/app_settings.secrets.json`;
+      const raw = await invoke<string>("read_text_file", { path: secretsPath });
+      const secrets = JSON.parse(raw);
+      const entry = secrets[`llm_${slotName}`];
+      if (!entry || entry.type !== "dpapi" || !entry.blob) {
+        setStatusMessage({ text: "保存されたDPAPIデータが見つかりません。", type: "error" });
+        return null;
+      }
+
+      const plaintext = await invoke<string>("windows_hello_unprotect", {
+        encryptedBase64: entry.blob,
+        keyName: `llm.${slotName}`,
+      });
+
+      // Populate the apiKey field in memory only
+      setLlmSlots((prev) => prev.map((s) => s.name === slotName ? { ...s, apiKey: plaintext } : s));
+      setWindowsHelloDecrypted((prev) => new Set(prev).add(slotName));
+      setStatusMessage({ text: `${slotDisplayName(slotName)}のAPIキーを復号しました（メモリ上のみ保持）。`, type: "ok" });
+      return plaintext;
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog({ event: "error", message: `Windows Hello unprotect failed for ${slotName}: ${msg}` });
+      setStatusMessage({ text: "Windows Helloでの復号に失敗しました。", type: "error" });
+      return null;
+    }
+  };
+
+  /** Windows Hello: Delete DPAPI-protected key after verification. */
+  const windowsHelloDeleteKey = async (slotName: string): Promise<boolean> => {
+    if (!projectPath.trim()) return false;
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+
+      // Verify identity first
+      const verified = await invoke<boolean>("windows_hello_verify", {
+        message: "保存済みAPIキーを削除するために本人確認が必要です",
+      });
+      if (!verified) {
+        setStatusMessage({ text: "本人確認がキャンセルされました。", type: "error" });
+        return false;
+      }
+
+      const base = projectPath.replace(/\\/g, "/");
+      const secretsPath = `${base}/app_settings.secrets.json`;
+      let secrets: Record<string, unknown> = {};
+      try {
+        const raw = await invoke<string>("read_text_file", { path: secretsPath });
+        secrets = JSON.parse(raw);
+      } catch { return false; }
+
+      delete secrets[`llm_${slotName}`];
+      await invoke("write_text_file", { path: secretsPath, content: JSON.stringify(secrets, null, 2) });
+
+      setWindowsHelloStatus((prev) => ({ ...prev, [slotName]: "not_saved" }));
+      // Clear in-memory key and decrypted flag for this slot
+      setLlmSlots((prev) => prev.map((s) => s.name === slotName ? { ...s, apiKey: "" } : s));
+      setWindowsHelloDecrypted((prev) => { const next = new Set(prev); next.delete(slotName); return next; });
+      setStatusMessage({ text: `${slotDisplayName(slotName)}の保存済みAPIキーを削除しました。`, type: "info" });
+      return true;
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog({ event: "error", message: `Windows Hello delete failed for ${slotName}: ${msg}` });
+      setStatusMessage({ text: "保存済みAPIキーの削除に失敗しました。", type: "error" });
+      return false;
     }
   };
 
@@ -1189,70 +1509,175 @@ function App() {
     );
   };
 
-  /** Build LLM CLI args for a slot, respecting apiKeyMode (direct vs env_var). */
-  const buildLlmArgs = (slot: LlmSlot, cmd: string[]): string[] => {
+  /** Build LLM CLI args for a slot, respecting apiKeyMode (direct vs env_var).
+   *  Pass `model` to override which model name is used (e.g. slot.proModel or slot.flashModel).
+   *  Pass `modelVariant` to control --thinking-enabled for same_model_with_thinking providers. */
+  const buildLlmArgs = (slot: LlmSlot, cmd: string[], model?: string, modelVariant?: "pro" | "flash"): string[] => {
     const args = [...cmd];
-    args.push("--provider", slot.provider);
-    args.push("--base-url", slot.baseUrl);
-    args.push("--model", slot.model);
+    args.push("--provider", sanitizeSingleLine(slot.provider));
+    args.push("--base-url", sanitizeUrl(slot.baseUrl));
+    args.push("--model", sanitizeSingleLine(model || slot.model));
     if (slot.apiKeyMode === "direct" && slot.apiKey.trim()) {
       args.push("--api-key", slot.apiKey.trim());
     } else if (slot.apiKeyMode === "env_var" && slot.apiKeyEnvName.trim()) {
-      args.push("--api-key-env", slot.apiKeyEnvName.trim());
+      args.push("--api-key-env", sanitizeSingleLine(slot.apiKeyEnvName));
     } else {
       args.push("--api-key", slot.apiKey); // fallback
+    }
+    // Enable thinking for same_model_with_thinking providers when in pro mode
+    if (slot.reasoningMode === "same_model_with_thinking" && modelVariant === "pro") {
+      args.push("--thinking-enabled");
+    }
+    // Kimi/Moonshot requires temperature=1
+    const isKimiMoonshot = (
+      /kimi|moonshot/i.test(slot.provider) ||
+      /moonshot\.ai/i.test(slot.baseUrl)
+    );
+    if (isKimiMoonshot) {
+      args.push("--temperature", "1");
     }
     return args;
   };
 
-  const testLlmSlot = async (slotName: string) => {
+  const testLlmSlot = async (slotName: string, modelVariant: "pro" | "flash") => {
     const slot = llmSlots.find((s) => s.name === slotName);
     if (!slot) return;
 
+    const variantLabel = modelVariant === "pro" ? "Pro" : "Flash";
+    const modelName = modelVariant === "pro" ? slot.proModel : slot.flashModel;
+    const setResults = modelVariant === "pro" ? setLlmProTestResults : setLlmFlashTestResults;
     const label = slotDisplayName(slotName);
-    if (!slot.provider.trim() || !slot.baseUrl.trim() || !slot.model.trim()) {
-      addLog({ event: "error", message: `${label}: プロバイダ、Base URL、モデルを入力してください。` });
+    const thinkingEnabled = slot.reasoningMode === "same_model_with_thinking" && modelVariant === "pro";
+
+    if (!slot.provider.trim() || !slot.baseUrl.trim() || !modelName.trim()) {
+      addLog({ event: "error", message: `${label} (${variantLabel}): プロバイダ、Base URL、モデルを入力してください。` });
       return;
     }
     if (slot.apiKeyMode === "direct" && !slot.apiKey.trim()) {
-      addLog({ event: "error", message: `${label}: APIキーを入力してください。` });
+      addLog({ event: "error", message: `${label} (${variantLabel}): APIキーが未入力です。` });
+      setResults((prev) => ({ ...prev, [slotName]: "error" }));
+      setLlmTestErrorMessages((prev) => ({ ...prev, [`${slotName}_${modelVariant}`]: "APIキーが未入力です。" }));
       return;
     }
     if (slot.apiKeyMode === "env_var" && !slot.apiKeyEnvName.trim()) {
-      addLog({ event: "error", message: `${label}: 環境変数名を入力してください。` });
+      addLog({ event: "error", message: `${label} (${variantLabel}): 環境変数名を入力してください。` });
       return;
     }
 
-    setLlmTestResults((prev) => ({ ...prev, [slotName]: "testing" }));
-    addLog({ event: "info", message: `${label} の接続をテスト中...` });
+    const errorKey = `${slotName}_${modelVariant}`;
+    setResults((prev) => ({ ...prev, [slotName]: "testing" }));
+    setLlmTestErrorMessages((prev) => { const next = {...prev}; delete next[errorKey]; return next; });
+    addLog({ event: "info", message: `${label} (${variantLabel}) の接続をテスト中...` });
+
+    // Log test config (no API key values)
+    const isKimiMoonshot = (
+      /kimi|moonshot/i.test(slot.provider) ||
+      /moonshot\.ai/i.test(slot.baseUrl)
+    );
+    const testTemperature = isKimiMoonshot ? 1 : undefined;
+    addLog({
+      event: "llm_test_config",
+      slot: slotName,
+      provider: slot.provider,
+      base_url: slot.baseUrl,
+      endpoint: `${sanitizeUrl(slot.baseUrl)}/chat/completions`,
+      model: modelName,
+      api_key_mode: slot.apiKeyMode,
+      api_key_env_name: slot.apiKeyMode === "env_var" ? slot.apiKeyEnvName : undefined,
+      api_key_present: slot.apiKeyMode === "direct" ? !!slot.apiKey.trim() : undefined,
+      reasoning_mode: slot.reasoningMode,
+      thinking_enabled: thinkingEnabled,
+      temperature: testTemperature,
+    });
 
     try {
       const { Command } = await import("@tauri-apps/plugin-shell");
       const args = buildLlmArgs(slot, [
         "test-llm",
         "--slot", slotName,
-      ]);
+      ], modelName, modelVariant);
       const cmd = Command.create("pra-cli", args);
       const output = await cmd.execute();
       parseOutput(output.stdout);
       if (output.stderr) addLog({ event: "stderr", message: output.stderr });
 
       if (output.code === 0) {
-        setLlmTestResults((prev) => ({ ...prev, [slotName]: "ok" }));
+        setResults((prev) => ({ ...prev, [slotName]: "ok" }));
+        setLlmTestErrorMessages((prev) => { const next = {...prev}; delete next[errorKey]; return next; });
         setSettingsConfigured(true);
+
+        // Detect reasoning_content for same_model_with_thinking Pro tests
+        if (modelVariant === "pro" && slot.reasoningMode === "same_model_with_thinking") {
+          let hasReasoning: boolean | undefined;
+          const lines = output.stdout.trim().split("\n");
+          for (const line of lines) {
+            if (line.trim()) {
+              try {
+                const parsed = JSON.parse(line);
+                if (parsed.event === "done") {
+                  hasReasoning = parsed.reasoning_content_present === true;
+                  setLlmProReasoningResults((prev) => ({
+                    ...prev,
+                    [slotName]: hasReasoning,
+                  }));
+                }
+              } catch { /* skip non-JSON line */ }
+            }
+          }
+          // If reasoning not confirmed, set a warning
+          if (hasReasoning === false) {
+            setLlmTestErrorMessages((prev) => ({
+              ...prev,
+              [`${slotName}_pro_reasoning`]: "応答は返っていますが reasoning_content がありません。thinkingが有効か確認してください。",
+            }));
+          }
+        }
       } else {
-        setLlmTestResults((prev) => ({ ...prev, [slotName]: "error" }));
+        // Parse error details from CLI output
+        let errorMsg = "接続に失敗しました。";
+        const lines = output.stdout.trim().split("\n");
+        for (const line of lines) {
+          if (line.trim()) {
+            try {
+              const parsed = JSON.parse(line);
+              if (parsed.event === "error") {
+                if (parsed.code === "NO_API_KEY") {
+                  errorMsg = `環境変数 ${slot.apiKeyEnvName || "?"} が未設定です。`;
+                } else if (parsed.message) {
+                  const msg = parsed.message as string;
+                  if (msg.includes("429") || msg.includes("rate limit")) {
+                    errorMsg = "429 Rate Limit — リクエスト制限に達しました。";
+                  } else if (msg.includes("401") || msg.includes("Unauthorized") || msg.includes("authentication")) {
+                    errorMsg = "認証エラー — APIキーまたは権限を確認してください。";
+                  } else if (msg.includes("404") || msg.includes("not found")) {
+                    errorMsg = "Base URLまたはモデル名が正しくない可能性があります。";
+                  } else if (msg.includes("temperature")) {
+                    errorMsg = "Kimi K2.6 は temperature=1 のみ対応しています。設定を自動調整してください。";
+                  } else {
+                    errorMsg = msg;
+                  }
+                }
+              }
+            } catch { /* skip non-JSON */ }
+          }
+        }
+        setResults((prev) => ({ ...prev, [slotName]: "error" }));
+        setLlmTestErrorMessages((prev) => ({ ...prev, [errorKey]: errorMsg }));
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       addLog({ event: "error", message: msg });
-      setLlmTestResults((prev) => ({ ...prev, [slotName]: "error" }));
+      setResults((prev) => ({ ...prev, [slotName]: "error" }));
+      setLlmTestErrorMessages((prev) => ({ ...prev, [errorKey]: "CLI実行中にエラーが発生しました。" }));
     }
   };
 
   const testAllLlm = async () => {
     for (const slot of llmSlots) {
-      await testLlmSlot(slot.name);
+      if (slot.enabled) {
+        if (slot.proModel.trim()) await testLlmSlot(slot.name, "pro");
+        if (slot.flashModel.trim()) await testLlmSlot(slot.name, "flash");
+      }
     }
   };
 
@@ -1525,7 +1950,7 @@ function App() {
         "--project", projectPath,
         "--check", "structure",
         "--slot", slotName,
-      ]);
+      ], slot.proModel, "pro");
       const cmd = Command.create("pra-cli", args);
       const output = await cmd.execute();
       parseOutput(output.stdout);
@@ -1571,7 +1996,7 @@ function App() {
         "--project", projectPath,
         "--check", "expression",
         "--slot", slotName,
-      ]);
+      ], slot.flashModel, "flash");
       const cmd = Command.create("pra-cli", args);
       const output = await cmd.execute();
       parseOutput(output.stdout);
@@ -1617,7 +2042,7 @@ function App() {
         "--project", projectPath,
         "--check", "methods_stats",
         "--slot", slotName,
-      ]);
+      ], slot.proModel, "pro");
       const cmd = Command.create("pra-cli", args);
       const output = await cmd.execute();
       parseOutput(output.stdout);
@@ -1799,6 +2224,127 @@ function App() {
     }
   };
 
+  /** Common validation and arg-building for translation commands.
+   *  Returns { slot, modelToUse } or null (already sets error messages). */
+  const prepTranslateJa = (): {
+    slot: typeof llmSlots[number]; modelToUse: string;
+  } | null => {
+    const slotName = "summary";
+    const slot = llmSlots.find((s) => s.name === slotName);
+    if (!slot) return null;
+
+    if (!projectPath.trim()) {
+      addLog({ event: "error", message: "Please create a project first." });
+      return null;
+    }
+
+    const modelToUse = slot.proModel.trim();
+    const hasKey = slot.apiKeyMode === "direct" ? !!slot.apiKey.trim() : !!slot.apiKeyEnvName.trim();
+    if (!slot.provider.trim() || !slot.baseUrl.trim() || !modelToUse || !hasKey) {
+      addLog({ event: "error", message: "統括AIのProモデルのAPI設定が不完全です。" });
+      setStatusMessage({ text: "統括AIのProモデルを設定してください。", type: "error" });
+      return null;
+    }
+    return { slot, modelToUse };
+  };
+
+  /** Internal: spawn CLI, buffer output, and handle completion/error/cancel. */
+  const spawnTranslateJa = async (cliArgs: string[]) => {
+    const prep = prepTranslateJa();
+    if (!prep) return;
+    const { slot, modelToUse } = prep;
+
+    setTranslateJaRunning(true);
+    setTranslateJaDone(false);
+    setTranslateJaProgress(null);
+    setStatusMessage(null);
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const fullArgs = buildLlmArgs(slot, cliArgs, modelToUse, "pro");
+      const cmd = Command.create("pra-cli", fullArgs);
+
+      // Collect stdout/stderr
+      let stdout = "";
+      let stderr = "";
+      cmd.stdout.on("data", (line: string) => { stdout += line; });
+      cmd.stderr.on("data", (line: string) => { stderr += line; });
+
+      const child = await cmd.spawn();
+      translateJaChildRef.current = child;
+
+      // Wait for close
+      const [code] = await new Promise<[number | null]>((resolve) => {
+        cmd.on("close", (data: { code: number | null; signal: number | null }) => {
+          resolve([data.code]);
+        });
+        cmd.on("error", () => {
+          resolve([null]);
+        });
+      });
+
+      translateJaChildRef.current = null;
+
+      // Process buffered output
+      parseOutput(stdout);
+      if (stderr) addLog({ event: "stderr", message: stderr });
+
+      if (code === 0) {
+        setTranslateJaDone(true);
+        setTranslationReloadKey((k) => k + 1);
+        setStatusMessage({ text: "日本語訳が完了しました。", type: "ok" });
+      } else if (code === null) {
+        // Killed / cancelled
+        addLog({ event: "info", message: "翻訳を中止しました。完了済みの翻訳は保存されています。" });
+        setStatusMessage({ text: "翻訳を中止しました。", type: "info" });
+      } else {
+        setStatusMessage({ text: "日本語訳の作成に失敗しました。完了済みの翻訳は保存されています。", type: "error" });
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!msg.includes("abort") && !msg.includes("cancel")) {
+        addLog({ event: "error", message: msg });
+        setStatusMessage({ text: "日本語訳の作成でエラーが発生しました。", type: "error" });
+      }
+    } finally {
+      setTranslateJaRunning(false);
+      translateJaChildRef.current = null;
+    }
+  };
+
+  /** Translate the currently selected section only. */
+  const runTranslateOneSection = async (sectionName: string) => {
+    addLog({ event: "info", message: `セクション「${sectionName}」の日本語訳を作成中...` });
+    await spawnTranslateJa([
+      "translate-sections-ja",
+      "--project", projectPath,
+      "--slot", "summary",
+      "--section-id", sectionName,
+    ]);
+  };
+
+  /** Translate all sections that have text. */
+  const runTranslateSectionsJa = async () => {
+    addLog({ event: "info", message: "全セクションの日本語訳を作成中..." });
+    await spawnTranslateJa([
+      "translate-sections-ja",
+      "--project", projectPath,
+      "--slot", "summary",
+    ]);
+  };
+
+  /** Cancel a running translation. Already-completed sections are preserved. */
+  const cancelTranslateJa = async () => {
+    if (translateJaChildRef.current) {
+      try {
+        await translateJaChildRef.current.kill();
+      } catch {
+        // ignore kill errors
+      }
+      translateJaChildRef.current = null;
+    }
+  };
+
   const loadResultFile = async (filename: string) => {
     if (!projectPath.trim()) return;
     const filePath = `${projectPath.replace(/\\/g, "/")}/outputs/final/${filename}`;
@@ -1926,21 +2472,17 @@ function App() {
               projectPath={projectPath}
               journalProfile={journalProfile}
               journalLoaded={journalLoaded}
+              journalSaved={journalSaved}
               journalLlmRunning={journalLlmRunning}
               journalLoading={journalLoading}
-              journalExternalPrompt={journalExternalPrompt}
-              journalImportText={journalImportText}
-              journalImportPreview={journalImportPreview}
-              journalImportError={journalImportError}
+              journalLlmPreview={journalLlmPreview}
               llmSlots={llmSlots}
               onUpdateField={updateJournalField}
               onSave={saveJournal}
               onLoad={loadJournal}
               onLlmGenerate={runJournalLlm}
-              onGenerateExternalPrompt={generateExternalPrompt}
-              onImportTextChange={setJournalImportText}
-              onImportParse={parseImportJournal}
-              onImportConfirm={confirmImportJournal}
+              onApplyJournalPreview={applyJournalPreview}
+              onClearLlmPreview={clearLlmPreview}
               statusMessage={statusMessage}
             />
           )}
@@ -1976,13 +2518,31 @@ function App() {
             />
           )}
 
-          {activeView === "sections" && (
-            <SectionViewerPanel
-              projectPath={projectPath}
-              sectionsDone={sectionsDone}
-              statusMessage={statusMessage}
-            />
-          )}
+          {activeView === "sections" && (() => {
+            const summarySlot = llmSlots.find(s => s.name === "summary");
+            const summaryProConfigured = summarySlot
+              ? !!(summarySlot.proModel.trim() && summarySlot.baseUrl.trim() &&
+                (summarySlot.apiKeyMode === "direct" ? !!summarySlot.apiKey.trim() : !!summarySlot.apiKeyEnvName.trim()))
+              : false;
+            return (
+              <SectionViewerPanel
+                projectPath={projectPath}
+                sectionsDone={sectionsDone}
+                statusMessage={statusMessage}
+                translateJaDone={translateJaDone}
+                translateJaRunning={translateJaRunning}
+                translateJaProgress={translateJaProgress}
+                summaryProConfigured={summaryProConfigured}
+                selectedSection={selectedSection}
+                onSelectSection={setSelectedSection}
+                onTranslateSection={runTranslateOneSection}
+                onTranslateAll={runTranslateSectionsJa}
+                onCancelTranslate={cancelTranslateJa}
+                onReloadTranslations={() => setTranslationReloadKey((k) => k + 1)}
+                translationReloadKey={translationReloadKey}
+              />
+            );
+          })()}
 
           {activeView === "citations" && (
             <CitationReviewPanel
@@ -2004,6 +2564,8 @@ function App() {
               llmFlagsDone={llmFlagsDone}
               llmFlagsGenerating={llmFlagsGenerating}
               onGenerateLlmFlags={runLlmFlags}
+              llmReferenceProcessRunning={llmReferenceProcessRunning}
+              onLlmReferenceProcess={runLlmReferenceProcess}
               statusMessage={statusMessage}
             />
           )}
@@ -2051,12 +2613,22 @@ function App() {
           {activeView === "settings" && (
             <SettingsPanel
               llmSlots={llmSlots}
-              llmTestResults={llmTestResults}
+              llmProTestResults={llmProTestResults}
+              llmFlashTestResults={llmFlashTestResults}
               llmEnvCheckResults={llmEnvCheckResults}
+              llmProReasoningResults={llmProReasoningResults}
+              llmTestErrorMessages={llmTestErrorMessages}
+              windowsHelloAvailable={windowsHelloAvailable}
+              windowsHelloStatus={windowsHelloStatus}
+              windowsHelloDecrypted={windowsHelloDecrypted}
               onUpdateSlot={updateSlot}
               onTestSlot={testLlmSlot}
               onCheckLlmEnv={checkLlmEnv}
               onTestAll={testAllLlm}
+              onLockSecrets={lockSecrets}
+              onWindowsHelloSave={windowsHelloSaveKey}
+              onWindowsHelloDecrypt={windowsHelloDecryptKey}
+              onWindowsHelloDelete={windowsHelloDeleteKey}
               googleBooksApiKey={googleBooksApiKey}
               onGoogleBooksApiKeyChange={setGoogleBooksApiKey}
               googleBooksApiKeyMode={googleBooksApiKeyMode}
@@ -2093,6 +2665,7 @@ function App() {
               onTestPubmedConnection={testPubmedConnection}
               pubmedEnabled={pubmedEnabled}
               onPubmedEnabledChange={setPubmedEnabled}
+              onSaveAppSettings={saveAppSettings}
             />
           )}
         </div>

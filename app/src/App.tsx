@@ -13,6 +13,7 @@ import ResultsPanel from "./panels/ResultsPanel";
 import SettingsPanel from "./panels/SettingsPanel";
 import SectionViewerPanel from "./panels/SectionViewerPanel";
 import JournalPanel, { JournalProfile } from "./panels/JournalPanel";
+import NoveltyCheckPanel from "./panels/NoveltyCheckPanel";
 
 interface LlmSlot {
   name: string;
@@ -1471,6 +1472,31 @@ function App() {
   // Add state for the combined process
   const [llmReferenceProcessRunning, setLlmReferenceProcessRunning] = useState(false);
 
+  // ── Novelty check states ──
+  const [noveltyTargetJournal, setNoveltyTargetJournal] = useState("");
+  const [noveltySummaryDone, setNoveltySummaryDone] = useState(false);
+  const [noveltySummaryRunning, setNoveltySummaryRunning] = useState(false);
+  const [noveltySummaryContent, setNoveltySummaryContent] = useState("");
+  const [noveltyDeepResearchPrompt, setNoveltyDeepResearchPrompt] = useState("");
+  const [noveltyDeepResearchDone, setNoveltyDeepResearchDone] = useState(false);
+  const [noveltyDeepResearchInput, setNoveltyDeepResearchInput] = useState("");
+  const [noveltyDeepResearchSaved, setNoveltyDeepResearchSaved] = useState(false);
+  const [noveltyAssessDone, setNoveltyAssessDone] = useState(false);
+  const [noveltyAssessRunning, setNoveltyAssessRunning] = useState(false);
+  const [noveltyAssessmentContent, setNoveltyAssessmentContent] = useState("");
+  const [noveltyCommentDone, setNoveltyCommentDone] = useState(false);
+  const [noveltyCommentRunning, setNoveltyCommentRunning] = useState(false);
+  const [noveltyCommentContent, setNoveltyCommentContent] = useState("");
+
+  // Auto-populate novelty target journal from journal profile
+  useEffect(() => {
+    if (!noveltyTargetJournal.trim() && journalProfile.journal_name.trim()) {
+      setNoveltyTargetJournal(journalProfile.journal_name.trim());
+    }
+    // Only run when journal profile loads and novelty target is empty
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [journalProfile.journal_name]);
+
   /** Run LLM re-parse + flags + viewer data refresh in one operation.
    *  Human decisions in human_reference_decisions.json are automatically
    *  reflected during flag generation. */
@@ -2371,6 +2397,228 @@ function App() {
     }
   };
 
+  // ── Novelty check handlers ────────────────────────────────────────────────
+
+  const runNoveltySummarize = async (slotName: string) => {
+    const slot = llmSlots.find((s) => s.name === slotName);
+    if (!slot) return;
+
+    if (!slot.provider.trim() || !slot.baseUrl.trim() || !slot.proModel.trim()) {
+      addLog({ event: "error", message: `LLM slot ${slotName} is not configured (pro model required).` });
+      return;
+    }
+
+    setNoveltySummaryRunning(true);
+    setNoveltySummaryDone(false);
+    setNoveltySummaryContent("");
+    setNoveltyDeepResearchDone(false);
+    setNoveltyDeepResearchPrompt("");
+    setStatusMessage(null);
+    addLog({ event: "info", message: `Running novelty summarize on ${slotDisplayName(slotName)}...` });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const args = buildLlmArgs(slot, [
+        "novelty-summarize",
+        "--project", projectPath,
+        "--slot", slotName,
+      ], slot.proModel, "pro");
+      if (noveltyTargetJournal.trim()) {
+        args.push("--target-journal", noveltyTargetJournal.trim());
+      }
+      const cmd = Command.create("pra-cli", args);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+
+      if (output.code === 0) {
+        setNoveltySummaryDone(true);
+        // Load the summary content
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          const path = `${projectPath.replace(/\\/g, "/")}/outputs/novelty/novelty_summary.json`;
+          const raw = await invoke<string>("read_text_file", { path });
+          setNoveltySummaryContent(raw);
+        } catch {
+          // File might not be readable immediately
+        }
+        setStatusMessage({ text: "論文概要を生成しました。", type: "ok" });
+      } else {
+        setStatusMessage({ text: "論文概要の生成に失敗しました。", type: "error" });
+      }
+    } catch (e: unknown) {
+      addLog({ event: "error", message: e instanceof Error ? e.message : String(e) });
+      setStatusMessage({ text: "論文概要の生成でエラーが発生しました。", type: "error" });
+    } finally {
+      setNoveltySummaryRunning(false);
+    }
+  };
+
+  const runNoveltyDeepResearchPrompt = async () => {
+    if (!projectPath.trim()) {
+      addLog({ event: "error", message: "Please create a project first." });
+      return;
+    }
+
+    setNoveltyDeepResearchDone(false);
+    setNoveltyDeepResearchPrompt("");
+    setStatusMessage(null);
+    addLog({ event: "info", message: "Generating Deep Research prompt..." });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const args = ["novelty-deep-research-prompt", "--project", projectPath];
+      if (noveltyTargetJournal.trim()) {
+        args.push("--target-journal", noveltyTargetJournal.trim());
+      }
+      const cmd = Command.create("pra-cli", args);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+
+      if (output.code === 0) {
+        setNoveltyDeepResearchDone(true);
+        // Load the generated prompt
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          const path = `${projectPath.replace(/\\/g, "/")}/outputs/novelty/deep_research_prompt.md`;
+          const raw = await invoke<string>("read_text_file", { path });
+          setNoveltyDeepResearchPrompt(raw);
+        } catch {
+          // File might not be readable immediately
+        }
+        setStatusMessage({ text: "Deep Researchプロンプトを生成しました。", type: "ok" });
+      } else {
+        setStatusMessage({ text: "Deep Researchプロンプトの生成に失敗しました。", type: "error" });
+      }
+    } catch (e: unknown) {
+      addLog({ event: "error", message: e instanceof Error ? e.message : String(e) });
+      setStatusMessage({ text: "Deep Researchプロンプト生成でエラーが発生しました。", type: "error" });
+    }
+  };
+
+  const saveNoveltyDeepResearchInput = async () => {
+    if (!projectPath.trim() || !noveltyDeepResearchInput.trim()) return;
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const path = `${projectPath.replace(/\\/g, "/")}/outputs/novelty/deep_research_input.txt`;
+      await invoke("write_text_file", { path, content: noveltyDeepResearchInput });
+      setNoveltyDeepResearchSaved(true);
+      setStatusMessage({ text: "Deep Research結果を保存しました。", type: "ok" });
+    } catch (e: unknown) {
+      addLog({ event: "error", message: e instanceof Error ? e.message : String(e) });
+      setStatusMessage({ text: "保存に失敗しました。", type: "error" });
+    }
+  };
+
+  const runNoveltyAssess = async (slotName: string) => {
+    const slot = llmSlots.find((s) => s.name === slotName);
+    if (!slot) return;
+
+    if (!slot.provider.trim() || !slot.baseUrl.trim() || !slot.proModel.trim()) {
+      addLog({ event: "error", message: `LLM slot ${slotName} is not configured (pro model required).` });
+      return;
+    }
+
+    setNoveltyAssessRunning(true);
+    setNoveltyAssessDone(false);
+    setNoveltyAssessmentContent("");
+    setNoveltyCommentDone(false);
+    setNoveltyCommentContent("");
+    setStatusMessage(null);
+    addLog({ event: "info", message: `Running novelty assess on ${slotDisplayName(slotName)}...` });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const args = buildLlmArgs(slot, [
+        "novelty-assess",
+        "--project", projectPath,
+        "--slot", slotName,
+      ], slot.proModel, "pro");
+      if (noveltyTargetJournal.trim()) {
+        args.push("--target-journal", noveltyTargetJournal.trim());
+      }
+      const cmd = Command.create("pra-cli", args);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+
+      if (output.code === 0) {
+        setNoveltyAssessDone(true);
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          const path = `${projectPath.replace(/\\/g, "/")}/outputs/novelty/novelty_assessment.md`;
+          const raw = await invoke<string>("read_text_file", { path });
+          setNoveltyAssessmentContent(raw);
+        } catch {
+          // File might not be readable immediately
+        }
+        setStatusMessage({ text: "新規性評価が完了しました。", type: "ok" });
+      } else {
+        setStatusMessage({ text: "新規性評価に失敗しました。", type: "error" });
+      }
+    } catch (e: unknown) {
+      addLog({ event: "error", message: e instanceof Error ? e.message : String(e) });
+      setStatusMessage({ text: "新規性評価でエラーが発生しました。", type: "error" });
+    } finally {
+      setNoveltyAssessRunning(false);
+    }
+  };
+
+  const runNoveltyReviewComment = async (slotName: string) => {
+    const slot = llmSlots.find((s) => s.name === slotName);
+    if (!slot) return;
+
+    if (!slot.provider.trim() || !slot.baseUrl.trim() || !slot.proModel.trim()) {
+      addLog({ event: "error", message: `LLM slot ${slotName} is not configured (pro model required).` });
+      return;
+    }
+
+    setNoveltyCommentRunning(true);
+    setNoveltyCommentDone(false);
+    setNoveltyCommentContent("");
+    setStatusMessage(null);
+    addLog({ event: "info", message: `Running novelty review comment on ${slotDisplayName(slotName)}...` });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const args = buildLlmArgs(slot, [
+        "novelty-review-comment",
+        "--project", projectPath,
+        "--slot", slotName,
+      ], slot.proModel, "pro");
+      if (noveltyTargetJournal.trim()) {
+        args.push("--target-journal", noveltyTargetJournal.trim());
+      }
+      const cmd = Command.create("pra-cli", args);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+
+      if (output.code === 0) {
+        setNoveltyCommentDone(true);
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          const path = `${projectPath.replace(/\\/g, "/")}/outputs/novelty/novelty_review_comment.md`;
+          const raw = await invoke<string>("read_text_file", { path });
+          setNoveltyCommentContent(raw);
+        } catch {
+          // File might not be readable immediately
+        }
+        setStatusMessage({ text: "最終査読コメント用の新規性説明を生成しました。", type: "ok" });
+      } else {
+        setStatusMessage({ text: "新規性説明の生成に失敗しました。", type: "error" });
+      }
+    } catch (e: unknown) {
+      addLog({ event: "error", message: e instanceof Error ? e.message : String(e) });
+      setStatusMessage({ text: "新規性説明の生成でエラーが発生しました。", type: "error" });
+    } finally {
+      setNoveltyCommentRunning(false);
+    }
+  };
+
+  // ── Review check handlers ──────────────────────────────────────────────────
+
   const runStructureCheck = async (slotName: string) => {
     const slot = llmSlots.find((s) => s.name === slotName);
     if (!slot) return;
@@ -2920,6 +3168,7 @@ function App() {
     citations: "preprocess",
     db_check: "preprocess",
     cite_review: "citations",
+    novelty: "novelty",
     review: "review",
     output: "results",
   };
@@ -2939,6 +3188,7 @@ function App() {
     citationExtractionDone,
     crossrefDone,
     viewerDataReady,
+    noveltyAssessDone,
     structureMergeDone,
     expressionMergeDone,
     methodsStatsMergeDone,
@@ -3117,6 +3367,38 @@ function App() {
               semanticScholarRunning={semanticScholarRunning}
               semanticScholarEnabled={semanticScholarEnabled}
               onSemanticScholarDb={runSemanticScholarDb}
+              statusMessage={statusMessage}
+            />
+          )}
+
+          {activeView === "novelty" && (
+            <NoveltyCheckPanel
+              projectPath={projectPath}
+              sectionsDone={sectionsDone}
+              viewerDataReady={viewerDataReady}
+              llmSlots={llmSlots}
+              noveltyTargetJournal={noveltyTargetJournal}
+              onTargetJournalChange={setNoveltyTargetJournal}
+              noveltySummaryDone={noveltySummaryDone}
+              noveltySummaryRunning={noveltySummaryRunning}
+              noveltySummaryContent={noveltySummaryContent}
+              onNoveltySummarize={runNoveltySummarize}
+              noveltyDeepResearchPrompt={noveltyDeepResearchPrompt}
+              noveltyDeepResearchDone={noveltyDeepResearchDone}
+              onNoveltyDeepResearchPrompt={runNoveltyDeepResearchPrompt}
+              noveltyDeepResearchInput={noveltyDeepResearchInput}
+              noveltyDeepResearchSaved={noveltyDeepResearchSaved}
+              onDeepResearchInputChange={setNoveltyDeepResearchInput}
+              onSaveDeepResearchInput={saveNoveltyDeepResearchInput}
+              noveltyAssessDone={noveltyAssessDone}
+              noveltyAssessRunning={noveltyAssessRunning}
+              noveltyAssessmentContent={noveltyAssessmentContent}
+              onNoveltyAssess={runNoveltyAssess}
+              noveltyCommentDone={noveltyCommentDone}
+              noveltyCommentRunning={noveltyCommentRunning}
+              noveltyCommentContent={noveltyCommentContent}
+              onNoveltyReviewComment={runNoveltyReviewComment}
+              onNavigateToSettings={() => setActiveView("settings")}
               statusMessage={statusMessage}
             />
           )}

@@ -8,6 +8,7 @@ interface ProgressBarProps {
   citationExtractionDone: boolean;
   crossrefDone: boolean;
   viewerDataReady: boolean;
+  noveltyAssessDone: boolean;
   structureMergeDone: boolean;
   expressionMergeDone: boolean;
   methodsStatsMergeDone: boolean;
@@ -26,6 +27,7 @@ const STAGES = [
   { key: "citations",  label: "文献抽出",         done: (p: ProgressBarProps) => p.citationExtractionDone },
   { key: "db_check",   label: "DB照合",           done: (p: ProgressBarProps) => p.crossrefDone },
   { key: "cite_review",label: "文献確認",         done: (p: ProgressBarProps) => p.viewerDataReady },
+  { key: "novelty",    label: "新規性チェック",   done: (p: ProgressBarProps) => p.noveltyAssessDone },
   { key: "review",     label: "査読チェック",     done: (p: ProgressBarProps) => p.structureMergeDone },
   { key: "output",     label: "最終出力",         done: (p: ProgressBarProps) => p.finalMergeDone },
 ];

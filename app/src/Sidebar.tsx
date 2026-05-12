@@ -5,6 +5,7 @@ const MENU_ITEMS = [
   { key: "preprocess", label: "前処理",         icon: "⚙️" },
   { key: "sections",   label: "本文分割",       icon: "📋" },
   { key: "citations",  label: "文献確認",       icon: "📚" },
+  { key: "novelty",    label: "新規性チェック", icon: "💡" },
   { key: "review",     label: "査読チェック",   icon: "✓" },
   { key: "results",    label: "結果",           icon: "📄" },
 ];

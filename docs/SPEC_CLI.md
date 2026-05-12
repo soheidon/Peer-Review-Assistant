@@ -455,30 +455,44 @@ Tauri v2 では、実行可能なコマンドを capabilities で明示的に許
 
 ## 11. 実装状況
 
-### 11.1 実装済み（Phase 1）
+### 11.1 実装済み
 
-| コマンド | 状況 |
+| コマンド | 説明 |
 |---|---|
-| `pra-cli healthcheck` | 実装済み |
-| `pra-cli init-project` | 実装済み |
-| `pra-cli validate-input` | 実装済み |
-| `pra-cli attach-source` | 実装済み |
+| `pra-cli healthcheck` | ヘルスチェック |
+| `pra-cli init-project` | プロジェクト初期化 |
+| `pra-cli validate-input` | 入力ファイル検証 |
+| `pra-cli attach-source` | 原稿取り込み |
+| `pra-cli preprocess` | docx本文抽出 |
+| `pra-cli numbering` | 段落・文番号作成 |
+| `pra-cli sections` | セクション分割 |
+| `pra-cli extract-citations` | 引用文献抽出・分割 |
+| `pra-cli citation-db-crossref` | Crossref 照合 |
+| `pra-cli citation-db-pubmed` | PubMed 照合 |
+| `pra-cli citation-db-google-books` | Google Books 書籍候補検索 |
+| `pra-cli citation-db-semantic-scholar` | Semantic Scholar 照合（最終手段） |
+| `pra-cli citation-db-cinii` | CiNii 論文照合（日本語文献） |
+| `pra-cli citation-viewer-data` | 文献確認ビューアデータ生成 |
+| `pra-cli llm-reference-repair` | LLM文献再パース |
+| `pra-cli llm-reference-flags` | LLM文献フラグ生成 |
+| `pra-cli llm-reference-process` | LLM文献情報整理（パース+フラグ） |
+| `pra-cli search-references-llm` | LLM文献検索 |
+| `pra-cli manual-search` | 手動文献検索 |
+| `pra-cli unmatched-export` | 未照合文献CSV出力 |
+| `pra-cli llm-search-log` | LLM検索ログ出力 |
+| `pra-cli test-llm` | LLM 接続テスト |
+| `pra-cli config-manage --list` | LLM設定一覧表示 |
 
 ### 11.2 今後実装予定
 
-| コマンド | フェーズ | 説明 |
-|---|---|---|
-| `pra-cli preprocess` | Phase 2 | docx/PDF 前処理・行番号抽出 |
-| `pra-cli extract-citations` | Phase 3 | 引用文献の抽出 |
-| `pra-cli citation-db` | Phase 4 | 文献データベース照会 |
-| `pra-cli test-llm` | Phase 5 | LLM 接続テスト |
-| `pra-cli test-db` | Phase 4 | 文献 DB 接続テスト |
-| `pra-cli run-check` | Phase 6 | チェック項目の LLM 実行 |
-| `pra-cli make-manual-prompt` | Phase 6 | 手動入力用プロンプト生成 |
-| `pra-cli import-manual-result` | Phase 6 | 手動入力結果のインポート |
-| `pra-cli merge-section` | Phase 7 | チェック項目内マージ |
-| `pra-cli summarize-manuscript` | Phase 8 | 原稿要約 |
-| `pra-cli final-merge` | Phase 9 | 最終マージ・査読コメント出力 |
+| コマンド | 説明 |
+|---|---|
+| `pra-cli run-check` | チェック項目の LLM 実行 |
+| `pra-cli merge-section` | チェック項目内マージ |
+| `pra-cli summarize-manuscript` | 原稿要約 |
+| `pra-cli final-merge` | 最終マージ・査読コメント出力 |
+| `pra-cli make-manual-prompt` | 手動入力用プロンプト生成 |
+| `pra-cli import-manual-result` | 手動入力結果のインポート |
 
 ---
 

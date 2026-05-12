@@ -417,31 +417,44 @@ docx 本文から References セクションを特定し、個別文献に分割
 
 ### 6.3 文献DB照合
 
-抽出した引用文献を外部DBで検証する。MVPでは以下に対応:
+抽出した引用文献を外部DBで検証する。以下のDBに対応:
 
 | DB | 優先分野 | 用途 |
 |---|---|---|
-| PubMed / NCBI E-utilities | 医学・生命科学 | 文献実在確認、メタデータ取得 |
 | Crossref | 全分野 | DOI検証、書誌情報正規化 |
-| Semantic Scholar | 心理・教育・情報 | 引用・被引用、類似論文 |
-| OpenAlex | 学際 | 補完的検索 |
+| PubMed / NCBI E-utilities | 医学・生命科学 | 文献実在確認、メタデータ取得 |
+| Google Books | 書籍全般 | 書籍・政府文書・Web文書の実在確認 |
+| Semantic Scholar | 心理・教育・情報 | 補完的照合（最終手段） |
+| CiNii Research | 日本語文献 | 日本語論文の実在確認 |
 
-照合フロー:
+照合フロー（カスケード）:
 
 ```text
-References分割 → DOI/PMID抽出 → タイトル検索
-→ 著者・年・雑誌名照合 → 抄録・論文タイプ取得
-→ db_verified_references.json / db_unmatched_references.json 出力
+References分割 → Crossref照合 → PubMed照合 → Google Books検索
+→ Semantic Scholar照合（未照合のみ・最終手段）→ CiNii照合（未照合のみ）
+→ 文献確認データ生成（全結果統合）
+→ db_verified_references.json / db_google_books_candidates.json / viewer_data.json 出力
 ```
+
+Semantic Scholar と CiNii は、Crossref/PubMed/Google Books で既に照合済みの文献をスキップし、未照合文献のみを対象とする（API負荷軽減のため）。
 
 ### 6.4 文献確認ビューア
 
 GUI の「文献確認」パネルでは、照合結果をタブで表示する。
 
-- **サマリータブ**: 確認済/未照合/要確認の統計
-- **確認済タブ**: DB照合に成功した文献一覧（DOI、タイトル、著者）
-- **未照合タブ**: DBで見つからなかった文献
-- **要確認タブ**: 照合結果に疑義がある文献（著者名不一致、年不一致など）
+| タブ | 内容 |
+|---|---|
+| **サマリー** | 確認済/未照合/要確認/DB別照合数 の統計 |
+| **確認済** | 人手確認済み + DB照合に成功した文献一覧 |
+| **要確認** | 照合結果に疑義がある文献（著者名不一致、年不一致など）。人手で確認しチェックを入れると確認済タブに移動 |
+| **未照合** | DBで見つからなかった文献。LLM検索による候補提案あり |
+| **LLM補正候補** | LLMがパース/補正した文献情報の候補 |
+| **Google Books** | Google Books の書籍候補がある文献 |
+| **Semantic Scholar** | Semantic Scholar で照合された文献 |
+| **後段LLM確認** | LLMフラグで後段確認が必要と判定された文献 |
+| **保留** | 照合を保留した文献 |
+
+「要確認」タブで文献を確認しチェックを入れると、自動的に「確認済」タブに移動する（human_verification_status が suspicious_ids より優先）。
 
 ---
 
@@ -622,8 +635,8 @@ outputs/final/
 クリックで該当パネルに遷移可能。
 
 ```text
-①プロジェクト作成 → ②入力ファイル取込 → ③docx本文抽出 → ④引用文献抽出
-→ ⑤文献DB照合 → ⑥文献確認 → ⑦査読チェック → ⑧最終出力
+①プロジェクト作成 → ②入力ファイル取込 → ③前処理（本文抽出〜引用抽出）
+→ ④文献DB照合 → ⑤文献確認 → ⑥査読チェック → ⑦結果出力
 ```
 
 ### 10.4 パネル一覧
@@ -632,8 +645,8 @@ outputs/final/
 |---|---|---|
 | HomePanel | `panels/HomePanel.tsx` | システムヘルスチェック、進捗サマリー、次ステップ提案 |
 | ProjectPanel | `panels/ProjectPanel.tsx` | プロジェクト作成/開く、docx/PDF選択、ファイル検証・取り込み |
-| PreprocessPanel | `panels/PreprocessPanel.tsx` | docx本文抽出、段落・文番号作成、セクション分割、引用文献抽出、Crossref照合、文献確認データ作成 |
-| CitationReviewPanel | `panels/CitationReviewPanel.tsx` | 文献照合結果のタブ表示（サマリー/確認済/未照合/要確認）、要確認アラート |
+| PreprocessPanel | `panels/PreprocessPanel.tsx` | 前処理パイプライン（本文抽出〜引用抽出）、文献DB一括照合（Crossref→PubMed→Google Books→Semantic Scholar→CiNii）、個別DB実行、文献確認データ作成 |
+| CitationReviewPanel | `panels/CitationReviewPanel.tsx` | 文献照合結果のタブ表示（サマリー/確認済/要確認/未照合/LLM補正候補/Google Books/Semantic Scholar/後段LLM確認/保留）、LLM文献情報整理、要確認→確認済移動 |
 | ReviewChecksPanel | `panels/ReviewChecksPanel.tsx` | 評価者1/2/3 のLLMチェック実行、チェック項目内マージ、最終出力 |
 | ResultsPanel | `panels/ResultsPanel.tsx` | 出力ファイルの選択表示（最終査読/著者向け/編集者向け/推奨判定/処理記録） |
 | SettingsPanel | `panels/SettingsPanel.tsx` | LLMスロット設定、APIキー、接続テスト |
@@ -652,8 +665,8 @@ outputs/final/
 主な状態カテゴリ:
 - **ナビゲーション**: `activeView`
 - **プロジェクト**: `projectPath`, `projectCreated`, `docxPath`, `pdfPath`
-- **進捗フラグ**: `validationOk`, `sourceAttached`, `preprocessDone`, `numberingDone`, `sectionsDone`, `citationExtractionDone`, `crossrefDone`, `viewerDataReady`, `structureMergeDone`, `expressionMergeDone`, `methodsStatsMergeDone`, `finalMergeDone`
-- **実行中フラグ**: `validateRunning`, `attachRunning`, `preprocessRunning`, `numberingRunning`, `sectionsRunning`, `citationExtractionRunning`, `crossrefRunning`, `viewerDataGenerating`, `structureMergeRunning`, `expressionMergeRunning`, `methodsStatsMergeRunning`, `finalMergeRunning`
+- **進捗フラグ**: `validationOk`, `sourceAttached`, `preprocessDone`, `numberingDone`, `sectionsDone`, `citationExtractionDone`, `crossrefDone`, `pubmedDone`, `googleBooksDone`, `semanticScholarDone`, `cniiDone`, `viewerDataReady`, `llmRepairDone`, `llmFlagsDone`, `searchReferencesDone`, `structureMergeDone`, `expressionMergeDone`, `methodsStatsMergeDone`, `finalMergeDone`
+- **実行中フラグ**: `validateRunning`, `attachRunning`, `preprocessRunning`, `numberingRunning`, `sectionsRunning`, `citationExtractionRunning`, `crossrefRunning`, `pubmedRunning`, `googleBooksGenerating`, `semanticScholarRunning`, `cniiRunning`, `dbCascadeRunning`, `viewerDataGenerating`, `llmRepairGenerating`, `llmFlagsGenerating`, `llmReferenceProcessRunning`, `searchReferencesGenerating`, `unmatchedExportGenerating`, `structureMergeRunning`, `expressionMergeRunning`, `methodsStatsMergeRunning`, `finalMergeRunning`
 - **フィードバック**: `statusMessage`（8秒で自動消去）, `preprocessResults`, `crossrefSummary`
 - **LLM設定**: `llmSlots`, `llmTestResults`
 - **結果表示**: `selectedResultFile`, `resultFileContent`, `resultFileLoading`
@@ -774,50 +787,57 @@ outputs/final/
 
 ## 13. MVP 範囲と実装状況
 
-### 13.1 実装済み（v0.1.0）
+### 13.1 実装済み（v0.2.0）
 
 | 機能 | 状況 |
 |---|---|
 | Tauri v2 + React TypeScript GUI | ✅ |
 | サイドバーナビゲーション（7画面） | ✅ |
-| プログレスバー（クリック可能8ステップ） | ✅ |
+| プログレスバー（クリック可能ステップ） | ✅ |
 | ボトムログペイン | ✅ |
 | プロジェクトヘッダー表示 | ✅ |
 | Python CLI (Click) subprocess 実行 | ✅ |
-| `healthcheck` コマンド | ✅ |
-| `init-project` コマンド | ✅ |
-| `validate-input` コマンド（PDF任意） | ✅ |
-| `attach-source` コマンド（PDF任意） | ✅ |
+| `healthcheck` / `init-project` / `validate-input` / `attach-source` | ✅ |
 | 3入力モード（docx_only/docx_with_pdf/docx_with_line_numbered_pdf） | ✅ |
 | 既存プロジェクト開く（project.json 読み取り） | ✅ |
 | UTF-8 エンコーディング対応 | ✅ |
-| ホームパネル（ヘルスチェック、進捗サマリー） | ✅ |
-| プロジェクトパネル（作成/開く/ファイル選択/検証/取り込み） | ✅ |
-| 前処理パネル（6ステップ、ステータス表示） | ✅ |
-| 文献確認パネル（タブ表示） | ✅ |
-| 査読チェックパネル（評価者1/2/3） | ✅ |
-| 結果パネル（出力ファイル表示） | ✅ |
-| 設定パネル（LLMスロット設定、接続テスト） | ✅ |
+| **前処理パイプライン** | |
+| docx 本文抽出 (preprocess CLI) | ✅ |
+| 段落・文番号作成 CLI | ✅ |
+| セクション分割 CLI | ✅ |
+| 引用文献抽出 CLI | ✅ |
+| 本文中引用抽出 | ✅ |
+| **文献DB照合** | |
+| Crossref 照合 CLI | ✅ |
+| PubMed 照合 CLI | ✅ |
+| Google Books 書籍候補検索 CLI | ✅ |
+| Semantic Scholar 照合 CLI | ✅ |
+| CiNii 論文照合 CLI | ✅ |
+| 文献DB一括照合（カスケード: Crossref→PubMed→GB→SS→CiNii） | ✅ |
+| 未照合文献の最終手段照合（SS/CiNiiで既照合をスキップ） | ✅ |
+| **文献確認** | |
+| 文献確認データ生成 CLI | ✅ |
+| 文献確認ビューア（9タブ） | ✅ |
+| LLM文献情報整理（パース・フラグ生成） | ✅ |
+| LLM文献検索 | ✅ |
+| 手動文献検索 | ✅ |
+| 要確認→確認済 自動移動（human_verification_status優先） | ✅ |
+| 未照合文献CSV出力 | ✅ |
+| **GUI全般** | |
+| 全パネル（ホーム/プロジェクト/前処理/文献確認/査読チェック/結果/設定） | ✅ |
 | 全ボタン日本語ラベル | ✅ |
-| ステータスチップ（未実行/実行中/完了/エラー） | ✅ |
+| ステータスチップ（未実行/実行中/完了/要確認/エラー） | ✅ |
 | ステータスメッセージバナー（8秒自動消去） | ✅ |
-| 無効ボタン理由表示 | ✅ |
-| 次ステップ提案 | ✅ |
-| 補足情報表示（段落数、文献数等） | ✅ |
+| 無効ボタン理由表示 / 次ステップ提案 / 補足情報表示 | ✅ |
 
 ### 13.2 未実装（将来フェーズ）
 
 | 機能 | 優先度 |
 |---|---|
-| docx 本文抽出 (preprocess CLI) | 次フェーズ |
-| 段落・文番号作成 CLI | 次フェーズ |
-| セクション分割 CLI | 次フェーズ |
-| 引用文献抽出 CLI | 次フェーズ |
-| Crossref / PubMed 照合 CLI | 次フェーズ |
-| 文献確認ビューアデータ生成 CLI | 次フェーズ |
-| LLM チェック実行 CLI | 将来 |
-| チェック項目内マージ CLI | 将来 |
-| 最終マージ CLI | 将来 |
+| LLM チェック実行 CLI | 次フェーズ |
+| チェック項目内マージ CLI | 次フェーズ |
+| 最終マージ CLI | 次フェーズ |
+| 結果パネル（出力ファイル表示）連携 | 次フェーズ |
 | 手入力モード | 将来 |
 | APIキー暗号化保存 | 将来 |
 | セキュアモード | 将来 |

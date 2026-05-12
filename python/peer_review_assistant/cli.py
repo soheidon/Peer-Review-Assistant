@@ -1022,6 +1022,388 @@ def _merge_verified_references(citations_dir, pubmed_result):
         json.dump(verified, f, indent=2, ensure_ascii=False)
 
 
+@main.command()
+@click.option("--project", "project_dir", required=True,
+              type=click.Path(file_okay=False, writable=True),
+              help="Path to the project working folder.")
+@click.option("--appid", required=False, default=None,
+              help="CiNii Research API application ID (required for search).")
+def citation_db_cinii(project_dir, appid):
+    """Verify references against CiNii Research API (Japanese papers)."""
+    from peer_review_assistant.citations.db_cinii import verify_cinii
+
+    emit("progress", task="citation-db-cinii", step="validate", percent=0)
+
+    proj_path = os.path.join(project_dir, "project.json")
+    if not os.path.isfile(proj_path):
+        error("NO_PROJECT", "project.json not found. Run init-project first.")
+
+    refs_path = os.path.join(project_dir, "citations", "references_split.json")
+    if not os.path.isfile(refs_path):
+        error("NO_REFERENCES_SPLIT",
+              "citations/references_split.json not found. "
+              "Run extract-citations first.")
+
+    # Appid is optional — if not provided, skip gracefully
+    if not appid or not appid.strip():
+        emit("progress", task="citation-db-cinii", step="skip", percent=100)
+        emit("done",
+             task="citation-db-cinii",
+             matched=0,
+             unmatched=0,
+             message="CiNii API appid not provided; skipping.")
+        return
+
+    emit("progress", task="citation-db-cinii", step="load", percent=20)
+
+    with open(refs_path, "r", encoding="utf-8") as f:
+        references_split = json.load(f)
+
+    # ── Filter: skip references already verified by earlier DBs ─────────
+    # CiNii should only query references that remain unmatched after
+    # Crossref, PubMed, Google Books, and Semantic Scholar.
+    citations_dir = os.path.join(project_dir, "citations")
+    skip_ids = set()
+
+    # 1. Crossref + PubMed + Semantic Scholar matches (db_verified_references.json)
+    verified_path = os.path.join(citations_dir, "db_verified_references.json")
+    if os.path.isfile(verified_path):
+        with open(verified_path, "r", encoding="utf-8") as f:
+            verified = json.load(f)
+        for item in verified.get("items", []):
+            if isinstance(item, dict) and item.get("reference_id"):
+                skip_ids.add(item["reference_id"])
+
+    # 2. Google Books candidates (db_google_books_candidates.json)
+    gb_path = os.path.join(citations_dir, "db_google_books_candidates.json")
+    if os.path.isfile(gb_path):
+        with open(gb_path, "r", encoding="utf-8") as f:
+            gb_data = json.load(f)
+        for item in gb_data.get("items", []):
+            if isinstance(item, dict) and item.get("reference_id"):
+                if item.get("best_candidate") or item.get("all_candidates"):
+                    skip_ids.add(item["reference_id"])
+
+    all_items = references_split.get("items", [])
+    target_items = [ref for ref in all_items
+                    if ref.get("reference_id") not in skip_ids]
+    skipped = len(all_items) - len(target_items)
+
+    references_filtered = {
+        **references_split,
+        "items": target_items,
+        "total_references": len(target_items),
+    }
+
+    emit("progress", task="citation-db-cinii", step="verify", percent=40,
+         reference_count=len(target_items),
+         skipped_count=skipped,
+         total_count=len(all_items))
+
+    try:
+        result = verify_cinii(references_filtered, appid)
+    except Exception as e:
+        error("CITATION_DB_ERROR",
+              f"CiNii verification failed: {e}")
+
+    emit("progress", task="citation-db-cinii", step="save", percent=85)
+
+    os.makedirs(citations_dir, exist_ok=True)
+
+    # db_cinii_results.json — full results
+    cinii_path = os.path.join(citations_dir, "db_cinii_results.json")
+    with open(cinii_path, "w", encoding="utf-8") as f:
+        json.dump(result, f, indent=2, ensure_ascii=False)
+
+    # db_cinii_unmatched.json — unmatched + errors
+    unmatched = {
+        "items": [it for it in result["items"] if it["status"] != "matched"],
+    }
+    unmatched_path = os.path.join(citations_dir, "db_cinii_unmatched.json")
+    with open(unmatched_path, "w", encoding="utf-8") as f:
+        json.dump(unmatched, f, indent=2, ensure_ascii=False)
+
+    # db_verified_references.json — merge CiNii matched
+    _merge_cinii_to_verified(citations_dir, result)
+
+    emit("progress", task="citation-db-cinii", step="update_status", percent=95)
+
+    # Log
+    log_path = os.path.join(project_dir, "logs", "citation_db.log")
+    now = datetime.now(JST).isoformat()
+    log_entry = (f"[{now}] citation-db-cinii: "
+                 f"matched={result['matched_count']}, "
+                 f"unmatched={result['unmatched_count']}\n")
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    with open(log_path, "a", encoding="utf-8") as f:
+        f.write(log_entry)
+
+    # Update task_status.json
+    status_path = os.path.join(project_dir, "status", "task_status.json")
+    if os.path.isfile(status_path):
+        with open(status_path, "r", encoding="utf-8") as f:
+            task_status = json.load(f)
+        task_status["citation_db_cinii"] = "done"
+        with open(status_path, "w", encoding="utf-8") as f:
+            json.dump(task_status, f, indent=2, ensure_ascii=False)
+
+    with open(proj_path, "r", encoding="utf-8") as f:
+        proj = json.load(f)
+    proj["updated_at"] = datetime.now(JST).isoformat()
+    with open(proj_path, "w", encoding="utf-8") as f:
+        json.dump(proj, f, indent=2, ensure_ascii=False)
+
+    emit("done",
+         task="citation-db-cinii",
+         matched=result["matched_count"],
+         unmatched=result["unmatched_count"],
+         message="CiNii verification complete.")
+
+
+def _merge_cinii_to_verified(citations_dir, cinii_result):
+    """Merge CiNii matched items into db_verified_references.json."""
+    verified_path = os.path.join(citations_dir, "db_verified_references.json")
+
+    # Load existing verified if present
+    existing_items = {}
+    if os.path.isfile(verified_path):
+        with open(verified_path, "r", encoding="utf-8") as f:
+            existing = json.load(f)
+        for item in existing.get("items", []):
+            ref_id = item.get("reference_id")
+            if ref_id:
+                existing_items[ref_id] = item
+
+    # Add CiNii matched items
+    for item in cinii_result["items"]:
+        if item.get("status") != "matched":
+            continue
+        ref_id = item.get("reference_id")
+        if not ref_id:
+            continue
+        if ref_id in existing_items:
+            # Already verified by Crossref/PubMed — add CiNii as extra source
+            existing = existing_items[ref_id]
+            existing.setdefault("sources", [])
+            source_keys = [s.get("db_source") for s in existing["sources"]]
+            if "CiNii" not in source_keys:
+                existing["sources"].append({
+                    "db_source": "CiNii",
+                    "cinii_result": item.get("cinii_result"),
+                    "comparison": item.get("comparison"),
+                })
+            if existing.get("status") != "matched":
+                existing["status"] = "matched"
+        else:
+            # New CiNii match — add as primary
+            item["sources"] = [{
+                "db_source": "CiNii",
+                "cinii_result": item.get("cinii_result"),
+                "comparison": item.get("comparison"),
+            }]
+            existing_items[ref_id] = item
+
+    # Write consolidated
+    verified = {"items": list(existing_items.values())}
+    with open(verified_path, "w", encoding="utf-8") as f:
+        json.dump(verified, f, indent=2, ensure_ascii=False)
+
+
+@main.command()
+@click.option("--project", "project_dir", required=True,
+              type=click.Path(file_okay=False, writable=True),
+              help="Path to the project working folder.")
+@click.option("--api-key", required=False, default=None,
+              help="Semantic Scholar API key (optional, improves rate limits).")
+@click.option("--api-key-env", required=False, default=None,
+              help="Env var name for Semantic Scholar API key.")
+def citation_db_semantic_scholar(project_dir, api_key, api_key_env):
+    """Verify references against Semantic Scholar Academic Graph API."""
+    from peer_review_assistant.citations.db_semantic_scholar import verify_semantic_scholar
+
+    emit("progress", task="citation-db-semantic-scholar", step="validate", percent=0)
+
+    proj_path = os.path.join(project_dir, "project.json")
+    if not os.path.isfile(proj_path):
+        error("NO_PROJECT", "project.json not found. Run init-project first.")
+
+    refs_path = os.path.join(project_dir, "citations", "references_split.json")
+    if not os.path.isfile(refs_path):
+        error("NO_REFERENCES_SPLIT",
+              "citations/references_split.json not found. "
+              "Run extract-citations first.")
+
+    # Resolve API key: direct arg > env var name > S2_API_KEY env
+    resolved_api_key = api_key
+    if not resolved_api_key and api_key_env:
+        resolved_api_key = _get_env(api_key_env)
+    if not resolved_api_key:
+        resolved_api_key = _get_env("SEMANTIC_SCHOLAR_API_KEY")
+
+    if not resolved_api_key:
+        emit("progress", task="citation-db-semantic-scholar", step="skip", percent=100)
+        emit("done",
+             task="citation-db-semantic-scholar",
+             matched=0,
+             unmatched=0,
+             message="Semantic Scholar API key not provided; skipping.")
+        return
+
+    emit("progress", task="citation-db-semantic-scholar", step="load", percent=20)
+
+    with open(refs_path, "r", encoding="utf-8") as f:
+        references_split = json.load(f)
+
+    # ── Filter: skip references already verified by earlier DBs ─────────
+    # Semantic Scholar API has limited capacity. Only query references
+    # that remain unmatched after Crossref, PubMed, and Google Books.
+    citations_dir = os.path.join(project_dir, "citations")
+    skip_ids = set()
+
+    # 1. Crossref + PubMed matches (db_verified_references.json)
+    verified_path = os.path.join(citations_dir, "db_verified_references.json")
+    if os.path.isfile(verified_path):
+        with open(verified_path, "r", encoding="utf-8") as f:
+            verified = json.load(f)
+        for item in verified.get("items", []):
+            if isinstance(item, dict) and item.get("reference_id"):
+                skip_ids.add(item["reference_id"])
+
+    # 2. Google Books candidates (db_google_books_candidates.json)
+    gb_path = os.path.join(citations_dir, "db_google_books_candidates.json")
+    if os.path.isfile(gb_path):
+        with open(gb_path, "r", encoding="utf-8") as f:
+            gb_data = json.load(f)
+        for item in gb_data.get("items", []):
+            if isinstance(item, dict) and item.get("reference_id"):
+                if item.get("best_candidate") or item.get("all_candidates"):
+                    skip_ids.add(item["reference_id"])
+
+    all_items = references_split.get("items", [])
+    target_items = [ref for ref in all_items
+                    if ref.get("reference_id") not in skip_ids]
+    skipped = len(all_items) - len(target_items)
+
+    references_filtered = {
+        **references_split,
+        "items": target_items,
+        "total_references": len(target_items),
+    }
+
+    emit("progress", task="citation-db-semantic-scholar", step="verify", percent=40,
+         reference_count=len(target_items),
+         skipped_count=skipped,
+         total_count=len(all_items))
+
+    try:
+        result = verify_semantic_scholar(references_filtered, resolved_api_key)
+    except Exception as e:
+        error("CITATION_DB_ERROR",
+              f"Semantic Scholar verification failed: {e}")
+
+    emit("progress", task="citation-db-semantic-scholar", step="save", percent=85)
+
+    os.makedirs(citations_dir, exist_ok=True)
+
+    # db_semantic_scholar_results.json — full results
+    ss_path = os.path.join(citations_dir, "db_semantic_scholar_results.json")
+    with open(ss_path, "w", encoding="utf-8") as f:
+        json.dump(result, f, indent=2, ensure_ascii=False)
+
+    # db_semantic_scholar_unmatched.json — unmatched + errors
+    unmatched = {
+        "items": [it for it in result["items"] if it["status"] != "matched"],
+    }
+    unmatched_path = os.path.join(citations_dir, "db_semantic_scholar_unmatched.json")
+    with open(unmatched_path, "w", encoding="utf-8") as f:
+        json.dump(unmatched, f, indent=2, ensure_ascii=False)
+
+    # db_verified_references.json — merge Semantic Scholar matched
+    _merge_ss_to_verified(citations_dir, result)
+
+    emit("progress", task="citation-db-semantic-scholar", step="update_status", percent=95)
+
+    # Log
+    log_path = os.path.join(project_dir, "logs", "citation_db.log")
+    now = datetime.now(JST).isoformat()
+    log_entry = (f"[{now}] citation-db-semantic-scholar: "
+                 f"matched={result['matched_count']}, "
+                 f"unmatched={result['unmatched_count']}\n")
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    with open(log_path, "a", encoding="utf-8") as f:
+        f.write(log_entry)
+
+    # Update task_status.json
+    status_path = os.path.join(project_dir, "status", "task_status.json")
+    if os.path.isfile(status_path):
+        with open(status_path, "r", encoding="utf-8") as f:
+            task_status = json.load(f)
+        task_status["citation_db_semantic_scholar"] = "done"
+        with open(status_path, "w", encoding="utf-8") as f:
+            json.dump(task_status, f, indent=2, ensure_ascii=False)
+
+    with open(proj_path, "r", encoding="utf-8") as f:
+        proj = json.load(f)
+    proj["updated_at"] = datetime.now(JST).isoformat()
+    with open(proj_path, "w", encoding="utf-8") as f:
+        json.dump(proj, f, indent=2, ensure_ascii=False)
+
+    emit("done",
+         task="citation-db-semantic-scholar",
+         matched=result["matched_count"],
+         unmatched=result["unmatched_count"],
+         message="Semantic Scholar verification complete.")
+
+
+def _merge_ss_to_verified(citations_dir, ss_result):
+    """Merge Semantic Scholar matched items into db_verified_references.json."""
+    verified_path = os.path.join(citations_dir, "db_verified_references.json")
+
+    # Load existing verified if present
+    existing_items = {}
+    if os.path.isfile(verified_path):
+        with open(verified_path, "r", encoding="utf-8") as f:
+            existing = json.load(f)
+        for item in existing.get("items", []):
+            ref_id = item.get("reference_id")
+            if ref_id:
+                existing_items[ref_id] = item
+
+    # Add Semantic Scholar matched items
+    for item in ss_result["items"]:
+        if item.get("status") != "matched":
+            continue
+        ref_id = item.get("reference_id")
+        if not ref_id:
+            continue
+        if ref_id in existing_items:
+            # Already verified by Crossref/PubMed/CiNii — add SS as extra source
+            existing = existing_items[ref_id]
+            existing.setdefault("sources", [])
+            source_keys = [s.get("db_source") for s in existing["sources"]]
+            if "Semantic Scholar" not in source_keys:
+                existing["sources"].append({
+                    "db_source": "Semantic Scholar",
+                    "ss_result": item.get("ss_result"),
+                    "comparison": item.get("comparison"),
+                })
+            if existing.get("status") != "matched":
+                existing["status"] = "matched"
+        else:
+            # New Semantic Scholar match — add as primary
+            item["sources"] = [{
+                "db_source": "Semantic Scholar",
+                "ss_result": item.get("ss_result"),
+                "comparison": item.get("comparison"),
+            }]
+            existing_items[ref_id] = item
+
+    # Write consolidated
+    verified = {"items": list(existing_items.values())}
+    with open(verified_path, "w", encoding="utf-8") as f:
+        json.dump(verified, f, indent=2, ensure_ascii=False)
+
+
 @main.command(name="citation-db-unmatched-report")
 @click.option("--project", "project_dir", required=True,
               type=click.Path(file_okay=False, writable=True),
@@ -1081,6 +1463,127 @@ def citation_db_unmatched_report_cmd(project_dir):
                   f"{summary['total_verified']} verified, "
                   f"{summary['suspicious_matches']} suspicious, "
                   f"{summary['unmatched']} unmatched."))
+
+
+@main.command(name="citation-db-unmatched-export")
+@click.option("--project", "project_dir", required=True,
+              type=click.Path(file_okay=False, writable=True),
+              help="Path to the project working folder.")
+@click.option("--format", "fmt", default="csv",
+              type=click.Choice(["csv", "json"]),
+              help="Export format: csv (default) or json.")
+def citation_db_unmatched_export_cmd(project_dir, fmt):
+    """Export unmatched references as CSV or JSON for analysis."""
+    import csv
+    import io
+
+    emit("progress", task="unmatched-export", step="validate", percent=0)
+
+    proj_path = os.path.join(project_dir, "project.json")
+    if not os.path.isfile(proj_path):
+        error("NO_PROJECT", "project.json not found. Run init-project first.")
+
+    citations_dir = os.path.join(project_dir, "citations")
+    unmatched_path = os.path.join(citations_dir, "db_unmatched_references.json")
+    refs_path = os.path.join(citations_dir, "references_split.json")
+
+    if not os.path.isfile(unmatched_path):
+        error("NO_UNMATCHED",
+              "citations/db_unmatched_references.json not found. "
+              "Run citation-db-unmatched-report first.")
+
+    emit("progress", task="unmatched-export", step="load", percent=30)
+
+    with open(unmatched_path, "r", encoding="utf-8") as f:
+        unmatched = json.load(f)
+
+    ref_map = {}
+    if os.path.isfile(refs_path):
+        with open(refs_path, "r", encoding="utf-8") as f:
+            refs = json.load(f)
+        for ref in refs.get("items", []):
+            ref_map[ref["reference_id"]] = ref
+
+    items = unmatched.get("items", [])
+    rows = []
+    for item in items:
+        rid = item.get("reference_id", "?")
+        ref = ref_map.get(rid, {})
+        raw_text = ref.get("raw_text", "")
+        parsed = ref.get("parsed", {})
+        error_msg = item.get("error", "")
+        status = item.get("status", "unmatched")
+        self_contained = ref.get("self_contained_reference", False)
+
+        rows.append({
+            "reference_id": rid,
+            "status": status,
+            "raw_text": raw_text,
+            "parsed_title": parsed.get("title", "") or "",
+            "parsed_journal": parsed.get("journal", "") or "",
+            "parsed_year": parsed.get("year", "") or "",
+            "parsed_volume": parsed.get("volume", "") or "",
+            "parsed_issue": parsed.get("issue", "") or "",
+            "parsed_pages": parsed.get("pages", "") or "",
+            "parsed_doi": parsed.get("doi", "") or "",
+            "parse_confidence": ref.get("parse_confidence", ""),
+            "error": error_msg,
+            "self_contained": self_contained,
+            "contains_url": "http://" in raw_text or "https://" in raw_text,
+            "contains_isbn": "ISBN" in raw_text.upper(),
+        })
+
+    emit("progress", task="unmatched-export", step="write", percent=70)
+
+    if fmt == "json":
+        out_path = os.path.join(citations_dir, "unmatched_export.json")
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump({
+                "generated_at": datetime.now(JST).isoformat(),
+                "total": len(rows),
+                "items": rows,
+            }, f, indent=2, ensure_ascii=False)
+    else:
+        out_path = os.path.join(citations_dir, "unmatched_export.csv")
+        with open(out_path, "w", newline="", encoding="utf-8-sig") as f:
+            writer = csv.DictWriter(f, fieldnames=[
+                "reference_id", "status", "raw_text", "parsed_title",
+                "parsed_journal", "parsed_year", "parsed_volume",
+                "parsed_issue", "parsed_pages", "parsed_doi",
+                "parse_confidence", "error", "self_contained",
+                "contains_url", "contains_isbn",
+            ])
+            writer.writeheader()
+            writer.writerows(rows)
+
+    emit("done",
+         task="unmatched-export",
+         total=len(rows),
+         format=fmt,
+         output=out_path,
+         message=f"Exported {len(rows)} unmatched references to {out_path}")
+
+
+@main.command(name="citation-open-log")
+@click.option("--project", "project_dir", required=True,
+              type=click.Path(file_okay=False, writable=True),
+              help="Path to the project working folder.")
+@click.option("--log-name", default="llm_search",
+              help="Log file name without extension (default: llm_search).")
+def citation_open_log(project_dir, log_name):
+    """Open a log file with the OS default application."""
+    log_path = os.path.join(project_dir, "logs", f"{log_name}.log")
+    if not os.path.isfile(log_path):
+        error("NO_LOG_FILE",
+              f"Log file not found: {log_path}")
+    try:
+        os.startfile(log_path)
+    except Exception as e:
+        error("OPEN_LOG_FAILED",
+              f"Failed to open log file: {e}")
+    emit("done", task="citation-open-log",
+         path=log_path,
+         message=f"Opened {log_path}")
 
 
 @main.command(name="citation-db-google-books")
@@ -1318,8 +1821,8 @@ def test_google_books_cmd(api_key, api_key_env):
 @click.option("--reference-id", required=True,
               help="Reference ID (e.g., R001).")
 @click.option("--source", required=True,
-              type=click.Choice(["crossref", "pubmed", "google_books", "semantic_scholar"]),
-              help="Source to search: crossref, pubmed, google_books, semantic_scholar.")
+              type=click.Choice(["crossref", "pubmed", "google_books", "semantic_scholar", "cinii"]),
+              help="Source to search: crossref, pubmed, google_books, semantic_scholar, cinii.")
 @click.option("--fields", default="title,author,year",
               help="Comma-separated field keys to build the search query.")
 @click.option("--max-results", default=5, type=int,
@@ -1356,6 +1859,8 @@ def search_reference_candidates_cmd(project_dir, reference_id, source,
             resolved_api_key = _get_env("GOOGLE_BOOKS_API_KEY").strip()
         elif source == "semantic_scholar":
             resolved_api_key = _get_env("SEMANTIC_SCHOLAR_API_KEY").strip()
+        elif source == "cinii":
+            resolved_api_key = _get_env("CINII_APPID").strip()
     if not resolved_api_key:
         resolved_api_key = None
 
@@ -1680,6 +2185,95 @@ def accept_llm_reference_candidate_cmd(project_dir, reference_id):
          message=f"Accepted LLM candidate for {reference_id}")
 
 
+@main.command(name="accept-llm-search-result")
+@click.option("--project", "project_dir", required=True,
+              type=click.Path(file_okay=False, writable=True),
+              help="Path to the project working folder.")
+@click.option("--reference-id", required=True,
+              help="Reference ID (e.g., R001).")
+def accept_llm_search_result_cmd(project_dir, reference_id):
+    """Accept an LLM search result as the verified reference."""
+    citations_dir = os.path.join(project_dir, "citations")
+
+    # Load search results
+    sr_path = os.path.join(citations_dir, "references_searched_llm.json")
+    if not os.path.isfile(sr_path):
+        error("NO_SEARCH_RESULTS",
+              "references_searched_llm.json not found. "
+              "Run search-references-llm first.")
+
+    with open(sr_path, "r", encoding="utf-8") as f:
+        sr_data = json.load(f)
+
+    sr_item = None
+    for it in sr_data.get("items", []):
+        if it.get("reference_id") == reference_id:
+            sr_item = it
+            break
+
+    if not sr_item:
+        error("REFERENCE_NOT_FOUND",
+              f"Reference {reference_id} not found in "
+              f"references_searched_llm.json")
+
+    if not sr_item.get("identified"):
+        error("NOT_IDENTIFIED",
+              f"Reference {reference_id} was not identified by LLM search. "
+              f"Cannot accept.")
+
+    # Load or create human_verified_references.json
+    hv_path = os.path.join(citations_dir, "human_verified_references.json")
+    if os.path.isfile(hv_path):
+        with open(hv_path, "r", encoding="utf-8") as f:
+            hv_data = json.load(f)
+    else:
+        hv_data = {"total_verified": 0, "items": []}
+
+    # Remove any existing entry for this reference (idempotent)
+    hv_data["items"] = [
+        it for it in hv_data.get("items", [])
+        if it.get("reference_id") != reference_id
+    ]
+
+    corrected = sr_item.get("corrected") or {}
+
+    entry = {
+        "reference_id": reference_id,
+        "status": "human_verified",
+        "source": "llm_search_result",
+        "accepted_at": datetime.now(JST).isoformat(),
+        "accepted_reference": {
+            "title": corrected.get("title"),
+            "book_title": corrected.get("book_title"),
+            "authors": corrected.get("authors", []),
+            "year": corrected.get("year"),
+            "journal": corrected.get("journal"),
+            "publisher": corrected.get("publisher"),
+            "volume": corrected.get("volume"),
+            "issue": corrected.get("issue"),
+            "pages": corrected.get("pages"),
+            "doi": corrected.get("doi"),
+            "url": corrected.get("url"),
+            "isbn": corrected.get("isbn"),
+            "type": sr_item.get("publication_type"),
+        },
+        "search_confidence": sr_item.get("confidence"),
+        "search_notes": sr_item.get("notes", ""),
+        "search_source_urls": sr_item.get("source_urls", []),
+    }
+    hv_data["items"].append(entry)
+    hv_data["total_verified"] = len(hv_data["items"])
+
+    os.makedirs(os.path.dirname(hv_path), exist_ok=True)
+    with open(hv_path, "w", encoding="utf-8") as f:
+        json.dump(hv_data, f, indent=2, ensure_ascii=False)
+
+    emit("done",
+         task="accept-llm-search-result",
+         reference_id=reference_id,
+         message=f"Accepted LLM search result for {reference_id}")
+
+
 @main.command(name="generate-llm-search-suggestions")
 @click.option("--project", "project_dir", required=True,
               type=click.Path(file_okay=False, writable=True),
@@ -1727,6 +2321,7 @@ def generate_llm_search_suggestions_cmd(project_dir, slot, provider,
          provider=provider, model=model)
 
     prov = LLMProvider(
+        name=slot,
         provider=provider,
         base_url=base_url,
         model=model,
@@ -1826,6 +2421,7 @@ def generate_llm_reference_flags_cmd(project_dir, slot, provider, base_url,
          provider=provider, model=model)
 
     prov = LLMProvider(
+        name=slot,
         provider=provider,
         base_url=base_url,
         model=model,
@@ -2215,6 +2811,316 @@ def repair_references_llm_cmd(project_dir, slot, provider, base_url, model, api_
          slot=slot,
          **{k: v for k, v in summary.items() if k != "message"},
          message=summary["message"])
+
+
+@main.command(name="resolve-journals-llm")
+@click.option("--project", "project_dir", required=True,
+              type=click.Path(file_okay=False, writable=True),
+              help="Path to the project working folder.")
+@click.option("--slot", required=True,
+              help="LLM slot name (summary, reviewer1, reviewer2, reviewer3).")
+@click.option("--provider", required=True,
+              help="Provider name (e.g., openai, anthropic, deepseek, openrouter).")
+@click.option("--base-url", required=True,
+              help="Base URL for the chat completions endpoint.")
+@click.option("--model", required=True,
+              help="Model name.")
+@click.option("--api-key", default=None,
+              help="API key. Falls back to --api-key-env or PRA_LLM_KEY_<SLOT> env var.")
+@click.option("--api-key-env", default=None,
+              help="Environment variable name containing the API key.")
+def resolve_journals_llm_cmd(project_dir, slot, provider, base_url, model, api_key, api_key_env):
+    """Use LLM to disambiguate journal names that appear to mismatch."""
+    from peer_review_assistant.llm import LLMProvider
+    from peer_review_assistant.citations.journal_resolve_llm import resolve_journals_llm
+
+    emit("progress", task="resolve-journals-llm", step="validate", percent=0,
+         slot=slot)
+
+    # Validate project
+    proj_path = os.path.join(project_dir, "project.json")
+    if not os.path.isfile(proj_path):
+        error("NO_PROJECT", "project.json not found. Run init-project first.")
+
+    refs_path = os.path.join(project_dir, "citations", "references_split.json")
+    if not os.path.isfile(refs_path):
+        error("NO_REFERENCES_SPLIT",
+              "citations/references_split.json not found. "
+              "Run extract-citations first.")
+
+    crossref_path = os.path.join(project_dir, "citations", "db_crossref_results.json")
+    pubmed_path = os.path.join(project_dir, "citations", "db_pubmed_results.json")
+    if not os.path.isfile(crossref_path) and not os.path.isfile(pubmed_path):
+        error("NO_DB_RESULTS",
+              "Neither db_crossref_results.json nor db_pubmed_results.json found. "
+              "Run citation-db-crossref or citation-db-pubmed first.")
+
+    # Resolve API key: 1. --api-key  2. --api-key-env  3. PRA_LLM_KEY_<SLOT>
+    if not api_key and api_key_env:
+        api_key = _get_env(api_key_env).strip()
+    if not api_key:
+        api_key = _get_env(f"PRA_LLM_KEY_{slot.upper()}").strip()
+    if not api_key:
+        error("NO_API_KEY",
+              f"No API key provided. Use --api-key, --api-key-env, or set "
+              f"PRA_LLM_KEY_{slot.upper()} environment variable.")
+
+    emit("progress", task="resolve-journals-llm", step="load_inputs", percent=20,
+         slot=slot, provider=provider, model=model)
+
+    prov = LLMProvider(
+        name=slot,
+        provider=provider,
+        base_url=base_url,
+        model=model,
+        api_key=api_key,
+    )
+
+    emit("progress", task="resolve-journals-llm", step="calling_llm", percent=40,
+         slot=slot, model=model)
+
+    try:
+        summary = resolve_journals_llm(project_dir, prov)
+    except Exception as e:
+        error("RESOLVE_JOURNALS_FAILED",
+              f"LLM journal disambiguation failed: {e}")
+
+    emit("progress", task="resolve-journals-llm", step="saving", percent=90,
+         slot=slot)
+
+    # Log
+    log_path = os.path.join(project_dir, "logs", "citation_db.log")
+    now = datetime.now(JST).isoformat()
+    log_entry = (
+        f"[{now}] resolve-journals-llm ({slot}): "
+        f"pairs={summary['total_pairs']}, "
+        f"identity={summary['resolved_identity']}, "
+        f"style={summary['resolved_style']}, "
+        f"mismatch={summary['still_mismatch']}, "
+        f"refs_updated={summary['total_references_updated']}\n"
+    )
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    with open(log_path, "a", encoding="utf-8") as lf:
+        lf.write(log_entry)
+
+    # Update project.json
+    with open(proj_path, "r", encoding="utf-8") as f:
+        proj = json.load(f)
+    proj["updated_at"] = datetime.now(JST).isoformat()
+    with open(proj_path, "w", encoding="utf-8") as f:
+        json.dump(proj, f, indent=2, ensure_ascii=False)
+
+    emit("done",
+         task="resolve-journals-llm",
+         slot=slot,
+         **{k: v for k, v in summary.items() if k != "message"},
+         message=summary["message"])
+
+
+@main.command(name="search-references-llm")
+@click.option("--project", "project_dir", required=True,
+              type=click.Path(file_okay=False, writable=True),
+              help="Path to the project working folder.")
+@click.option("--slot", required=True,
+              help="LLM slot name (summary, reviewer1, reviewer2, reviewer3).")
+@click.option("--provider", required=True,
+              help="Provider name (e.g., openai, anthropic, deepseek, openrouter).")
+@click.option("--base-url", required=True,
+              help="Base URL for the chat completions endpoint.")
+@click.option("--model", required=True,
+              help="Model name.")
+@click.option("--api-key", default=None,
+              help="API key. Falls back to --api-key-env or PRA_LLM_KEY_<SLOT> env var.")
+@click.option("--api-key-env", default=None,
+              help="Environment variable name containing the API key.")
+def search_references_llm_cmd(project_dir, slot, provider, base_url, model, api_key, api_key_env):
+    """Use LLM to identify unmatched references using its training knowledge."""
+    from peer_review_assistant.llm import LLMProvider
+    from peer_review_assistant.citations.search_references_llm import search_references_llm
+
+    emit("progress", task="search-references-llm", step="validate", percent=0,
+         slot=slot)
+
+    # Validate project
+    proj_path = os.path.join(project_dir, "project.json")
+    if not os.path.isfile(proj_path):
+        error("NO_PROJECT", "project.json not found. Run init-project first.")
+
+    refs_path = os.path.join(project_dir, "citations", "references_split.json")
+    if not os.path.isfile(refs_path):
+        error("NO_REFERENCES_SPLIT",
+              "citations/references_split.json not found. "
+              "Run extract-citations first.")
+
+    unmatched_path = os.path.join(project_dir, "citations", "db_unmatched_references.json")
+    if not os.path.isfile(unmatched_path):
+        error("NO_UNMATCHED",
+              "citations/db_unmatched_references.json not found. "
+              "Run citation-db-unmatched-report first.")
+
+    # Resolve API key: 1. --api-key  2. --api-key-env  3. PRA_LLM_KEY_<SLOT>
+    if not api_key and api_key_env:
+        api_key = _get_env(api_key_env).strip()
+    if not api_key:
+        api_key = _get_env(f"PRA_LLM_KEY_{slot.upper()}").strip()
+    if not api_key:
+        error("NO_API_KEY",
+              f"No API key provided. Use --api-key, --api-key-env, or set "
+              f"PRA_LLM_KEY_{slot.upper()} environment variable.")
+
+    emit("progress", task="search-references-llm", step="load_inputs", percent=20,
+         slot=slot, provider=provider, model=model)
+
+    prov = LLMProvider(
+        name=slot,
+        provider=provider,
+        base_url=base_url,
+        model=model,
+        api_key=api_key,
+    )
+
+    emit("progress", task="search-references-llm", step="calling_llm", percent=40,
+         slot=slot, model=model)
+
+    try:
+        def _progress_callback(percent, data):
+            emit("progress", task="search-references-llm",
+                 step="batch_complete", percent=percent,
+                 slot=slot, **data)
+        summary = search_references_llm(project_dir, prov,
+                                        progress_callback=_progress_callback)
+    except Exception as e:
+        error("SEARCH_REFERENCES_FAILED",
+              f"LLM reference search failed: {e}")
+
+    emit("progress", task="search-references-llm", step="saving", percent=90,
+         slot=slot)
+
+    # Log
+    log_path = os.path.join(project_dir, "logs", "citation_db.log")
+    now = datetime.now(JST).isoformat()
+    log_entry = (
+        f"[{now}] search-references-llm ({slot}): "
+        f"processed={summary['total_processed']}, "
+        f"identified={summary['identified']}, "
+        f"uncertain={summary['uncertain']}, "
+        f"batches={summary['batches']}\n"
+    )
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    with open(log_path, "a", encoding="utf-8") as lf:
+        lf.write(log_entry)
+
+    # Update project.json
+    with open(proj_path, "r", encoding="utf-8") as f:
+        proj = json.load(f)
+    proj["updated_at"] = datetime.now(JST).isoformat()
+    with open(proj_path, "w", encoding="utf-8") as f:
+        json.dump(proj, f, indent=2, ensure_ascii=False)
+
+    emit("done",
+         task="search-references-llm",
+         slot=slot,
+         **{k: v for k, v in summary.items() if k != "message"},
+         message=summary["message"])
+
+
+@main.command(name="search-single-reference-llm")
+@click.option("--project", "project_dir", required=True,
+              type=click.Path(file_okay=False, writable=True),
+              help="Path to the project working folder.")
+@click.option("--reference-id", required=True,
+              help="Reference ID (e.g., R032).")
+@click.option("--slot", required=True,
+              help="LLM slot name (summary, reviewer1, reviewer2, reviewer3).")
+@click.option("--provider", required=True,
+              help="Provider name (e.g., openai, anthropic, deepseek, openrouter).")
+@click.option("--base-url", required=True,
+              help="Base URL for the chat completions endpoint.")
+@click.option("--model", required=True,
+              help="Model name (e.g., gpt-4o, claude-opus-4-7).")
+@click.option("--api-key", default=None,
+              help="API key. Falls back to --api-key-env or PRA_LLM_KEY_<SLOT> env var.")
+@click.option("--api-key-env", default=None,
+              help="Environment variable name containing the API key.")
+def search_single_reference_llm_cmd(project_dir, reference_id, slot, provider,
+                                     base_url, model, api_key, api_key_env):
+    """Use LLM to identify a single unmatched reference.
+
+    Searches the LLM's training knowledge for a specific reference and
+    saves the result both to llm_search_single/ and (upserted into)
+    references_searched_llm.json so viewer data picks it up.
+    """
+    from peer_review_assistant.llm import LLMProvider
+    from peer_review_assistant.citations.search_references_llm import (
+        search_single_reference_llm,
+    )
+
+    emit("progress", task="search-single-reference-llm", step="validate",
+         percent=0, reference_id=reference_id, slot=slot)
+
+    # Validate project
+    proj_path = os.path.join(project_dir, "project.json")
+    if not os.path.isfile(proj_path):
+        error("NO_PROJECT", "project.json not found. Run init-project first.")
+
+    refs_path = os.path.join(project_dir, "citations", "references_split.json")
+    if not os.path.isfile(refs_path):
+        error("NO_REFERENCES_SPLIT",
+              "citations/references_split.json not found. "
+              "Run extract-citations first.")
+
+    # Resolve API key: 1. --api-key  2. --api-key-env  3. PRA_LLM_KEY_<SLOT>
+    if not api_key and api_key_env:
+        api_key = _get_env(api_key_env).strip()
+    if not api_key:
+        api_key = _get_env(f"PRA_LLM_KEY_{slot.upper()}").strip()
+    if not api_key:
+        error("NO_API_KEY",
+              f"No API key provided. Use --api-key, --api-key-env, or set "
+              f"PRA_LLM_KEY_{slot.upper()} environment variable.")
+
+    emit("progress", task="search-single-reference-llm", step="calling_llm",
+         percent=30, reference_id=reference_id, slot=slot, model=model)
+
+    prov = LLMProvider(
+        name=slot,
+        provider=provider,
+        base_url=base_url,
+        model=model,
+        api_key=api_key,
+    )
+
+    try:
+        item = search_single_reference_llm(project_dir, reference_id, prov)
+    except Exception as e:
+        error("SEARCH_SINGLE_FAILED",
+              f"Single-reference LLM search failed: {e}")
+
+    emit("progress", task="search-single-reference-llm", step="saving",
+         percent=80, reference_id=reference_id, slot=slot)
+
+    # Log
+    log_path = os.path.join(project_dir, "logs", "citation_db.log")
+    now = datetime.now(JST).isoformat()
+    log_entry = (
+        f"[{now}] search-single-reference-llm ({slot}): "
+        f"reference_id={reference_id}, "
+        f"identified={item.get('identified', False)}, "
+        f"confidence={item.get('confidence', 'none')}\n"
+    )
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    with open(log_path, "a", encoding="utf-8") as lf:
+        lf.write(log_entry)
+
+    emit("done",
+         task="search-single-reference-llm",
+         reference_id=reference_id,
+         slot=slot,
+         identified=item.get("identified", False),
+         confidence=item.get("confidence", "none"),
+         message=f"LLM search for {reference_id} complete "
+                 f"(identified={item.get('identified', False)}, "
+                 f"confidence={item.get('confidence', 'none')})")
 
 
 @main.command()
@@ -3239,6 +4145,89 @@ def translate_sections_ja(project_dir, slot, provider, base_url, model,
          sections_translated=len(translations),
          total=total,
          message=f"Translation complete: {len(translations)}/{total} sections translated.")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Section Translation Delete Commands
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@main.command(name="delete-section-translation-ja")
+@click.option("--project", "project_dir", required=True,
+              type=click.Path(file_okay=False, writable=True),
+              help="Path to the project working folder.")
+@click.option("--section-id", required=True,
+              help="Section ID whose translation to delete (e.g., 'introduction').")
+def delete_section_translation_ja(project_dir, section_id):
+    """Delete the Japanese translation for a specific section.
+
+    Removes the entry from translations/section_translations_ja.json.
+    If the section has no translation, emits a warning and exits cleanly.
+    """
+    translations_dir = os.path.join(project_dir, "translations")
+    translations_path = os.path.join(translations_dir, "section_translations_ja.json")
+
+    if not os.path.isfile(translations_path):
+        emit("done", task="delete-section-translation-ja",
+             section_id=section_id, deleted=False,
+             message=f"No translations file found. Nothing to delete.")
+        return
+
+    with open(translations_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    sections = data.get("sections", {})
+    if section_id not in sections:
+        emit("done", task="delete-section-translation-ja",
+             section_id=section_id, deleted=False,
+             message=f"Section '{section_id}' has no translation. Nothing to delete.")
+        return
+
+    del sections[section_id]
+    _save_translations(translations_dir, sections, project_dir)
+
+    emit("done", task="delete-section-translation-ja",
+         section_id=section_id, deleted=True,
+         message=f"Deleted translation for section '{section_id}'.")
+
+
+@main.command(name="delete-all-section-translations-ja")
+@click.option("--project", "project_dir", required=True,
+              type=click.Path(file_okay=False, writable=True),
+              help="Path to the project working folder.")
+def delete_all_section_translations_ja(project_dir):
+    """Delete ALL Japanese section translations.
+
+    Removes translations/section_translations_ja.json entirely.
+    If no translations file exists, exits cleanly.
+    """
+    translations_path = os.path.join(
+        project_dir, "translations", "section_translations_ja.json")
+
+    if not os.path.isfile(translations_path):
+        emit("done", task="delete-all-section-translations-ja",
+             deleted_count=0,
+             message="No translations file found. Nothing to delete.")
+        return
+
+    # Count before deleting
+    with open(translations_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    deleted_count = len(data.get("sections", {}))
+
+    os.remove(translations_path)
+
+    # Update project.json timestamp
+    proj_path = os.path.join(project_dir, "project.json")
+    if os.path.isfile(proj_path):
+        with open(proj_path, "r", encoding="utf-8") as f:
+            proj = json.load(f)
+        proj["updated_at"] = datetime.now(JST).isoformat()
+        with open(proj_path, "w", encoding="utf-8") as f:
+            json.dump(proj, f, indent=2, ensure_ascii=False)
+
+    emit("done", task="delete-all-section-translations-ja",
+         deleted_count=deleted_count,
+         message=f"Deleted all {deleted_count} section translations.")
 
 
 if __name__ == "__main__":

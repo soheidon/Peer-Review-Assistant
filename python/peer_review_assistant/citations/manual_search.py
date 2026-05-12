@@ -772,6 +772,174 @@ def _ss_paper_to_candidate(paper):
     }
 
 
+# ── CiNii Research search ────────────────────────────────────────────────
+
+CINII_OPENSEARCH_URL = "https://cir.nii.ac.jp/opensearch/v2/articles"
+
+
+def _search_cinii_candidates(ref, llm_item, field_keys, max_results, appid):
+    """Search CiNii Research for a single reference.
+
+    Uses the CiNii Research OpenSearch API.  The appid is mandatory.
+    """
+    if not appid or not appid.strip():
+        return []
+
+    # Build query: priority goes title + author + year → title only
+    title = (_get_field_value(ref, llm_item, "title") or
+             _get_field_value(ref, llm_item, "book_title"))
+    author = _get_field_value(ref, llm_item, "author")
+    year = _get_field_value(ref, llm_item, "year")
+
+    query_parts = []
+    if title:
+        query_parts.append(title)
+    if author:
+        query_parts.append(author)
+    if year:
+        query_parts.append(year)
+
+    query = " ".join(query_parts[:3])  # max 3 parts
+    if not query.strip():
+        return []
+
+    # Search CiNii Research
+    params = urllib.parse.urlencode({
+        "appid": appid,
+        "format": "json",
+        "q": query,
+        "count": max_results,
+    })
+    url = f"{CINII_OPENSEARCH_URL}?{params}"
+
+    candidates = []
+    try:
+        req = urllib.request.Request(url)
+        req.add_header("User-Agent",
+                       "PeerReviewAssistant/0.1 (mailto:dev@example.com)")
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            body = resp.read().decode("utf-8")
+        data = json.loads(body)
+    except Exception:
+        return []
+
+    # Parse @graph items
+    graph = data.get("@graph", [])
+    for item in graph:
+        if not isinstance(item, dict):
+            continue
+        item_type = item.get("@type", "")
+        if isinstance(item_type, list):
+            types = item_type
+        else:
+            types = [item_type]
+        is_resource = any(
+            "bibliographicResource" in t for t in types
+        )
+        if not is_resource:
+            continue
+
+        # Extract fields (same logic as db_cinii._extract_cinii_fields)
+        c_title = _pick_first(item.get("dc:title"))
+        c_authors_raw = item.get("dc:creator", [])
+        if isinstance(c_authors_raw, list):
+            c_authors = [a for a in c_authors_raw if isinstance(a, str) and a.strip()]
+        elif isinstance(c_authors_raw, str):
+            c_authors = [c_authors_raw.strip()] if c_authors_raw.strip() else []
+        else:
+            c_authors = []
+
+        date_str = (
+            _pick_first(item.get("prism:publicationDate"))
+            or _pick_first(item.get("dc:date"))
+            or ""
+        )
+        c_year = _parse_year(date_str)
+
+        c_journal = (
+            _pick_first(item.get("prism:publicationName"))
+            or _pick_first(item.get("dc:source"))
+        )
+        c_doi = _pick_first(item.get("dc:identifier"))
+        if c_doi and not c_doi.startswith("10."):
+            c_doi = None
+
+        crid = None
+        item_id = item.get("@id", "")
+        if "crid/" in item_id:
+            crid = item_id.rsplit("crid/", 1)[-1].rstrip(".json").strip("#")
+
+        candidate_id = f"cinii:{crid}" if crid else f"cinii:{c_title}"
+
+        # Build match reasons
+        match_reasons = []
+        if c_title and title:
+            # Simple title match check
+            t1 = (c_title or "").lower().strip()
+            t2 = (title or "").lower().strip()
+            if t1 == t2:
+                match_reasons.append("title_exact")
+            elif t1 in t2 or t2 in t1:
+                match_reasons.append("title_contains")
+            else:
+                # Jaccard check
+                w1 = set(t1.split())
+                w2 = set(t2.split())
+                if w1 and w2:
+                    jac = len(w1 & w2) / len(w1 | w2)
+                    if jac >= 0.7:
+                        match_reasons.append("title_fuzzy")
+        if author and c_authors:
+            au = author.lower()
+            for ca in c_authors:
+                if au in ca.lower() or ca.lower() in au:
+                    match_reasons.append("author_match")
+                    break
+        if year and c_year and str(year) == str(c_year):
+            match_reasons.append("year_match")
+
+        candidates.append({
+            "candidate_id": candidate_id,
+            "source": "cinii",
+            "title": c_title,
+            "authors": c_authors,
+            "year": c_year,
+            "journal": c_journal,
+            "publisher": None,
+            "volume": _pick_first(item.get("prism:volume")),
+            "issue": _pick_first(item.get("prism:number")),
+            "pages": _pick_first(item.get("prism:startingPage")),
+            "doi": c_doi,
+            "isbn": None,
+            "url": f"https://cir.nii.ac.jp/crid/{crid}" if crid else None,
+            "type": _pick_first(item.get("dc:type")) or "article",
+            "score": None,
+            "confidence": "high" if len(match_reasons) >= 2 else "medium" if match_reasons else "low",
+            "match_reasons": match_reasons,
+        })
+
+    return candidates[:max_results]
+
+
+def _pick_first(val):
+    """If val is a list, return first element; otherwise return val."""
+    if isinstance(val, list):
+        return val[0] if val else None
+    return val
+
+
+def _parse_year(date_str):
+    """Extract a 4-digit year from a date string."""
+    if not date_str:
+        return None
+    match = _re.search(r"(\d{4})", str(date_str))
+    if match:
+        year = int(match.group(1))
+        if 1800 <= year <= 2100:
+            return year
+    return None
+
+
 # ── Public entry point ───────────────────────────────────────────────────
 
 def search_manual(project_dir, reference_id, source, fields_str, max_results=5,
@@ -810,5 +978,8 @@ def search_manual(project_dir, reference_id, source, fields_str, max_results=5,
         return _search_semantic_scholar_candidates(
             ref, llm_item, field_keys, max_results, api_key
         )
+    elif source == "cinii":
+        return _search_cinii_candidates(ref, llm_item, field_keys, max_results,
+                                        api_key)
     else:
         raise ValueError(f"Unknown source: {source}")

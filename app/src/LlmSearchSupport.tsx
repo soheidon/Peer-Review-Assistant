@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { slotDisplayName } from "./slotLabels";
 
 /* ── types ─────────────────────────────────────────────────────────────── */
 
@@ -20,11 +21,23 @@ interface DeferredInfo {
   deferred_at: string | null;
 }
 
+interface LlmSearchResult {
+  identified: boolean | null;
+  confidence: string | null;
+  publication_type: string | null;
+  corrected: Record<string, unknown> | null;
+  missing_doi_confirmed: boolean;
+  notes: string | null;
+  source_urls: string[] | null;
+}
+
 interface Props {
   referenceId: string;
   suggestions: SearchSuggestions | null;
   deferredInfo: DeferredInfo | null;
   projectPath: string;
+  llmSlots: { name: string; provider: string; baseUrl?: string; model: string; apiKey: string; apiKeyMode?: string; apiKeyEnvName?: string; enabled?: boolean }[];
+  llmSearch?: LlmSearchResult | null;
   onDataChanged: () => void;
 }
 
@@ -54,6 +67,18 @@ const DEFERRED_REASON_LABELS: Record<string, string> = {
   citation_context_match: "本文引用との照合",
 };
 
+const TYPE_LABELS: Record<string, string> = {
+  journal_article: "雑誌論文",
+  book: "書籍",
+  edited_book: "編集書籍",
+  book_chapter: "書籍の章",
+  report: "報告書",
+  government_document: "政府文書",
+  web_document: "Web文書",
+  conference_paper: "会議録",
+  other: "その他",
+};
+
 /* ── helpers ──────────────────────────────────────────────────────────── */
 
 function buildWebSearchUrl(query: string): string {
@@ -75,6 +100,8 @@ export default function LlmSearchSupport({
   suggestions,
   deferredInfo,
   projectPath,
+  llmSlots,
+  llmSearch,
   onDataChanged,
 }: Props) {
   const [deferring, setDeferring] = useState(false);
@@ -83,6 +110,31 @@ export default function LlmSearchSupport({
   const [deferDone, setDeferDone] = useState(!!deferredInfo);
   const [deferError, setDeferError] = useState<string | null>(null);
   const [copiedQuery, setCopiedQuery] = useState<string | null>(null);
+
+  // Per-card LLM search state
+  const [selectedSlot, setSelectedSlot] = useState<string>("");
+  const [searching, setSearching] = useState(false);
+  const [searchResult, setSearchResult] = useState<LlmSearchResult | null>(llmSearch ?? null);
+  const [searchError, setSearchError] = useState<string | null>(null);
+
+  // Filter to enabled reviewer slots with provider set
+  const reviewerSlots = llmSlots.filter(
+    (s) => s.name.startsWith("reviewer") && s.enabled !== false && s.provider.trim()
+  );
+
+  // Auto-select first available reviewer slot
+  useEffect(() => {
+    if (!selectedSlot && reviewerSlots.length > 0) {
+      setSelectedSlot(reviewerSlots[0].name);
+    }
+  }, [reviewerSlots, selectedSlot]);
+
+  // Sync external llmSearch changes
+  useEffect(() => {
+    if (llmSearch) {
+      setSearchResult(llmSearch);
+    }
+  }, [llmSearch]);
 
   const handleDefer = async () => {
     setDeferring(true);
@@ -126,10 +178,196 @@ export default function LlmSearchSupport({
       setCopiedQuery(query);
       setTimeout(() => setCopiedQuery(null), 2000);
     }).catch(() => {
-      // Fallback: select text
       setCopiedQuery(null);
     });
   };
+
+  const handleLlmSearch = async () => {
+    const slot = reviewerSlots.find((s) => s.name === selectedSlot);
+    if (!slot) {
+      setSearchError("利用可能なLLMスロットがありません。SettingsでLLMを設定してください。");
+      return;
+    }
+    setSearching(true);
+    setSearchError(null);
+    setSearchResult(null);
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+
+      // Build args - resolve API key
+      const args = [
+        "search-single-reference-llm",
+        "--project", projectPath,
+        "--reference-id", referenceId,
+        "--slot", slot.name,
+        "--provider", slot.provider,
+        "--base-url", slot.baseUrl || "",
+        "--model", slot.model,
+      ];
+
+      // API key handling: direct key or env var name
+      if (slot.apiKey && slot.apiKeyMode !== "env") {
+        args.push("--api-key", slot.apiKey);
+      } else if (slot.apiKeyMode === "env" && slot.apiKeyEnvName) {
+        args.push("--api-key-env", slot.apiKeyEnvName);
+      }
+
+      const cmd = Command.create("pra-cli", args);
+      const output = await cmd.execute();
+
+      if (output.code !== 0) {
+        setSearchError(output.stderr || `LLM search failed with code ${output.code}`);
+        return;
+      }
+
+      // Parse the result from stdout JSON Lines
+      const lines = output.stdout.trim().split("\n");
+      let resultData: LlmSearchResult | null = null;
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const obj = JSON.parse(line);
+          if (obj.event === "done" && obj.task === "search-single-reference-llm") {
+            resultData = {
+              identified: obj.identified ?? false,
+              confidence: obj.confidence ?? "none",
+              publication_type: null,
+              corrected: null,
+              missing_doi_confirmed: false,
+              notes: obj.message ?? null,
+              source_urls: null,
+            };
+          }
+        } catch {
+          // skip unparseable lines
+        }
+      }
+
+      // Regenerate viewer data to pick up the result
+      const viewerCmd = Command.create("pra-cli", [
+        "citation-viewer-data",
+        "--project", projectPath,
+      ]);
+      await viewerCmd.execute();
+
+      // After regeneration, the parent will reload data and this
+      // component will re-render with the updated llmSearch prop.
+      // Set a basic result for immediate display.
+      if (resultData) {
+        setSearchResult(resultData);
+      } else {
+        setSearchResult({
+          identified: false,
+          confidence: "none",
+          publication_type: null,
+          corrected: null,
+          missing_doi_confirmed: false,
+          notes: null,
+          source_urls: null,
+        });
+      }
+      onDataChanged();
+    } catch (e: unknown) {
+      setSearchError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  // ── LLM Slot Selector (shared UI element) ──────────────────────────
+
+  const llmSlotSelector = reviewerSlots.length > 0 && (
+    <div className="llm-slot-selector">
+      <div className="llm-search-label">LLMで直接検索</div>
+      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+        <select
+          className="citation-ai-select"
+          value={selectedSlot}
+          onChange={(e) => setSelectedSlot(e.target.value)}
+          disabled={searching}
+        >
+          {reviewerSlots.map((s) => (
+            <option key={s.name} value={s.name}>
+              {slotDisplayName(s.name)} ({s.model})
+            </option>
+          ))}
+        </select>
+        <button
+          className="llm-search-run-btn"
+          disabled={!selectedSlot || searching}
+          onClick={handleLlmSearch}
+        >
+          {searching ? "検索中..." : "LLMで検索"}
+        </button>
+      </div>
+    </div>
+  );
+
+  // ── LLM Search Result ──────────────────────────────────────────────
+
+  const llmResultDisplay = searchResult && (
+    <div className={`llm-search-result ${searchResult.identified ? "identified" : "not-identified"}`}>
+      <div className="llm-search-result-header">
+        <span className={`llm-search-confidence llm-conf-${searchResult.confidence || "none"}`}>
+          信頼度: {
+            searchResult.confidence === "high" ? "高" :
+            searchResult.confidence === "medium" ? "中" :
+            searchResult.confidence === "low" ? "低" : "特定できず"
+          }
+        </span>
+        {searchResult.identified && (
+          <span className="llm-search-identified-badge">特定済み</span>
+        )}
+      </div>
+      {searchResult.corrected && (
+        <div className="llm-search-corrected">
+          {((searchResult.corrected as Record<string, unknown>).title) && (
+            <div className="llm-search-field">
+              <span className="llm-search-field-label">タイトル:</span>
+              <span>{(searchResult.corrected as Record<string, unknown>).title as string}</span>
+            </div>
+          )}
+          {((searchResult.corrected as Record<string, unknown>).journal) && (
+            <div className="llm-search-field">
+              <span className="llm-search-field-label">雑誌名:</span>
+              <span>{(searchResult.corrected as Record<string, unknown>).journal as string}</span>
+            </div>
+          )}
+          {((searchResult.corrected as Record<string, unknown>).publisher) && (
+            <div className="llm-search-field">
+              <span className="llm-search-field-label">出版社:</span>
+              <span>{(searchResult.corrected as Record<string, unknown>).publisher as string}</span>
+            </div>
+          )}
+          {((searchResult.corrected as Record<string, unknown>).doi) && (
+            <div className="llm-search-field">
+              <span className="llm-search-field-label">DOI:</span>
+              <span>{(searchResult.corrected as Record<string, unknown>).doi as string}</span>
+            </div>
+          )}
+          {((searchResult.corrected as Record<string, unknown>).isbn) && (
+            <div className="llm-search-field">
+              <span className="llm-search-field-label">ISBN:</span>
+              <span>{(searchResult.corrected as Record<string, unknown>).isbn as string}</span>
+            </div>
+          )}
+          {((searchResult.corrected as Record<string, unknown>).url) && (
+            <div className="llm-search-field">
+              <span className="llm-search-field-label">URL:</span>
+              <a href={(searchResult.corrected as Record<string, unknown>).url as string}
+                 target="_blank" rel="noopener noreferrer">
+                {(searchResult.corrected as Record<string, unknown>).url as string}
+              </a>
+            </div>
+          )}
+        </div>
+      )}
+      {searchResult.notes && (
+        <div className="llm-search-notes-text">{searchResult.notes}</div>
+      )}
+    </div>
+  );
 
   // ── Already deferred ──────────────────────────────────────────────
   if (deferDone && deferredInfo?.reason) {
@@ -145,6 +383,11 @@ export default function LlmSearchSupport({
         {deferredInfo.note && (
           <div className="deferred-note">{deferredInfo.note}</div>
         )}
+
+        {/* LLM direct search still available even when deferred */}
+        {llmSlotSelector}
+        {llmResultDisplay}
+        {searchError && <div className="manual-search-error">{searchError}</div>}
       </div>
     );
   }
@@ -157,6 +400,12 @@ export default function LlmSearchSupport({
         <div className="llm-search-empty">
           検索候補がまだ生成されていません。「LLM検索候補生成」を実行してください。
         </div>
+
+        {/* LLM direct search available even without suggestions */}
+        {llmSlotSelector}
+        {llmResultDisplay}
+        {searchError && <div className="manual-search-error">{searchError}</div>}
+
         {/* Defer section always available */}
         <DeferSection
           deferring={deferring}
@@ -247,6 +496,11 @@ export default function LlmSearchSupport({
           );
         })}
       </div>
+
+      {/* LLM direct search */}
+      {llmSlotSelector}
+      {llmResultDisplay}
+      {searchError && <div className="manual-search-error">{searchError}</div>}
 
       {/* Notes */}
       {notes?.length > 0 && (

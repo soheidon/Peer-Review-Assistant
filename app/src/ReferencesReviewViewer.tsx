@@ -64,6 +64,10 @@ interface ViewerCard {
   crossref_method: string | null;
   pubmed_status: string | null;
   pubmed_method: string | null;
+  cnii_status: string | null;
+  cnii_method: string | null;
+  s2_status: string | null;
+  s2_method: string | null;
   using_llm_parsed?: boolean;
   mismatch_details?: {
     title?: string;
@@ -111,6 +115,15 @@ interface ViewerCard {
     note: string | null;
     deferred_at: string | null;
   } | null;
+  llm_search?: {
+    identified: boolean | null;
+    confidence: string | null;
+    publication_type: string | null;
+    corrected: Record<string, unknown> | null;
+    missing_doi_confirmed: boolean;
+    notes: string | null;
+    source_urls: string[] | null;
+  } | null;
   llm_flags?: {
     possible_missing_doi?: boolean;
     likely_government_or_web_document?: boolean;
@@ -135,6 +148,7 @@ interface ViewerSummary {
   deferred: number;
   crossref_matched: number;
   pubmed_matched: number;
+  cnii_matched: number;
   google_books_candidate_count: number;
   unmatched_breakdown: Record<string, number>;
   generated_at: string;
@@ -148,6 +162,7 @@ interface ViewerData {
 
 interface Props {
   projectPath: string;
+  llmSlots: { name: string; provider: string; baseUrl?: string; model: string; apiKey: string; apiKeyMode?: string; apiKeyEnvName?: string; enabled?: boolean }[];
 }
 
 const TABS = [
@@ -159,6 +174,8 @@ const TABS = [
   { key: "googlebooks", label: "Google Books" },
   { key: "crossref", label: "Crossref" },
   { key: "pubmed", label: "PubMed" },
+  { key: "cnii", label: "CiNii" },
+  { key: "semanticscholar", label: "Semantic Scholar" },
   { key: "deferred", label: "後ほど検討" },
   { key: "later_llm", label: "後段LLM確認" },
 ];
@@ -253,7 +270,7 @@ const HV_SOURCE_LABELS: Record<string, string> = {
   manuscript_reference: "原稿記載をそのまま受け入れ",
 };
 
-export default function ReferencesReviewViewer({ projectPath }: Props) {
+export default function ReferencesReviewViewer({ projectPath, llmSlots }: Props) {
   const [viewerData, setViewerData] = useState<ViewerData | null>(null);
   const [activeTab, setActiveTab] = useState("summary");
   const [loading, setLoading] = useState(true);
@@ -329,18 +346,24 @@ export default function ReferencesReviewViewer({ projectPath }: Props) {
           activeTab === "suspicious" || activeTab === "repaired" ||
           activeTab === "crossref" || activeTab === "pubmed" ||
           activeTab === "googlebooks" || activeTab === "deferred" ||
-          activeTab === "later_llm") && (
+          activeTab === "later_llm" || activeTab === "cnii" ||
+          activeTab === "semanticscholar") && (
           <CardList
             cards={filteredCards}
             tabKey={activeTab}
             projectPath={projectPath}
+            llmSlots={llmSlots}
             onDataChanged={loadData}
             emptyMessage={
               activeTab === "repaired"
                 ? "補正候補はまだありません。DOI truncation 修正後に表示されます。"
                 : activeTab === "pubmed"
                   ? "PubMed DB照合結果がありません。citation-db-pubmed を先に実行してください。"
-                  : activeTab === "googlebooks"
+                  : activeTab === "cnii"
+                    ? "CiNii DB照合結果がありません。citation-db-cinii を先に実行してください。"
+                    : activeTab === "semanticscholar"
+                    ? "Semantic Scholar DB照合結果がありません。citation-db-semantic-scholar を先に実行してください。"
+                    : activeTab === "googlebooks"
                     ? "Google Books候補がありません。citation-db-google-books を先に実行してください。"
                     : activeTab === "deferred"
                       ? "後ほど検討の文献はまだありません。"
@@ -387,6 +410,14 @@ function SummaryTab({ summary }: { summary: ViewerSummary }) {
         <div className="viewer-stat-value">{summary.pubmed_matched}</div>
         <div className="viewer-stat-label">PubMed 照合</div>
       </div>
+      <div className="viewer-stat">
+        <div className="viewer-stat-value">{summary.cnii_matched ?? 0}</div>
+        <div className="viewer-stat-label">CiNii 照合</div>
+      </div>
+      <div className="viewer-stat">
+        <div className="viewer-stat-value">{summary.s2_matched ?? 0}</div>
+        <div className="viewer-stat-label">Semantic Scholar 照合</div>
+      </div>
 
       {/* Unmatched breakdown */}
       {Object.keys(summary.unmatched_breakdown).length > 0 && (
@@ -419,12 +450,14 @@ function CardList({
   tabKey,
   emptyMessage,
   projectPath,
+  llmSlots,
   onDataChanged,
 }: {
   cards: ViewerCard[];
   tabKey: string;
   emptyMessage: string;
   projectPath: string;
+  llmSlots: { name: string; provider: string; baseUrl?: string; model: string; apiKey: string; apiKeyMode?: string; apiKeyEnvName?: string; enabled?: boolean }[];
   onDataChanged: () => void;
 }) {
   if (cards.length === 0) {
@@ -439,6 +472,7 @@ function CardList({
           card={card}
           tabKey={tabKey}
           projectPath={projectPath}
+          llmSlots={llmSlots}
           onDataChanged={onDataChanged}
         />
       ))}
@@ -466,11 +500,13 @@ function ReferenceCard({
   card,
   tabKey,
   projectPath,
+  llmSlots,
   onDataChanged,
 }: {
   card: ViewerCard;
   tabKey: string;
   projectPath: string;
+  llmSlots: { name: string; provider: string; baseUrl?: string; model: string; apiKey: string; apiKeyMode?: string; apiKeyEnvName?: string; enabled?: boolean }[];
   onDataChanged: () => void;
 }) {
   const statusClass = card.status;
@@ -486,6 +522,48 @@ function ReferenceCard({
   const gbCandidates = card.google_books_candidates;
 
   const hasLlm = llm != null;
+
+  // State for accept search result button
+  const [acceptSearchDone, setAcceptSearchDone] = useState(false);
+  const [acceptSearchLoading, setAcceptSearchLoading] = useState(false);
+  const [acceptSearchError, setAcceptSearchError] = useState<string | null>(null);
+
+  const handleAcceptSearch = async () => {
+    setAcceptSearchLoading(true);
+    setAcceptSearchError(null);
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+
+      const acceptCmd = Command.create("pra-cli", [
+        "accept-llm-search-result",
+        "--project", projectPath,
+        "--reference-id", card.reference_id,
+      ]);
+      const acceptOutput = await acceptCmd.execute();
+      if (acceptOutput.code !== 0) {
+        setAcceptSearchError(acceptOutput.stderr || `Accept failed with code ${acceptOutput.code}`);
+        return;
+      }
+
+      // Regenerate viewer data
+      const viewerCmd = Command.create("pra-cli", [
+        "citation-viewer-data",
+        "--project", projectPath,
+      ]);
+      const viewerOutput = await viewerCmd.execute();
+      if (viewerOutput.code !== 0) {
+        setAcceptSearchError(viewerOutput.stderr || `Viewer data regeneration failed with code ${viewerOutput.code}`);
+        return;
+      }
+
+      setAcceptSearchDone(true);
+      onDataChanged();
+    } catch (e: unknown) {
+      setAcceptSearchError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAcceptSearchLoading(false);
+    }
+  };
 
   // Lookup mismatch classifications from card
   const md = card.mismatch_details;
@@ -682,6 +760,110 @@ function ReferenceCard({
         })}
       </div>
 
+      {/* Accept LLM candidate button — prominent placement right below comparison grid */}
+      {(tabKey === "unmatched" || tabKey === "repaired" || tabKey === "googlebooks" ||
+        tabKey === "suspicious") &&
+        llm && llm.confidence && (
+        <div className="ref-card-section" style={{ borderTop: "2px solid #0078d4", paddingTop: 8, marginTop: 4 }}>
+          <AcceptLlmCandidateButton
+            referenceId={card.reference_id}
+            confidence={llm.confidence}
+            projectPath={projectPath}
+            onAccepted={onDataChanged}
+          />
+        </div>
+      )}
+
+      {/* Journal identity match (LLM disambiguation result) */}
+      {card.journal_identity_match != null && card.journal_identity_match !== "mismatch" && (
+        <div className="ref-card-section">
+          <div className="ref-card-section-label">雑誌名判定 (LLM):</div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4, alignItems: "center" }}>
+            <span className={`ref-journal-id-badge ref-journal-id-${card.journal_identity_match}`}>
+              {card.journal_identity_match === "identity" ? "同一雑誌" : "略称違い"}
+            </span>
+            {card.journal_style_match && (
+              <span className="ref-journal-style-badge">
+                {card.journal_style_match === "nlm" ? "NLM略称" :
+                 card.journal_style_match === "iso" ? "ISO略称" :
+                 card.journal_style_match === "full" ? "正式名称" :
+                 card.journal_style_match === "vancouver" ? "Vancouver略称" :
+                 card.journal_style_match}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* LLM search results (for unmatched references) */}
+      {card.llm_search && card.llm_search.identified && (
+        <div className="ref-card-section">
+          <div className="ref-card-section-label">LLM文献検索結果:</div>
+          <div className="ref-llm-search-result">
+            <span className={`ref-llm-search-confidence ref-llm-search-${card.llm_search.confidence || "medium"}`}>
+              {card.llm_search.confidence === "high" ? "高確度" :
+               card.llm_search.confidence === "medium" ? "中確度" :
+               card.llm_search.confidence === "low" ? "低確度" : "?"}
+            </span>
+            {card.llm_search.publication_type && (
+              <span className="ref-llm-search-type">
+                {card.llm_search.publication_type === "journal_article" ? "雑誌論文" :
+                 card.llm_search.publication_type === "book" ? "書籍" :
+                 card.llm_search.publication_type === "report" ? "報告書" :
+                 card.llm_search.publication_type === "government_document" ? "政府文書" :
+                 card.llm_search.publication_type === "web_document" ? "Web文書" :
+                 card.llm_search.publication_type === "conference_paper" ? "会議録" :
+                 card.llm_search.publication_type}
+              </span>
+            )}
+            {card.llm_search.missing_doi_confirmed && (
+              <span className="ref-llm-search-no-doi">DOIなし</span>
+            )}
+          </div>
+          {card.llm_search.corrected && (
+            <div className="ref-llm-search-corrected">
+              {Object.entries(card.llm_search.corrected as Record<string, unknown>).map(([key, value]) => {
+                if (!value) return null;
+                const label: Record<string, string> = {
+                  authors: "著者", year: "年", title: "タイトル", journal: "雑誌名",
+                  book_title: "書名", publisher: "出版社", volume: "巻", issue: "号",
+                  pages: "ページ", doi: "DOI", isbn: "ISBN", url: "URL",
+                };
+                return (
+                  <div key={key} className="ref-llm-search-field">
+                    <span className="ref-llm-search-key">{label[key] || key}:</span>
+                    <span className="ref-llm-search-value">
+                      {Array.isArray(value) ? value.join("; ") : String(value)}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {card.llm_search.notes && (
+            <div className="ref-llm-search-notes">{card.llm_search.notes}</div>
+          )}
+          {/* Accept button for LLM search result (unmatched + suspicious tabs) */}
+          {(tabKey === "unmatched" || tabKey === "suspicious") && !card.human_verification_status && !acceptSearchDone && (
+            <div className="ref-llm-search-accept">
+              <button
+                className="ref-accept-btn ref-accept-search-btn"
+                disabled={acceptSearchLoading}
+                onClick={handleAcceptSearch}
+              >
+                {acceptSearchLoading ? "処理中..." : "この検索結果を受け入れる"}
+              </button>
+              {acceptSearchError && (
+                <div className="manual-search-error">{acceptSearchError}</div>
+              )}
+            </div>
+          )}
+          {acceptSearchDone && (
+            <div className="accept-llm-done" style={{ marginTop: 6 }}>LLM検索結果を受け入れ済み</div>
+          )}
+        </div>
+      )}
+
       {/* LLM flags */}
       {card.llm_flags && Object.keys(card.llm_flags).length > 0 && (
         <div className="ref-card-section">
@@ -734,8 +916,8 @@ function ReferenceCard({
         </div>
       )}
 
-      {/* Suspected reason (for unmatched tab) */}
-      {tabKey === "unmatched" && card.suspected_reason && (
+      {/* Suspected reason (for unmatched + suspicious tabs) */}
+      {(tabKey === "unmatched" || tabKey === "suspicious") && card.suspected_reason && (
         <div className="ref-card-section">
           <span className="ref-card-reason">
             推定理由: {REASON_LABELS[card.suspected_reason] || card.suspected_reason}
@@ -743,8 +925,9 @@ function ReferenceCard({
         </div>
       )}
 
-      {/* DB-specific badges for Crossref/PubMed tabs */}
-      {(tabKey === "crossref" || tabKey === "pubmed") && (
+      {/* DB-specific badges for Crossref/PubMed/CiNii tabs */}
+      {(tabKey === "crossref" || tabKey === "pubmed" || tabKey === "cnii" ||
+        tabKey === "semanticscholar") && (
         <div className="ref-card-section">
           {tabKey === "crossref" && card.crossref_status && (
             <span className="ref-db-badge">
@@ -758,11 +941,23 @@ function ReferenceCard({
               {card.pubmed_method ? ` (${card.pubmed_method})` : ""}
             </span>
           )}
+          {tabKey === "cnii" && card.cnii_status && (
+            <span className="ref-db-badge">
+              CiNii: {card.cnii_status}
+              {card.cnii_method ? ` (${card.cnii_method})` : ""}
+            </span>
+          )}
+          {tabKey === "semanticscholar" && card.s2_status && (
+            <span className="ref-db-badge">
+              Semantic Scholar: {card.s2_status}
+              {card.s2_method ? ` (${card.s2_method})` : ""}
+            </span>
+          )}
         </div>
       )}
 
       {/* Accept-as-is button for gov/web/report types (always show, even without URL) */}
-      {(tabKey === "unmatched" || tabKey === "repaired") &&
+      {(tabKey === "unmatched" || tabKey === "repaired" || tabKey === "suspicious") &&
         llm?.type &&
         ["government_document", "web_document", "report"].includes(llm.type) && (
         <div className="ref-card-section">
@@ -782,8 +977,8 @@ function ReferenceCard({
         </div>
       )}
 
-      {/* Generic accept-as-is button (always available for unmatched/repaired references) */}
-      {(tabKey === "unmatched" || tabKey === "repaired") &&
+      {/* Generic accept-as-is button (always available for unmatched/repaired/suspicious references) */}
+      {(tabKey === "unmatched" || tabKey === "repaired" || tabKey === "suspicious") &&
         (!llm?.type || !["government_document", "web_document", "report"].includes(llm.type)) && (
         <div className="ref-card-section">
           <AcceptAsIsButton
@@ -795,9 +990,10 @@ function ReferenceCard({
         </div>
       )}
 
-      {/* Accept LLM-repaired candidate button */}
-      {(tabKey === "unmatched" || tabKey === "repaired" || tabKey === "googlebooks") &&
-        llm && llm.confidence && llm.confidence !== "low" && (
+      {/* Accept LLM-repaired candidate button — always available when LLM candidate exists */}
+      {(tabKey === "unmatched" || tabKey === "repaired" || tabKey === "googlebooks" ||
+        tabKey === "suspicious") &&
+        llm && llm.confidence && (
         <div className="ref-card-section">
           <AcceptLlmCandidateButton
             referenceId={card.reference_id}
@@ -809,7 +1005,8 @@ function ReferenceCard({
       )}
 
       {/* Manual search section (replaces old external search links) */}
-      {(tabKey === "unmatched" || tabKey === "repaired" || tabKey === "googlebooks") && (
+      {(tabKey === "unmatched" || tabKey === "repaired" || tabKey === "googlebooks" ||
+        tabKey === "suspicious") && (
         <ManualSearchSection
           referenceId={card.reference_id}
           card={card}
@@ -818,14 +1015,16 @@ function ReferenceCard({
         />
       )}
 
-      {/* LLM Search Support — show for unmatched/repaired/deferred */}
+      {/* LLM Search Support — show for unmatched/repaired/deferred/suspicious */}
       {(tabKey === "unmatched" || tabKey === "repaired" ||
-        tabKey === "deferred") && (
+        tabKey === "deferred" || tabKey === "suspicious") && (
         <LlmSearchSupport
           referenceId={card.reference_id}
           suggestions={card.search_suggestions ?? null}
           deferredInfo={card.deferred_info ?? null}
           projectPath={projectPath}
+          llmSlots={llmSlots}
+          llmSearch={card.llm_search ?? null}
           onDataChanged={onDataChanged}
         />
       )}

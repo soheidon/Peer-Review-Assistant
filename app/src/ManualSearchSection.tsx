@@ -4,7 +4,7 @@ import { useState } from "react";
 
 interface ManualSearchCandidate {
   candidate_id: string;
-  source: "crossref" | "pubmed" | "google_books" | "semantic_scholar";
+  source: "crossref" | "pubmed" | "google_books" | "semantic_scholar" | "cinii";
   title: string | null;
   authors: string[];
   year: number | null;
@@ -68,6 +68,7 @@ const SOURCES = [
   { key: "crossref", label: "Crossref" },
   { key: "pubmed", label: "PubMed" },
   { key: "google_books", label: "Google Books" },
+  { key: "cinii", label: "CiNii" },
   { key: "semantic_scholar", label: "Semantic Scholar" },
 ] as const;
 
@@ -75,6 +76,7 @@ const SOURCE_LABELS: Record<string, string> = {
   crossref: "Crossref",
   pubmed: "PubMed",
   google_books: "Google Books",
+  cinii: "CiNii",
   semantic_scholar: "Semantic Scholar",
 };
 

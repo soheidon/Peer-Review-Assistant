@@ -13,6 +13,13 @@ _VOL_ISSUE_PAGES_RE = re.compile(
     r"(\d+)\s*\((\d+)\)\s*,?\s*(\d+[–\-]\d+|\d+)"
 )
 
+# Fallback for journal references that use "volume, pages" format
+# WITHOUT an issue number in parentheses (e.g. "Ann Zool Fenn 38, 287-296").
+# Anchored at end-of-string to avoid false positives with years or other numbers.
+_VOL_PAGES_NO_ISSUE_RE = re.compile(
+    r"(\d+)\s*[,，]\s*(\d+[–\-–]\d+|\d+)\.?\s*$"
+)
+
 _DOI_CLEAN_RE = re.compile(r"[.,;)\]\)\'\"»]+$")
 
 _DOI_RE = re.compile(r"\b(10\.\d{4,}/[^\s]+)")
@@ -89,13 +96,24 @@ def _parse_reference_line(line):
     if pmid_m:
         result["pmid"] = pmid_m.group(1)
 
-    vip_m = _VOL_ISSUE_PAGES_RE.search(rest)
+    # Strip DOI/PMID from rest so volume/pages regexes can match correctly.
+    # The _VOL_PAGES_NO_ISSUE_RE pattern is anchored at end-of-string ($),
+    # so a trailing DOI (e.g. "159, 1133-1145. 10.1176/...") would prevent
+    # the match.  We slice the string at the DOI/PMID position before
+    # attempting volume/page extraction.
+    rest_stripped = rest
+    if doi_m:
+        rest_stripped = rest[:doi_m.start()].rstrip("., ")
+    elif pmid_m:
+        rest_stripped = rest[:pmid_m.start()].rstrip("., ")
+
+    vip_m = _VOL_ISSUE_PAGES_RE.search(rest_stripped)
     if vip_m:
         result["volume"] = vip_m.group(1)
         result["issue"] = vip_m.group(2)
         result["pages"] = vip_m.group(3)
         journal_end = vip_m.start()
-        journal_part = rest[:journal_end].rstrip("., ")
+        journal_part = rest_stripped[:journal_end].rstrip("., ")
         result["journal"] = _extract_journal_name(journal_part)
         title_part = journal_part
         if result["journal"] and result["journal"] in title_part:
@@ -103,7 +121,21 @@ def _parse_reference_line(line):
         if title_part:
             result["title"] = title_part
     else:
-        result["title"] = rest.rstrip(".")
+        # Fallback: "volume, pages" format without issue in parentheses
+        vp_m = _VOL_PAGES_NO_ISSUE_RE.search(rest_stripped)
+        if vp_m:
+            result["volume"] = vp_m.group(1)
+            result["pages"] = vp_m.group(2)
+            journal_end = vp_m.start()
+            journal_part = rest_stripped[:journal_end].rstrip("., ")
+            result["journal"] = _extract_journal_name(journal_part)
+            title_part = journal_part
+            if result["journal"] and result["journal"] in title_part:
+                title_part = title_part[:title_part.rindex(result["journal"])].rstrip("., ")
+            if title_part:
+                result["title"] = title_part
+        else:
+            result["title"] = rest_stripped.rstrip(".")
 
     return result
 

@@ -17,7 +17,16 @@
         }
       ]
     },
-    "shell:allow-spawn",
+    {
+      "identifier": "shell:allow-spawn",
+      "allow": [
+        {
+          "name": "pra-cli",
+          "cmd": "pra-cli",
+          "args": true
+        }
+      ]
+    },
     "shell:allow-open"
   ]
 }

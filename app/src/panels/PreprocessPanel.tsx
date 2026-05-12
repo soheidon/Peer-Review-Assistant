@@ -13,6 +13,15 @@ interface PreprocessPanelProps {
   citationExtractionRunning: boolean;
   crossrefDone: boolean;
   crossrefRunning: boolean;
+  pubmedDone: boolean;
+  pubmedRunning: boolean;
+  googleBooksDone: boolean;
+  googleBooksGenerating: boolean;
+  cniiDone: boolean;
+  cniiRunning: boolean;
+  semanticScholarDone: boolean;
+  semanticScholarRunning: boolean;
+  dbCascadeRunning: boolean;
   viewerDataGenerating: boolean;
   viewerDataReady: boolean;
   preprocessResults: Record<string, string>;
@@ -25,6 +34,11 @@ interface PreprocessPanelProps {
   onSections: () => void;
   onExtractCitations: () => void;
   onCrossrefDb: () => void;
+  onPubmedDb: () => void;
+  onGoogleBooksDb: () => void;
+  onSemanticScholarDb: () => void;
+  onCiniiDb: () => void;
+  onDbCascade: () => void;
   onViewerData: () => void;
   statusMessage: {text: string; type: "ok" | "error" | "info"} | null;
 }
@@ -48,6 +62,15 @@ export default function PreprocessPanel({
   citationExtractionRunning,
   crossrefDone,
   crossrefRunning,
+  pubmedDone,
+  pubmedRunning,
+  googleBooksDone,
+  googleBooksGenerating,
+  cniiDone,
+  cniiRunning,
+  semanticScholarDone,
+  semanticScholarRunning,
+  dbCascadeRunning,
   viewerDataGenerating,
   viewerDataReady,
   preprocessResults,
@@ -60,10 +83,16 @@ export default function PreprocessPanel({
   onSections,
   onExtractCitations,
   onCrossrefDb,
+  onPubmedDb,
+  onGoogleBooksDb,
+  onSemanticScholarDb,
+  onCiniiDb,
+  onDbCascade,
   onViewerData,
   statusMessage,
 }: PreprocessPanelProps) {
   const [showDetail, setShowDetail] = useState(false);
+  const [showIndividualDb, setShowIndividualDb] = useState(false);
 
   const allDone = preprocessDone && numberingDone && sectionsDone && citationExtractionDone;
 
@@ -197,27 +226,123 @@ export default function PreprocessPanel({
       <section className="panel" style={{ marginTop: 12 }}>
         <h2>文献データベース照合</h2>
 
-        {/* Step 5: Crossref照合 */}
+        {/* Step 5: 文献DB一括照合 (Crossref → PubMed → Google Books → Semantic Scholar → CiNii → 文献確認データ) */}
         <div className="row">
           <button
-            onClick={onCrossrefDb}
-            disabled={!citationExtractionDone || crossrefRunning}
+            onClick={onDbCascade}
+            disabled={!citationExtractionDone || dbCascadeRunning}
           >
-            {crossrefRunning ? "照合中..." : "Crossref照合"}
+            {dbCascadeRunning ? "照合中..." : "文献DB一括照合"}
           </button>
-          {statusChip(crossrefRunning, crossrefDone)}
-          {(preprocessResults.crossref || crossrefSummary) && (
-            <span className="preprocess-info">
-              {preprocessResults.crossref || crossrefSummary}
-            </span>
-          )}
+          {dbCascadeRunning
+            ? <span className="status-chip running">実行中...</span>
+            : (crossrefDone && viewerDataReady
+              ? <span className="status-chip ok">完了</span>
+              : <span className="status-chip unrun">未実行</span>)
+          }
         </div>
-        {!citationExtractionDone && !crossrefRunning && (
+        {!citationExtractionDone && !dbCascadeRunning && (
           <div className="disabled-reason">先に引用文献抽出を実行してください</div>
         )}
 
-        {/* Step 6: 文献確認データ作成 */}
-        <div className="row">
+        {/* Individual DB statuses */}
+        <div style={{ margin: "6px 0 0 4px", fontSize: 11, color: "#888", display: "flex", gap: 16, flexWrap: "wrap" }}>
+          <span>Crossref: {statusChip(crossrefRunning, crossrefDone)}</span>
+          <span>PubMed: {statusChip(pubmedRunning, pubmedDone)}</span>
+          <span>Google Books: {statusChip(googleBooksGenerating, googleBooksDone)}</span>
+          <span>Semantic Scholar: {statusChip(semanticScholarRunning, semanticScholarDone)}</span>
+          <span>CiNii: {statusChip(cniiRunning, cniiDone)}</span>
+        </div>
+
+        {(preprocessResults.crossref || crossrefSummary) && (
+          <div style={{ marginTop: 4, fontSize: 11, color: "#666" }}>
+            {preprocessResults.crossref || crossrefSummary}
+          </div>
+        )}
+
+        {/* Collapsible individual DB execution buttons */}
+        <div style={{ marginTop: 10, borderTop: "1px solid #eee", paddingTop: 8 }}>
+          <button
+            onClick={() => setShowIndividualDb((v) => !v)}
+            className="clear-btn"
+            style={{ fontSize: "11px" }}
+          >
+            個別DB実行 {showIndividualDb ? "▲" : "▼"}
+          </button>
+        </div>
+
+        {showIndividualDb && (
+          <div style={{
+            marginTop: 8,
+            padding: "10px 12px",
+            background: "#f8f8f8",
+            border: "1px solid #e0e0e0",
+            borderRadius: 4,
+          }}>
+            {/* Crossref */}
+            <div className="row">
+              <button
+                onClick={onCrossrefDb}
+                disabled={!citationExtractionDone || crossrefRunning || dbCascadeRunning}
+                style={{ fontSize: 11, padding: "2px 8px" }}
+              >
+                {crossrefRunning ? "照合中..." : "Crossref"}
+              </button>
+              {statusChip(crossrefRunning, crossrefDone)}
+            </div>
+
+            {/* PubMed */}
+            <div className="row">
+              <button
+                onClick={onPubmedDb}
+                disabled={!citationExtractionDone || pubmedRunning || dbCascadeRunning}
+                style={{ fontSize: 11, padding: "2px 8px" }}
+              >
+                {pubmedRunning ? "照合中..." : "PubMed"}
+              </button>
+              {statusChip(pubmedRunning, pubmedDone)}
+            </div>
+
+            {/* Google Books */}
+            <div className="row">
+              <button
+                onClick={onGoogleBooksDb}
+                disabled={!citationExtractionDone || googleBooksGenerating || dbCascadeRunning}
+                style={{ fontSize: 11, padding: "2px 8px" }}
+              >
+                {googleBooksGenerating ? "照合中..." : "Google Books"}
+              </button>
+              {statusChip(googleBooksGenerating, googleBooksDone)}
+            </div>
+
+            {/* Semantic Scholar */}
+            <div className="row">
+              <button
+                onClick={onSemanticScholarDb}
+                disabled={!citationExtractionDone || semanticScholarRunning || dbCascadeRunning}
+                style={{ fontSize: 11, padding: "2px 8px" }}
+              >
+                {semanticScholarRunning ? "照合中..." : "Semantic Scholar"}
+              </button>
+              {statusChip(semanticScholarRunning, semanticScholarDone)}
+            </div>
+
+            {/* CiNii */}
+            <div className="row">
+              <button
+                onClick={onCiniiDb}
+                disabled={!citationExtractionDone || cniiRunning || dbCascadeRunning}
+                style={{ fontSize: 11, padding: "2px 8px" }}
+              >
+                {cniiRunning ? "照合中..." : "CiNii"}
+              </button>
+              {statusChip(cniiRunning, cniiDone)}
+            </div>
+          </div>
+        )}
+
+        {/* Step 6: 文献確認データ作成 (manual override) */}
+        <div className="row" style={{ marginTop: 8 }}>
           <button
             onClick={onViewerData}
             disabled={!crossrefDone || viewerDataGenerating}
@@ -233,8 +358,8 @@ export default function PreprocessPanel({
             <span className="preprocess-info">{preprocessResults.viewerData}</span>
           )}
         </div>
-        {!crossrefDone && !viewerDataGenerating && (
-          <div className="disabled-reason">先にCrossref照合を実行してください</div>
+        {!crossrefDone && !viewerDataGenerating && !dbCascadeRunning && (
+          <div className="disabled-reason">先に文献DB一括照合 または Crossrefのみ を実行してください</div>
         )}
       </section>
 
@@ -243,7 +368,7 @@ export default function PreprocessPanel({
         {!sourceAttached && "次: 「プロジェクト」メニューから原稿を取り込んでください"}
         {sourceAttached && !allDone && !preprocessAllRunning && "次: 「本文・引用文献を前処理」をクリックしてください（4ステップを順に実行）"}
         {preprocessAllRunning && `前処理実行中: ${preprocessAllStep}`}
-        {allDone && !crossrefDone && "次: Crossref照合を実行してください"}
+        {allDone && !crossrefDone && "次: 文献DB一括照合を実行してください"}
         {crossrefDone && !viewerDataReady && "次: 文献確認データ作成を実行してください"}
         {viewerDataReady && "前処理完了。「文献確認」メニューに進んでください"}
       </div>

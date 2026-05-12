@@ -62,8 +62,15 @@ function App() {
   const [gbEnvCheckResult, setGbEnvCheckResult] = useState("");
   const [gbConnectionTestResult, setGbConnectionTestResult] = useState("");
   const [googleBooksCandidateCount, setGoogleBooksCandidateCount] = useState<number | undefined>(undefined);
+  // DB cascade state
+  const [pubmedDone, setPubmedDone] = useState(false);
+  const [pubmedRunning, setPubmedRunning] = useState(false);
+  const [dbCascadeRunning, setDbCascadeRunning] = useState(false);
   const [llmFlagsDone, setLlmFlagsDone] = useState(false);
   const [llmFlagsGenerating, setLlmFlagsGenerating] = useState(false);
+  const [unmatchedExportGenerating, setUnmatchedExportGenerating] = useState(false);
+  const [searchReferencesDone, setSearchReferencesDone] = useState(false);
+  const [searchReferencesGenerating, setSearchReferencesGenerating] = useState(false);
 
   // Semantic Scholar API state
   const [semanticScholarApiKey, setSemanticScholarApiKey] = useState("");
@@ -106,6 +113,8 @@ function App() {
   const [selectedSection, setSelectedSection] = useState<string | null>(null);
   // Trigger SectionViewerPanel to reload translations from disk
   const [translationReloadKey, setTranslationReloadKey] = useState(0);
+  // Font size for section viewer text panes (saved to app_settings.json)
+  const [sectionViewerFontSize, setSectionViewerFontSize] = useState<"small" | "normal" | "large" | "xlarge">("normal");
   const [selectedResultFile, setSelectedResultFile] = useState("final_review.md");
   const [resultFileContent, setResultFileContent] = useState("");
   const [resultFileLoading, setResultFileLoading] = useState(false);
@@ -118,6 +127,11 @@ function App() {
   const [sectionsRunning, setSectionsRunning] = useState(false);
   const [citationExtractionRunning, setCitationExtractionRunning] = useState(false);
   const [crossrefRunning, setCrossrefRunning] = useState(false);
+  const [cniiDone, setCniiDone] = useState(false);
+  const [cniiRunning, setCniiRunning] = useState(false);
+  const [ciniiAppid, setCiniiAppid] = useState("");
+  const [semanticScholarDone, setSemanticScholarDone] = useState(false);
+  const [semanticScholarRunning, setSemanticScholarRunning] = useState(false);
 
   // Status feedback
   const [statusMessage, setStatusMessage] = useState<{text: string; type: "ok"|"error"|"info"}|null>(null);
@@ -870,6 +884,316 @@ function App() {
     }
   };
 
+  const runPubmedDb = async () => {
+    setPubmedDone(false);
+    setPubmedRunning(true);
+    addLog({ event: "info", message: "Checking PubMed database..." });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const cmd = Command.create("pra-cli", [
+        "citation-db-pubmed",
+        "--project", projectPath,
+      ]);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+      if (output.code === 0) {
+        setPubmedDone(true);
+        return true;
+      }
+      return false;
+    } catch (e: unknown) {
+      addLog({ event: "error", message: e instanceof Error ? e.message : String(e) });
+      return false;
+    } finally {
+      setPubmedRunning(false);
+    }
+  };
+
+  const runDbCascade = async () => {
+    if (!projectPath.trim()) {
+      addLog({ event: "error", message: "Please create a project first." });
+      return;
+    }
+    setDbCascadeRunning(true);
+    setStatusMessage({text: "文献DB一括照合: Crossref...", type: "info"});
+    addLog({ event: "info", message: "Starting DB cascade: Crossref → PubMed → Google Books → Semantic Scholar → CiNii" });
+
+    let crossrefOk = false;
+    let pubmedOk = false;
+    let gbooksOk = false;
+    let semanticScholarOk = false;
+    let ciniiOk = false;
+
+    try {
+      // ── Step 1: Crossref (always) ──────────────────────────────────
+      setCrossrefDone(false);
+      setCrossrefRunning(true);
+      try {
+        const { Command } = await import("@tauri-apps/plugin-shell");
+        const crCmd = Command.create("pra-cli", [
+          "citation-db-crossref", "--project", projectPath,
+        ]);
+        const crOut = await crCmd.execute();
+        parseOutput(crOut.stdout);
+        if (crOut.stderr) addLog({ event: "stderr", message: crOut.stderr });
+        if (crOut.code === 0) { setCrossrefDone(true); crossrefOk = true; }
+      } catch (e: unknown) {
+        addLog({ event: "error", message: `Crossref: ${e instanceof Error ? e.message : String(e)}` });
+      } finally {
+        setCrossrefRunning(false);
+      }
+
+      // ── Step 2: PubMed (if NCBI key available) ─────────────────────
+      setStatusMessage({text: "文献DB一括照合: PubMed...", type: "info"});
+      setPubmedDone(false);
+      setPubmedRunning(true);
+      try {
+        const { Command } = await import("@tauri-apps/plugin-shell");
+        const pmCmd = Command.create("pra-cli", [
+          "citation-db-pubmed", "--project", projectPath,
+        ]);
+        const pmOut = await pmCmd.execute();
+        parseOutput(pmOut.stdout);
+        if (pmOut.stderr) addLog({ event: "stderr", message: pmOut.stderr });
+        if (pmOut.code === 0) { setPubmedDone(true); pubmedOk = true; }
+      } catch (e: unknown) {
+        addLog({ event: "error", message: `PubMed: ${e instanceof Error ? e.message : String(e)}` });
+      } finally {
+        setPubmedRunning(false);
+      }
+
+      // ── Step 3: Google Books (if key configured) ───────────────────
+      const gbKeyOk = googleBooksApiKey.trim() || (
+        googleBooksApiKeyMode === "env_var" && googleBooksApiKeyEnvName.trim()
+      );
+      if (gbKeyOk) {
+        setStatusMessage({text: "文献DB一括照合: Google Books...", type: "info"});
+        setGoogleBooksDone(false);
+        setGoogleBooksGenerating(true);
+        try {
+          const { Command } = await import("@tauri-apps/plugin-shell");
+          const gbArgs: string[] = [
+            "citation-db-google-books", "--project", projectPath,
+          ];
+          if (googleBooksApiKeyMode === "direct" && googleBooksApiKey.trim()) {
+            gbArgs.push("--api-key", googleBooksApiKey.trim());
+          } else if (googleBooksApiKeyMode === "env_var" && googleBooksApiKeyEnvName.trim()) {
+            gbArgs.push("--api-key-env", googleBooksApiKeyEnvName.trim());
+          }
+          const gbCmd = Command.create("pra-cli", gbArgs);
+          const gbOut = await gbCmd.execute();
+          parseOutput(gbOut.stdout);
+          if (gbOut.stderr) addLog({ event: "stderr", message: gbOut.stderr });
+          if (gbOut.code === 0) {
+            setGoogleBooksDone(true); gbooksOk = true;
+            const lines = gbOut.stdout.trim().split("\n");
+            for (const line of lines) {
+              try {
+                const parsed = JSON.parse(line);
+                if (parsed.event === "done" && parsed.candidates_found != null) {
+                  setGoogleBooksCandidateCount(parsed.candidates_found as number);
+                }
+              } catch { /* not JSON */ }
+            }
+          }
+        } catch (e: unknown) {
+          addLog({ event: "error", message: `Google Books: ${e instanceof Error ? e.message : String(e)}` });
+        } finally {
+          setGoogleBooksGenerating(false);
+        }
+      } else {
+        addLog({ event: "info", message: "Google Books: API key not configured, skipping." });
+      }
+
+      // ── Step 4: Semantic Scholar (if key configured) ──────────────────
+      const ssKeyOk = semanticScholarApiKey.trim() || (
+        semanticScholarApiKeyMode === "env_var" && semanticScholarApiKeyEnvName.trim()
+      );
+      if (ssKeyOk) {
+        setStatusMessage({text: "文献DB一括照合: Semantic Scholar...", type: "info"});
+        setSemanticScholarDone(false);
+        setSemanticScholarRunning(true);
+        try {
+          const { Command } = await import("@tauri-apps/plugin-shell");
+          const ssArgs: string[] = [
+            "citation-db-semantic-scholar", "--project", projectPath,
+          ];
+          if (semanticScholarApiKeyMode === "direct" && semanticScholarApiKey.trim()) {
+            ssArgs.push("--api-key", semanticScholarApiKey.trim());
+          } else if (semanticScholarApiKeyMode === "env_var" && semanticScholarApiKeyEnvName.trim()) {
+            ssArgs.push("--api-key-env", semanticScholarApiKeyEnvName.trim());
+          }
+          const ssCmd = Command.create("pra-cli", ssArgs);
+          const ssOut = await ssCmd.execute();
+          parseOutput(ssOut.stdout);
+          if (ssOut.stderr) addLog({ event: "stderr", message: ssOut.stderr });
+          if (ssOut.code === 0) { setSemanticScholarDone(true); semanticScholarOk = true; }
+        } catch (e: unknown) {
+          addLog({ event: "error", message: `Semantic Scholar: ${e instanceof Error ? e.message : String(e)}` });
+        } finally {
+          setSemanticScholarRunning(false);
+        }
+      } else {
+        addLog({ event: "info", message: "Semantic Scholar: API key not configured, skipping." });
+      }
+
+      // ── Step 5: CiNii (if appid configured) ────────────────────────
+      const cniiAppid = ciniiAppid.trim();
+      if (cniiAppid) {
+        setStatusMessage({text: "文献DB一括照合: CiNii...", type: "info"});
+        setCniiDone(false);
+        setCniiRunning(true);
+        try {
+          const { Command } = await import("@tauri-apps/plugin-shell");
+          const cnCmd = Command.create("pra-cli", [
+            "citation-db-cinii", "--project", projectPath, "--appid", cniiAppid,
+          ]);
+          const cnOut = await cnCmd.execute();
+          parseOutput(cnOut.stdout);
+          if (cnOut.stderr) addLog({ event: "stderr", message: cnOut.stderr });
+          if (cnOut.code === 0) { setCniiDone(true); ciniiOk = true; }
+        } catch (e: unknown) {
+          addLog({ event: "error", message: `CiNii: ${e instanceof Error ? e.message : String(e)}` });
+        } finally {
+          setCniiRunning(false);
+        }
+      } else {
+        addLog({ event: "info", message: "CiNii: appid not configured, skipping." });
+      }
+
+      // ── Step 6: Auto-generate viewer data ──────────────────────────
+      setStatusMessage({text: "文献確認データを作成中...", type: "info"});
+      setViewerDataGenerating(true);
+      let viewerOk = false;
+      try {
+        const { Command } = await import("@tauri-apps/plugin-shell");
+        const vCmd = Command.create("pra-cli", [
+          "citation-viewer-data", "--project", projectPath,
+        ]);
+        const vOut = await vCmd.execute();
+        parseOutput(vOut.stdout);
+        if (vOut.stderr) addLog({ event: "stderr", message: vOut.stderr });
+        if (vOut.code === 0) {
+          setViewerDataReady(true);
+          setViewerDataVersion(v => v + 1);
+          viewerOk = true;
+        }
+      } catch (e: unknown) {
+        addLog({ event: "error", message: `Viewer data: ${e instanceof Error ? e.message : String(e)}` });
+      } finally {
+        setViewerDataGenerating(false);
+      }
+
+      const matchedDbs: string[] = [];
+      if (crossrefOk) matchedDbs.push("Crossref");
+      if (pubmedOk) matchedDbs.push("PubMed");
+      if (gbooksOk) matchedDbs.push("Google Books");
+      if (semanticScholarOk) matchedDbs.push("Semantic Scholar");
+      if (ciniiOk) matchedDbs.push("CiNii");
+
+      setStatusMessage({
+        text: `文献DB一括照合が完了しました (${matchedDbs.join(" → ")}${viewerOk ? " → 文献確認データ作成済" : ""})`,
+        type: "ok",
+      });
+    } catch (e: unknown) {
+      addLog({ event: "error", message: `DB cascade error: ${e instanceof Error ? e.message : String(e)}` });
+      setStatusMessage({text: "文献DB一括照合でエラーが発生しました。", type: "error"});
+    } finally {
+      setDbCascadeRunning(false);
+    }
+  };
+
+  const runCiniiDb = async () => {
+    const appid = ciniiAppid.trim();
+    if (!appid) {
+      setStatusMessage({text: "CiNii API appidが設定されていません。Settingsで設定してください。", type: "error"});
+      return;
+    }
+    if (!projectPath.trim()) {
+      addLog({ event: "error", message: "Please create a project first." });
+      return;
+    }
+
+    setCniiDone(false);
+    setCniiRunning(true);
+    setStatusMessage(null);
+    addLog({ event: "info", message: "Searching CiNii Research for Japanese papers..." });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const cmd = Command.create("pra-cli", [
+        "citation-db-cinii",
+        "--project",
+        projectPath,
+        "--appid",
+        appid,
+      ]);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+      if (output.code === 0) {
+        setCniiDone(true);
+        setStatusMessage({text: "CiNii照合が完了しました。文献確認データを再作成してください。", type: "ok"});
+      } else {
+        setStatusMessage({text: "CiNii照合に失敗しました。", type: "error"});
+      }
+    } catch (e: unknown) {
+      addLog({ event: "error", message: e instanceof Error ? e.message : String(e) });
+      setStatusMessage({text: "CiNii照合でエラーが発生しました。", type: "error"});
+    } finally {
+      setCniiRunning(false);
+    }
+  };
+
+  const runSemanticScholarDb = async () => {
+    const ssKeyOk = semanticScholarApiKey.trim() || (
+      semanticScholarApiKeyMode === "env_var" && semanticScholarApiKeyEnvName.trim()
+    );
+    if (!ssKeyOk) {
+      setStatusMessage({text: "Semantic Scholar APIキーが設定されていません。Settingsで設定してください。", type: "error"});
+      return;
+    }
+    if (!projectPath.trim()) {
+      addLog({ event: "error", message: "Please create a project first." });
+      return;
+    }
+
+    setSemanticScholarDone(false);
+    setSemanticScholarRunning(true);
+    setStatusMessage(null);
+    addLog({ event: "info", message: "Searching Semantic Scholar..." });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const ssArgs: string[] = [
+        "citation-db-semantic-scholar",
+        "--project", projectPath,
+      ];
+      if (semanticScholarApiKeyMode === "direct" && semanticScholarApiKey.trim()) {
+        ssArgs.push("--api-key", semanticScholarApiKey.trim());
+      } else if (semanticScholarApiKeyMode === "env_var" && semanticScholarApiKeyEnvName.trim()) {
+        ssArgs.push("--api-key-env", semanticScholarApiKeyEnvName.trim());
+      }
+      const cmd = Command.create("pra-cli", ssArgs);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+      if (output.code === 0) {
+        setSemanticScholarDone(true);
+        setStatusMessage({text: "Semantic Scholar照合が完了しました。文献確認データを再作成してください。", type: "ok"});
+      } else {
+        setStatusMessage({text: "Semantic Scholar照合に失敗しました。", type: "error"});
+      }
+    } catch (e: unknown) {
+      addLog({ event: "error", message: e instanceof Error ? e.message : String(e) });
+      setStatusMessage({text: "Semantic Scholar照合でエラーが発生しました。", type: "error"});
+    } finally {
+      setSemanticScholarRunning(false);
+    }
+  };
+
   const runViewerData = async () => {
     if (!projectPath.trim()) {
       addLog({ event: "error", message: "Please create a project first." });
@@ -999,6 +1323,110 @@ function App() {
     }
   };
 
+  const runUnmatchedExport = async () => {
+    if (!projectPath.trim()) {
+      addLog({ event: "error", message: "Please create a project first." });
+      return;
+    }
+
+    setUnmatchedExportGenerating(true);
+    setStatusMessage(null);
+    addLog({ event: "info", message: "未照合文献をCSV出力中..." });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const cmd = Command.create("pra-cli", [
+        "citation-db-unmatched-export",
+        "--project", projectPath,
+        "--format", "csv",
+      ]);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+      if (output.code === 0) {
+        // Extract output path from done event
+        let outPath = "";
+        const lines = output.stdout.trim().split("\n");
+        for (const line of lines) {
+          if (line.trim()) {
+            try {
+              const parsed = JSON.parse(line);
+              if (parsed.event === "done" && parsed.output) {
+                outPath = parsed.output as string;
+              }
+            } catch { /* not JSON */ }
+          }
+        }
+        setStatusMessage({text: outPath ? `未照合文献を出力しました: ${outPath}` : "未照合文献をCSV出力しました。", type: "ok"});
+      } else {
+        setStatusMessage({text: "未照合文献のCSV出力に失敗しました。", type: "error"});
+      }
+    } catch (e: unknown) {
+      addLog({ event: "error", message: e instanceof Error ? e.message : String(e) });
+      setStatusMessage({text: "未照合文献のCSV出力でエラーが発生しました。", type: "error"});
+    } finally {
+      setUnmatchedExportGenerating(false);
+    }
+  };
+
+  const runSearchReferences = async (slotName: string) => {
+    if (!projectPath.trim()) {
+      addLog({ event: "error", message: "Please create a project first." });
+      return;
+    }
+
+    const slot = llmSlots.find((s) => s.name === slotName);
+    if (!slot || !slot.provider.trim() || !slot.baseUrl.trim() || !slot.proModel.trim()) {
+      addLog({ event: "error", message: `LLM slot ${slotName} is not configured (pro model required).` });
+      return;
+    }
+
+    setSearchReferencesGenerating(true);
+    setStatusMessage(null);
+    addLog({ event: "info", message: `Running LLM reference search on ${slotDisplayName(slotName)}...` });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const args = buildLlmArgs(slot, [
+        "search-references-llm",
+        "--project", projectPath,
+        "--slot", slotName,
+      ], slot.proModel, "pro");
+      const cmd = Command.create("pra-cli", args);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+      if (output.code === 0) {
+        setSearchReferencesDone(true);
+        setStatusMessage({text: `LLM文献検索が完了しました (${slotDisplayName(slotName)})。文献確認データを再作成してください。`, type: "ok"});
+      } else {
+        setStatusMessage({text: "LLM文献検索に失敗しました。", type: "error"});
+      }
+    } catch (e: unknown) {
+      addLog({ event: "error", message: e instanceof Error ? e.message : String(e) });
+      setStatusMessage({text: "LLM文献検索でエラーが発生しました。", type: "error"});
+    } finally {
+      setSearchReferencesGenerating(false);
+    }
+  };
+
+  const openSearchLog = async () => {
+    if (!projectPath.trim()) return;
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const cmd = Command.create("pra-cli", [
+        "citation-open-log",
+        "--project", projectPath,
+        "--log-name", "llm_search",
+      ]);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+    } catch (e: unknown) {
+      addLog({ event: "error", message: `ログファイルを開けませんでした: ${e instanceof Error ? e.message : String(e)}` });
+    }
+  };
+
   const runLlmFlags = async (slotName: string) => {
     if (!projectPath.trim()) {
       addLog({ event: "error", message: "Please create a project first." });
@@ -1006,8 +1434,8 @@ function App() {
     }
 
     const slot = llmSlots.find((s) => s.name === slotName);
-    if (!slot || !slot.provider.trim() || !slot.baseUrl.trim() || !slot.model.trim()) {
-      addLog({ event: "error", message: `LLM slot ${slotName} is not configured.` });
+    if (!slot || !slot.provider.trim() || !slot.baseUrl.trim() || !slot.proModel.trim()) {
+      addLog({ event: "error", message: `LLM slot ${slotName} is not configured (pro model required).` });
       return;
     }
 
@@ -1061,6 +1489,7 @@ function App() {
     // work with whatever data is available from previous steps).
     await runLlmRepair(slotName);
     await runLlmFlags(slotName);
+    await runSearchReferences(slotName);
     await runViewerData();
 
     setLlmReferenceProcessRunning(false);
@@ -1147,8 +1576,8 @@ function App() {
     }
 
     const slot = llmSlots.find((s) => s.name === slotName);
-    if (!slot || !slot.provider.trim() || !slot.baseUrl.trim() || !slot.model.trim()) {
-      addLog({ event: "error", message: `LLM slot ${slotName} is not configured.` });
+    if (!slot || !slot.provider.trim() || !slot.baseUrl.trim() || !slot.proModel.trim()) {
+      addLog({ event: "error", message: `LLM slot ${slotName} is not configured (pro model required).` });
       return;
     }
 
@@ -1228,6 +1657,7 @@ function App() {
       const { invoke } = await import("@tauri-apps/api/core");
       const settingsPath = `${projectPath.replace(/\\/g, "/")}/app_settings.json`;
       const payload = {
+        section_viewer_font_size: sectionViewerFontSize,
         llm_slots: Object.fromEntries(
           llmSlots.map((s) => [s.name, {
             enabled: s.enabled,
@@ -1256,6 +1686,9 @@ function App() {
             enabled: semanticScholarEnabled,
             api_key_mode: semanticScholarApiKeyMode,
             api_key_env_name: semanticScholarApiKeyEnvName,
+          },
+          cinii: {
+            appid: ciniiAppid,
           },
         },
       };
@@ -1307,6 +1740,14 @@ function App() {
         loaded_slots: data.llm_slots ? Object.keys(data.llm_slots) : [],
       });
 
+      // Restore font size preference
+      if (data.section_viewer_font_size === "small" ||
+          data.section_viewer_font_size === "normal" ||
+          data.section_viewer_font_size === "large" ||
+          data.section_viewer_font_size === "xlarge") {
+        setSectionViewerFontSize(data.section_viewer_font_size);
+      }
+
       // Restore LLM slots (merge onto defaults to keep all fields)
       if (data.llm_slots && typeof data.llm_slots === "object") {
         setLlmSlots((prev) =>
@@ -1345,6 +1786,11 @@ function App() {
         restoreDb(dbs.pubmed, setPubmedEnabled, setPubmedApiKeyMode, setPubmedApiKeyEnvName);
         restoreDb(dbs.google_books, setGoogleBooksEnabled, setGoogleBooksApiKeyMode, setGoogleBooksApiKeyEnvName);
         restoreDb(dbs.semantic_scholar, setSemanticScholarEnabled, setSemanticScholarApiKeyMode, setSemanticScholarApiKeyEnvName);
+        // Restore CiNii appid (simple string)
+        if (dbs.cinii && typeof dbs.cinii === "object") {
+          const c = dbs.cinii as Record<string, unknown>;
+          if (typeof c.appid === "string") setCiniiAppid(c.appid);
+        }
       }
 
       // Check for Windows Hello-protected secrets
@@ -1934,7 +2380,7 @@ function App() {
       return;
     }
     const hasKey = slot.apiKeyMode === "direct" ? !!slot.apiKey.trim() : !!slot.apiKeyEnvName.trim();
-    if (!slot.provider.trim() || !slot.baseUrl.trim() || !slot.model.trim() || !hasKey) {
+    if (!slot.provider.trim() || !slot.baseUrl.trim() || !slot.proModel.trim() || !hasKey) {
       addLog({ event: "error", message: `${slotDisplayName(slotName)}: API設定が不完全です。「設定」画面を確認してください。` });
       return;
     }
@@ -1980,7 +2426,7 @@ function App() {
       return;
     }
     const hasKey = slot.apiKeyMode === "direct" ? !!slot.apiKey.trim() : !!slot.apiKeyEnvName.trim();
-    if (!slot.provider.trim() || !slot.baseUrl.trim() || !slot.model.trim() || !hasKey) {
+    if (!slot.provider.trim() || !slot.baseUrl.trim() || !slot.flashModel.trim() || !hasKey) {
       addLog({ event: "error", message: `${slotDisplayName(slotName)}: API設定が不完全です。「設定」画面を確認してください。` });
       return;
     }
@@ -2026,7 +2472,7 @@ function App() {
       return;
     }
     const hasKey = slot.apiKeyMode === "direct" ? !!slot.apiKey.trim() : !!slot.apiKeyEnvName.trim();
-    if (!slot.provider.trim() || !slot.baseUrl.trim() || !slot.model.trim() || !hasKey) {
+    if (!slot.provider.trim() || !slot.baseUrl.trim() || !slot.proModel.trim() || !hasKey) {
       addLog({ event: "error", message: `${slotDisplayName(slotName)}: API設定が不完全です。「設定」画面を確認してください。` });
       return;
     }
@@ -2302,7 +2748,15 @@ function App() {
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      if (!msg.includes("abort") && !msg.includes("cancel")) {
+      if (msg.includes("abort") || msg.includes("cancel")) {
+        // kill() called by user — already handled above
+      } else if (msg.includes("shell scope") || msg.includes("not allowed")) {
+        addLog({ event: "error", message: `Shell scope error: ${msg}` });
+        setStatusMessage({
+          text: "翻訳コマンドを実行できません。pra-cli がTauriの実行許可に含まれていない可能性があります。",
+          type: "error",
+        });
+      } else {
         addLog({ event: "error", message: msg });
         setStatusMessage({ text: "日本語訳の作成でエラーが発生しました。", type: "error" });
       }
@@ -2342,6 +2796,71 @@ function App() {
         // ignore kill errors
       }
       translateJaChildRef.current = null;
+    }
+  };
+
+  /** Delete translation for a specific section via CLI. */
+  const deleteSectionTranslation = async (sectionName: string) => {
+    if (!projectPath.trim()) return;
+    addLog({ event: "info", message: `セクション「${sectionName}」の翻訳を削除中...` });
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const args = [
+        "delete-section-translation-ja",
+        "--project", projectPath,
+        "--section-id", sectionName,
+      ];
+      const cmd = Command.create("pra-cli", args);
+      const output = await cmd.execute();
+      if (output.code === 0) {
+        setTranslationReloadKey((k) => k + 1);
+        setStatusMessage({ text: `セクション「${sectionName}」の翻訳を削除しました。`, type: "ok" });
+      } else {
+        setStatusMessage({ text: "翻訳の削除に失敗しました。", type: "error" });
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog({ event: "error", message: msg });
+      if (msg.includes("shell scope") || msg.includes("not allowed")) {
+        setStatusMessage({
+          text: "削除コマンドを実行できません。pra-cli がTauriの実行許可に含まれていない可能性があります。",
+          type: "error",
+        });
+      } else {
+        setStatusMessage({ text: "翻訳の削除でエラーが発生しました。", type: "error" });
+      }
+    }
+  };
+
+  /** Delete ALL section translations via CLI. */
+  const deleteAllSectionTranslations = async () => {
+    if (!projectPath.trim()) return;
+    addLog({ event: "info", message: "全セクションの翻訳を削除中..." });
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const args = [
+        "delete-all-section-translations-ja",
+        "--project", projectPath,
+      ];
+      const cmd = Command.create("pra-cli", args);
+      const output = await cmd.execute();
+      if (output.code === 0) {
+        setTranslationReloadKey((k) => k + 1);
+        setStatusMessage({ text: "全セクションの翻訳を削除しました。", type: "ok" });
+      } else {
+        setStatusMessage({ text: "翻訳の削除に失敗しました。", type: "error" });
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog({ event: "error", message: msg });
+      if (msg.includes("shell scope") || msg.includes("not allowed")) {
+        setStatusMessage({
+          text: "削除コマンドを実行できません。pra-cli がTauriの実行許可に含まれていない可能性があります。",
+          type: "error",
+        });
+      } else {
+        setStatusMessage({ text: "翻訳の削除でエラーが発生しました。", type: "error" });
+      }
     }
   };
 
@@ -2501,6 +3020,15 @@ function App() {
               citationExtractionRunning={citationExtractionRunning}
               crossrefDone={crossrefDone}
               crossrefRunning={crossrefRunning}
+              pubmedDone={pubmedDone}
+              pubmedRunning={pubmedRunning}
+              googleBooksDone={googleBooksDone}
+              googleBooksGenerating={googleBooksGenerating}
+              cniiDone={cniiDone}
+              cniiRunning={cniiRunning}
+              semanticScholarDone={semanticScholarDone}
+              semanticScholarRunning={semanticScholarRunning}
+              dbCascadeRunning={dbCascadeRunning}
               viewerDataGenerating={viewerDataGenerating}
               viewerDataReady={viewerDataReady}
               preprocessResults={preprocessResults}
@@ -2513,6 +3041,11 @@ function App() {
               onSections={runSections}
               onExtractCitations={runExtractCitations}
               onCrossrefDb={runCrossrefDb}
+              onPubmedDb={runPubmedDb}
+              onGoogleBooksDb={runGoogleBooksDb}
+              onSemanticScholarDb={runSemanticScholarDb}
+              onCiniiDb={runCiniiDb}
+              onDbCascade={runDbCascade}
               onViewerData={runViewerData}
               statusMessage={statusMessage}
             />
@@ -2540,6 +3073,10 @@ function App() {
                 onCancelTranslate={cancelTranslateJa}
                 onReloadTranslations={() => setTranslationReloadKey((k) => k + 1)}
                 translationReloadKey={translationReloadKey}
+                sectionViewerFontSize={sectionViewerFontSize}
+                onFontSizeChange={setSectionViewerFontSize}
+                onDeleteTranslation={deleteSectionTranslation}
+                onDeleteAllTranslations={deleteAllSectionTranslations}
               />
             );
           })()}
@@ -2566,6 +3103,20 @@ function App() {
               onGenerateLlmFlags={runLlmFlags}
               llmReferenceProcessRunning={llmReferenceProcessRunning}
               onLlmReferenceProcess={runLlmReferenceProcess}
+              onUnmatchedExport={runUnmatchedExport}
+              unmatchedExportGenerating={unmatchedExportGenerating}
+              searchReferencesDone={searchReferencesDone}
+              searchReferencesGenerating={searchReferencesGenerating}
+              onSearchReferences={runSearchReferences}
+              onOpenSearchLog={openSearchLog}
+              cniiDone={cniiDone}
+              cniiRunning={cniiRunning}
+              cniiEnabled={!!ciniiAppid.trim()}
+              onCiniiDb={runCiniiDb}
+              semanticScholarDone={semanticScholarDone}
+              semanticScholarRunning={semanticScholarRunning}
+              semanticScholarEnabled={semanticScholarEnabled}
+              onSemanticScholarDb={runSemanticScholarDb}
               statusMessage={statusMessage}
             />
           )}
@@ -2665,6 +3216,8 @@ function App() {
               onTestPubmedConnection={testPubmedConnection}
               pubmedEnabled={pubmedEnabled}
               onPubmedEnabledChange={setPubmedEnabled}
+              ciniiAppid={ciniiAppid}
+              onCiniiAppidChange={setCiniiAppid}
               onSaveAppSettings={saveAppSettings}
             />
           )}

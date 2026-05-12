@@ -149,6 +149,14 @@ def generate_viewer_data(project_dir):
     pubmed_results = _load_json_opt(pubmed_path)
     verified_results = _load_json_opt(verified_path)
 
+    # Load CiNii results if available
+    cinii_path = os.path.join(citations_dir, "db_cinii_results.json")
+    cinii_results = _load_json_opt(cinii_path)
+
+    # Load Semantic Scholar results if available
+    s2_path = os.path.join(citations_dir, "db_semantic_scholar_results.json")
+    s2_results = _load_json_opt(s2_path)
+
     # Load LLM repair data if available
     llm_repair_path = os.path.join(citations_dir, "references_repaired_llm.json")
     llm_repair_data = _load_json_opt(llm_repair_path)
@@ -233,9 +241,37 @@ def generate_viewer_data(project_dir):
             if rid:
                 llm_flags_map[rid] = it
 
+    # Load journal disambiguation results if available
+    jr_path = os.path.join(citations_dir, "journal_resolve_llm.json")
+    jr_data = _load_json_opt(jr_path)
+    jr_map = {}
+    if isinstance(jr_data, dict):
+        for it in _as_list(jr_data.get("references")):
+            if not isinstance(it, dict):
+                _emit_warning("viewer-data", "journal_resolve_llm.json",
+                              "", "Skipping non-dict item in references list.")
+                continue
+            rid = it.get("reference_id")
+            if rid:
+                jr_map[rid] = it
+
+    # Load LLM reference search results if available
+    sr_path = os.path.join(citations_dir, "references_searched_llm.json")
+    sr_data = _load_json_opt(sr_path)
+    sr_map = {}
+    if isinstance(sr_data, dict):
+        for it in _as_list(sr_data.get("items")):
+            if not isinstance(it, dict):
+                continue
+            rid = it.get("reference_id")
+            if rid:
+                sr_map[rid] = it
+
     # Build lookup maps
     cr_map = _build_map(crossref_results)
     pm_map = _build_map(pubmed_results)
+    cn_map = _build_map(cinii_results)
+    s2_map = _build_map(s2_results)
 
     # Reuse classification and suspicious detection from unmatched_report
     from peer_review_assistant.citations.unmatched_report import (
@@ -266,24 +302,33 @@ def generate_viewer_data(project_dir):
     tab_repaired = []
     tab_crossref = []
     tab_pubmed = []
+    tab_cinii = []
+    tab_s2 = []
     tab_googlebooks = []
     tab_deferred = []
     tab_later_llm = []
 
     cr_matched_count = 0
     pm_matched_count = 0
+    cn_matched_count = 0
+    s2_matched_count = 0
 
     for ref in refs["items"]:
         rid = ref["reference_id"]
         cr_item = cr_map.get(rid)
         pm_item = pm_map.get(rid)
+        cn_item = cn_map.get(rid)
+        s2_item = s2_map.get(rid) if s2_map else None
 
         gb_item = gb_map.get(rid) if gb_map else None
         ss_item = ss_map.get(rid) if ss_map else None
         card = _build_card(ref, cr_item, pm_item, suspicious_ids,
                            verified_ids, llm_map, gb_item, hv_map,
                            ss_item=ss_item, deferred_entry=deferred_map.get(rid),
-                           llm_flags_entry=llm_flags_map.get(rid))
+                           llm_flags_entry=llm_flags_map.get(rid),
+                           jr_entry=jr_map.get(rid),
+                           sr_entry=sr_map.get(rid),
+                           cn_item=cn_item, s2_item=s2_item)
 
         # Crossref matched count
         if cr_item and cr_item.get("status") == "matched":
@@ -293,6 +338,14 @@ def generate_viewer_data(project_dir):
         if pm_item and pm_item.get("status") == "matched":
             pm_matched_count += 1
             tab_pubmed.append(rid)
+        # CiNii matched count
+        if cn_item and cn_item.get("status") == "matched":
+            cn_matched_count += 1
+            tab_cinii.append(rid)
+        # Semantic Scholar matched count
+        if s2_item and s2_item.get("status") == "matched":
+            s2_matched_count += 1
+            tab_s2.append(rid)
 
         cards[rid] = card
 
@@ -305,10 +358,10 @@ def generate_viewer_data(project_dir):
             tab_repaired.append(rid)
         if card.get("google_books_candidates"):
             tab_googlebooks.append(rid)
-        if rid in suspicious_ids:
-            tab_suspicious.append(rid)
-        elif card["status"] == "verified":
+        if card["status"] == "verified":
             tab_verified.append(rid)
+        elif rid in suspicious_ids:
+            tab_suspicious.append(rid)
         elif rid not in deferred_map:
             tab_unmatched.append(rid)
 
@@ -328,6 +381,8 @@ def generate_viewer_data(project_dir):
         "deferred": len(tab_deferred),
         "crossref_matched": cr_matched_count,
         "pubmed_matched": pm_matched_count,
+        "cnii_matched": cn_matched_count,
+        "s2_matched": s2_matched_count,
         "google_books_candidate_count": len(tab_googlebooks),
         "unmatched_breakdown": unmatched_breakdown,
         "generated_at": datetime.now(JST).isoformat(),
@@ -343,6 +398,8 @@ def generate_viewer_data(project_dir):
             "later_llm": tab_later_llm,
             "crossref": tab_crossref,
             "pubmed": tab_pubmed,
+            "cnii": tab_cinii,
+            "semanticscholar": tab_s2,
             "googlebooks": tab_googlebooks,
             "deferred": tab_deferred,
         },
@@ -354,7 +411,8 @@ def generate_viewer_data(project_dir):
 
 def _build_card(ref, cr_item, pm_item, suspicious_ids, verified_ids, llm_map,
                 gb_item=None, hv_map=None, ss_item=None, deferred_entry=None,
-                llm_flags_entry=None):
+                llm_flags_entry=None, jr_entry=None, sr_entry=None,
+                cn_item=None, s2_item=None):
     """Build a single ViewerCard dict for a reference."""
     rid = ref["reference_id"]
     llm_item = llm_map.get(rid) if llm_map else None
@@ -374,13 +432,21 @@ def _build_card(ref, cr_item, pm_item, suspicious_ids, verified_ids, llm_map,
         # "human_selected", "llm_reparsed_reference", "manuscript_reference"
         human_verification_source = hv_source
 
+    # LLM search result (for status upgrade)
+    sr_entry_safe = _as_dict(sr_entry)
+    sr_identified = sr_entry_safe.get("identified") if sr_entry_safe else False
+    sr_confidence = sr_entry_safe.get("confidence") if sr_entry_safe else "none"
+
     # Determine status
-    if rid in suspicious_ids:
-        status = "suspicious"
-    elif human_verification_status:
-        # Human-verified or accepted-as-is → confirmed
+    if human_verification_status:
+        # Human-verified or accepted-as-is → confirmed (overrides suspicious flag)
         status = "verified"
+    elif rid in suspicious_ids:
+        status = "suspicious"
     elif rid in verified_ids:
+        status = "verified"
+    elif sr_identified and sr_confidence == "high":
+        # LLM search identified this reference with high confidence
         status = "verified"
     else:
         # Check if there's an error
@@ -388,21 +454,27 @@ def _build_card(ref, cr_item, pm_item, suspicious_ids, verified_ids, llm_map,
             status = "error"
         elif pm_item and pm_item.get("status") == "error":
             status = "error"
+        elif cn_item and cn_item.get("status") == "error":
+            status = "error"
+        elif s2_item and s2_item.get("status") == "error":
+            status = "error"
         elif (cr_item and cr_item.get("status") == "matched") or \
-             (pm_item and pm_item.get("status") == "matched"):
+             (pm_item and pm_item.get("status") == "matched") or \
+             (cn_item and cn_item.get("status") == "matched") or \
+             (s2_item and s2_item.get("status") == "matched"):
             # Matched by a DB and not suspicious → verified
             status = "verified"
         else:
             status = "unmatched"
 
     # Best source DB
-    best_source_db = _best_source(cr_item, pm_item)
+    best_source_db = _best_source(cr_item, pm_item, cn_item, s2_item)
 
     # Confidence
-    confidence = _compute_confidence(cr_item, pm_item, status)
+    confidence = _compute_confidence(cr_item, pm_item, status, cn_item, s2_item)
 
     # Method
-    method = _best_method(cr_item, pm_item)
+    method = _best_method(cr_item, pm_item, cn_item, s2_item)
 
     # Original parsed fields (normalize HTML entities/tags)
     authors = [_normalize_html(a) for a in (parsed.get("authors") or [])]
@@ -475,8 +547,8 @@ def _build_card(ref, cr_item, pm_item, suspicious_ids, verified_ids, llm_map,
     hv_entry_safe2 = _as_dict(hv_entry)
     if hv_entry_safe2.get("status") == "human_verified":
         hv_source_type = hv_entry_safe2.get("source", "")
-        if hv_source_type == "llm_reparsed_reference":
-            # LLM-repaired reference accepted directly
+        if hv_source_type in ("llm_reparsed_reference", "llm_search_result"):
+            # LLM-repaired or LLM search result accepted directly
             accepted = _as_dict(hv_entry_safe2.get("accepted_reference"))
         else:
             # DB candidate accepted (human_selected)
@@ -496,9 +568,27 @@ def _build_card(ref, cr_item, pm_item, suspicious_ids, verified_ids, llm_map,
                 "source_db": hv_source_type,
             }
         else:
-            correct_candidate = _build_correct_candidate(cr_item, pm_item)
+            correct_candidate = _build_correct_candidate(cr_item, pm_item, cn_item, s2_item)
     else:
-        correct_candidate = _build_correct_candidate(cr_item, pm_item)
+        correct_candidate = _build_correct_candidate(cr_item, pm_item, cn_item, s2_item)
+
+    # Override with LLM search result if DB has no candidate but search identified it
+    if not correct_candidate and sr_identified and sr_confidence in ("high", "medium"):
+        sr_corrected = sr_entry_safe.get("corrected") or {}
+        if sr_corrected:
+            correct_candidate = {
+                "title": sr_corrected.get("title"),
+                "authors": sr_corrected.get("authors", []),
+                "year": sr_corrected.get("year"),
+                "journal": sr_corrected.get("journal"),
+                "publisher": sr_corrected.get("publisher"),
+                "volume": sr_corrected.get("volume"),
+                "issue": sr_corrected.get("issue"),
+                "pages": sr_corrected.get("pages"),
+                "doi": sr_corrected.get("doi"),
+                "type": sr_entry_safe.get("publication_type"),
+                "source_db": "llm_search",
+            }
 
     # Per-field mismatch classification (substantive vs formatting vs none)
     mismatch_details = None
@@ -532,16 +622,35 @@ def _build_card(ref, cr_item, pm_item, suspicious_ids, verified_ids, llm_map,
         suspected_reason = classification["suspected_reason"] or "possible_reference_error"
 
     # Match quality fields
-    title_match = _pick_comparison_field(cr_item, pm_item, "title_match")
-    authors_match = _pick_comparison_field(cr_item, pm_item, "authors_match")
-    year_match = _pick_comparison_field(cr_item, pm_item, "year_match")
-    journal_match = _pick_comparison_field(cr_item, pm_item, "journal_match")
+    title_match = _pick_comparison_field(cr_item, pm_item, "title_match", cn_item, s2_item)
+    authors_match = _pick_comparison_field(cr_item, pm_item, "authors_match", cn_item, s2_item)
+    year_match = _pick_comparison_field(cr_item, pm_item, "year_match", cn_item, s2_item)
+    journal_match = _pick_comparison_field(cr_item, pm_item, "journal_match", cn_item, s2_item)
+
+    # Override journal_match and populate identity/style from LLM disambiguation
+    journal_identity_match = None
+    journal_style_match = None
+    jr_entry_safe = _as_dict(jr_entry)
+    if jr_entry_safe:
+        identity = jr_entry_safe.get("identity")
+        if identity in ("identity", "style", "mismatch"):
+            journal_identity_match = identity
+        style = jr_entry_safe.get("style")
+        if style in ("nlm", "iso", "full", "vancouver"):
+            journal_style_match = style
+        # Upgrade journal_match if LLM says same journal
+        if identity in ("identity", "style") and journal_match == "mismatch":
+            journal_match = "fuzzy"
 
     # DB-specific status
     crossref_status = cr_item.get("status") if cr_item else None
     crossref_method = cr_item.get("method") if cr_item else None
     pubmed_status = pm_item.get("status") if pm_item else None
     pubmed_method = pm_item.get("method") if pm_item else None
+    cnii_status = cn_item.get("status") if cn_item else None
+    cnii_method = cn_item.get("method") if cn_item else None
+    s2_status = s2_item.get("status") if s2_item else None
+    s2_method = s2_item.get("method") if s2_item else None
 
     return {
         "reference_id": rid,
@@ -573,13 +682,17 @@ def _build_card(ref, cr_item, pm_item, suspicious_ids, verified_ids, llm_map,
         "crossref_method": crossref_method,
         "pubmed_status": pubmed_status,
         "pubmed_method": pubmed_method,
+        "cnii_status": cnii_status,
+        "cnii_method": cnii_method,
+        "s2_status": s2_status,
+        "s2_method": s2_method,
         "llm_candidate": _build_llm_candidate(llm_item),
         "human_verification_status": human_verification_status,
         "human_verification_source": human_verification_source,
         "llm_flags": _as_dict(llm_flags_entry).get("llm_flags") if llm_flags_entry else None,
         "later_check_targets": _as_dict(llm_flags_entry).get("later_check_targets") if llm_flags_entry else None,
-        "journal_identity_match": None,  # future: "identity" | "style" | "mismatch"
-        "journal_style_match": None,     # future: "nlm" | "iso" | "vancouver" | None
+        "journal_identity_match": journal_identity_match,  # "identity" | "style" | "mismatch"
+        "journal_style_match": journal_style_match,        # "nlm" | "iso" | "vancouver" | None
         "google_books_candidates": _as_dict(gb_item).get("all_candidates") if gb_item else None,
         "best_google_books_candidate": _as_dict(gb_item).get("best_candidate") if gb_item else None,
         "google_books_candidate_count": (
@@ -597,6 +710,15 @@ def _build_card(ref, cr_item, pm_item, suspicious_ids, verified_ids, llm_map,
             "note": _as_dict(deferred_entry).get("note"),
             "deferred_at": _as_dict(deferred_entry).get("deferred_at"),
         } if deferred_entry else None,
+        "llm_search": {
+            "identified": sr_entry_safe.get("identified"),
+            "confidence": sr_entry_safe.get("confidence"),
+            "publication_type": sr_entry_safe.get("publication_type"),
+            "corrected": sr_entry_safe.get("corrected"),
+            "missing_doi_confirmed": sr_entry_safe.get("missing_doi_confirmed", False),
+            "notes": sr_entry_safe.get("notes"),
+            "source_urls": sr_entry_safe.get("source_urls"),
+        } if (sr_entry_safe := _as_dict(sr_entry)) else None,
     }
 
 
@@ -672,34 +794,44 @@ def _build_map(results):
     return out
 
 
-def _best_source(cr_item, pm_item):
+def _best_source(cr_item, pm_item, cn_item=None, s2_item=None):
     """Determine the best source database for this reference."""
     cr_matched = cr_item and cr_item.get("status") == "matched"
     pm_matched = pm_item and pm_item.get("status") == "matched"
+    cn_matched = cn_item and cn_item.get("status") == "matched"
+    s2_matched = s2_item and s2_item.get("status") == "matched"
 
-    if cr_matched and pm_matched:
-        return "Crossref + PubMed"
+    parts = []
     if cr_matched:
-        return "Crossref"
+        parts.append("Crossref")
     if pm_matched:
-        return "PubMed"
+        parts.append("PubMed")
+    if s2_matched:
+        parts.append("Semantic Scholar")
+    if cn_matched:
+        parts.append("CiNii")
+    if parts:
+        return " + ".join(parts)
     return None
 
 
-def _compute_confidence(cr_item, pm_item, status):
+def _compute_confidence(cr_item, pm_item, status, cn_item=None, s2_item=None):
     """Compute confidence level for the match."""
     if status != "verified":
         return None
 
     # Gather match qualities
-    title_quality = _pick_comparison_field(cr_item, pm_item, "title_match")
-    authors_quality = _pick_comparison_field(cr_item, pm_item, "authors_match")
-    year_ok = _pick_comparison_field(cr_item, pm_item, "year_match")
+    title_quality = _pick_comparison_field(cr_item, pm_item, "title_match", cn_item, s2_item)
+    authors_quality = _pick_comparison_field(cr_item, pm_item, "authors_match", cn_item, s2_item)
+    year_ok = _pick_comparison_field(cr_item, pm_item, "year_match", cn_item, s2_item)
 
-    # Both databases confirm → high
+    # Multiple databases confirm → high
     cr_matched = cr_item and cr_item.get("status") == "matched"
     pm_matched = pm_item and pm_item.get("status") == "matched"
-    if cr_matched and pm_matched:
+    cn_matched = cn_item and cn_item.get("status") == "matched"
+    s2_matched = s2_item and s2_item.get("status") == "matched"
+    match_count = sum(1 for v in (cr_matched, pm_matched, s2_matched, cn_matched) if v)
+    if match_count >= 2:
         return "high"
 
     # Exact title + exact authors + year match → high
@@ -714,27 +846,31 @@ def _compute_confidence(cr_item, pm_item, status):
     return "low"
 
 
-def _best_method(cr_item, pm_item):
+def _best_method(cr_item, pm_item, cn_item=None, s2_item=None):
     """Get the best matching method used."""
     cr_method = cr_item.get("method") if cr_item else None
     pm_method = pm_item.get("method") if pm_item else None
+    cn_method = cn_item.get("method") if cn_item else None
+    s2_method = s2_item.get("method") if s2_item else None
 
     # Prefer DOI-based over title-based
-    if cr_method == "doi" or pm_method == "doi":
+    if cr_method == "doi" or pm_method == "doi" or cn_method == "doi" or s2_method == "doi":
         return "doi"
     if cr_method == "pmid" or pm_method == "pmid":
         return "pmid"
-    return cr_method or pm_method or None
+    return cr_method or pm_method or s2_method or cn_method or None
 
 
-def _pick_comparison_field(cr_item, pm_item, field):
+def _pick_comparison_field(cr_item, pm_item, field, cn_item=None, s2_item=None):
     """Pick the best (most informative) comparison field value.
 
     Prefers non-null/non-unknown values. Prefers Crossref over PubMed
-    when both are available (since Crossref is the primary source).
+    over Semantic Scholar over CiNii when all are available.
     """
     cr_val = None
     pm_val = None
+    cn_val = None
+    s2_val = None
 
     if cr_item:
         comp = cr_item.get("comparison", {})
@@ -742,6 +878,12 @@ def _pick_comparison_field(cr_item, pm_item, field):
     if pm_item:
         comp = pm_item.get("comparison", {})
         pm_val = comp.get(field)
+    if cn_item:
+        comp = cn_item.get("comparison", {})
+        cn_val = comp.get(field)
+    if s2_item:
+        comp = s2_item.get("comparison", {})
+        s2_val = comp.get(field)
 
     # Pick non-null, non-unknown value
     def _quality(v):
@@ -755,14 +897,19 @@ def _pick_comparison_field(cr_item, pm_item, field):
             return 1
         return 0
 
-    if _quality(cr_val) >= _quality(pm_val):
-        return cr_val
-    return pm_val
+    best_val = None
+    best_q = -1
+    for v in (cr_val, pm_val, s2_val, cn_val):
+        q = _quality(v)
+        if q > best_q:
+            best_q = q
+            best_val = v
+    return best_val
 
 
-def _build_correct_candidate(cr_item, pm_item):
+def _build_correct_candidate(cr_item, pm_item, cn_item=None, s2_item=None):
     """Build the correct reference candidate from the best DB match."""
-    # Prefer Crossref result (richer metadata), fallback to PubMed
+    # Prefer Crossref (richest), then PubMed, then Semantic Scholar, then CiNii
     result = None
     source_item = None
 
@@ -772,6 +919,12 @@ def _build_correct_candidate(cr_item, pm_item):
     elif pm_item and pm_item.get("status") == "matched":
         source_item = pm_item
         result = pm_item.get("pubmed_result") or {}
+    elif s2_item and s2_item.get("status") == "matched":
+        source_item = s2_item
+        result = s2_item.get("ss_result") or {}
+    elif cn_item and cn_item.get("status") == "matched":
+        source_item = cn_item
+        result = cn_item.get("cinii_result") or {}
 
     if not result:
         return None

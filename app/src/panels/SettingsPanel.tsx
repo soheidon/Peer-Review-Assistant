@@ -75,6 +75,9 @@ interface SettingsPanelProps {
   onTestPubmedConnection: () => void;
   pubmedEnabled: boolean;
   onPubmedEnabledChange: (v: boolean) => void;
+  // CiNii Research
+  ciniiAppid: string;
+  onCiniiAppidChange: (appid: string) => void;
 }
 
 /* ── Tiny helpers ─────────────────────────────────────────────────── */
@@ -787,6 +790,7 @@ export default function SettingsPanel(props: SettingsPanelProps) {
     pubmedEnvCheckResult, onCheckPubmedEnv,
     pubmedConnectionTestResult, onTestPubmedConnection,
     pubmedEnabled, onPubmedEnabledChange,
+    ciniiAppid, onCiniiAppidChange,
   } = props;
 
   // Tab keys: each LLM slot name + "db"
@@ -1061,6 +1065,30 @@ export default function SettingsPanel(props: SettingsPanelProps) {
                 </div>
               );
             })()}
+
+            {/* CiNii Research (Japanese papers) */}
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: "#f7f7f7", border: "1px solid #e0e0e0", borderRadius: 6, marginBottom: 6 }}>
+              <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>CiNii Research API</span>
+              <span className={`status-chip ${ciniiAppid.trim() ? "ok" : "unrun"}`}>
+                {ciniiAppid.trim() ? "設定済み" : "未設定"}
+              </span>
+            </div>
+            <div style={{ padding: "10px 12px", border: "1px solid #e0e0e0", borderRadius: 6, marginBottom: 12, background: "#fff" }}>
+              <p style={{ fontSize: 12, color: "#888", margin: "0 0 8px 0" }}>
+                日本の学術論文の照合に使用します。CiNii Research APIのappidを入力してください。
+                <a href="https://support.nii.ac.jp/ja/cinii/api/developer" target="_blank" rel="noopener noreferrer" style={{ marginLeft: 4 }}>デベロッパー登録</a>
+              </p>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, display: "block", marginBottom: 4 }}>AppID</label>
+                <input
+                  type="text"
+                  className="llm-input llm-input-wide"
+                  placeholder="CiNii Research API application ID"
+                  value={ciniiAppid}
+                  onChange={(e) => onCiniiAppidChange(e.target.value.trim())}
+                />
+              </div>
+            </div>
 
             {/* Semantic Scholar */}
             {(() => {

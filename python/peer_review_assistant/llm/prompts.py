@@ -1,5 +1,7 @@
 """Prompt templates for LLM review checks."""
 
+import json
+
 
 def build_structure_check_messages(manuscript_data, section_texts, section_map):
     """Build system + user messages for the structure check.
@@ -443,6 +445,204 @@ Respond ONLY with a JSON object containing a "references" array:
 
         user_parts.append(f"## {rid} (current status: {status}, parse: {parse_conf})")
         user_parts.append(f"```\n{raw}\n```\n")
+
+    user_message = "\n".join(user_parts)
+
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_message},
+    ]
+
+
+# ── Journal name disambiguation ────────────────────────────────────────
+
+def build_resolve_journals_messages(pairs):
+    """Build system + user messages for journal name disambiguation.
+
+    Args:
+        pairs: list of {"original": str, "db": str} — unique
+               (original_text_journal, database_journal) pairs.
+
+    Returns:
+        list of {"role": str, "content": str} messages
+    """
+    system_prompt = """You are an expert in academic journal names and their abbreviations. Your task is to determine whether two journal names refer to the same journal.
+
+## Background
+- The "original" name comes from free-text reference parsing and may contain abbreviations, misspellings, or non-standard shortenings.
+- The "db" name comes from a bibliographic database (Crossref or PubMed) and is typically the official name or a standard abbreviation.
+- We need to know: do these two names refer to the **same** journal?
+
+## Output categories
+
+### identity
+The two names are the **same journal name** — one may be an uncommon abbreviation, a misspelling, or a partial rendering of the full name, but they clearly denote the same publication.
+
+Examples:
+- "Ann Zool Fenn" vs "Annales Zoologici Fennici" → identity (uncommon abbreviation)
+- "Phil Trans R Soc" vs "Philosophical Transactions of the Royal Society" → identity
+- "J Biol Chem" vs "Journal of Biological Chemistry" → identity
+- "Proc Natl Acad Sci" vs "Proceedings of the National Academy of Sciences" → identity
+
+### style
+The two names refer to the **same journal** but use **different standard abbreviation styles**. Use this when both names are standard/recognised forms of the same journal.
+
+Abbreviation styles:
+- **nlm**: National Library of Medicine style (e.g., "JAMA", "N Engl J Med", "J Biol Chem")
+- **iso**: ISO 4 abbreviation (e.g., "J. Am. Med. Assoc.", "N. Engl. J. Med.")
+- **full**: The complete, unabbreviated journal name (e.g., "Journal of the American Medical Association")
+- **vancouver**: Vancouver-style abbreviation (similar to NLM but sometimes differs)
+
+Examples:
+- "J Am Med Assoc" vs "JAMA" → style, nlm (both NLM abbreviations for JAMA)
+- "New England Journal of Medicine" vs "N Engl J Med" → style, nlm
+- "Lancet" vs "The Lancet" → style, full
+
+### mismatch
+The two names refer to **different journals** — they are distinct publications.
+
+Examples:
+- "Nature" vs "Nature Communications" → mismatch (different journals)
+- "Science" vs "Scientific Reports" → mismatch
+- "J Biol Chem" vs "J Cell Biol" → mismatch
+
+## Rules
+1. If you're not sure, say "mismatch" — it's better to keep a false negative than introduce a false positive.
+2. Pay attention to common abbreviation patterns: dropping vowels, truncating words, using initials.
+3. Some journals have very similar names — be careful to distinguish them.
+4. A name that is a substring of another is not necessarily the same journal (e.g., "Nature" vs "Nature Communications").
+
+IMPORTANT: Respond ONLY with a JSON object. No markdown, no explanation outside the JSON.
+
+The JSON must follow this exact structure:
+{
+  "results": [
+    {
+      "i": 0,
+      "identity": "identity",
+      "style": null,
+      "reasoning": "Brief explanation (1 sentence)"
+    }
+  ]
+}"""
+
+    user_parts = ["Determine whether each journal name pair refers to the same journal:\n"]
+    for i, pair in enumerate(pairs):
+        user_parts.append(json.dumps({
+            "i": i,
+            "original": pair["original"],
+            "db": pair["db"],
+        }, ensure_ascii=False))
+
+    user_message = "\n".join(user_parts)
+
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_message},
+    ]
+
+
+# ── Reference search / identification ──────────────────────────────────
+
+def build_search_references_messages(targets):
+    """Build system + user messages for LLM-based reference identification.
+
+    Args:
+        targets: list of dicts with reference_id, raw_text, parsed
+
+    Returns:
+        list of {"role": str, "content": str} messages
+    """
+    import json
+
+    system_prompt = """You are an expert academic librarian and citation specialist. Your task is to identify references that could not be matched by Crossref or PubMed.
+
+For each reference, use your training knowledge to determine what publication it refers to. You may recognise:
+- **Books**: by author, title, year, publisher. Provide corrected author names, full title, publisher, and ISBN if known.
+- **Journal articles**: by author, year, title, and journal abbreviation. Expand abbreviated journal names to their full official names. Provide DOI if known.
+- **Government / statistical reports**: by issuing organization, title, year. Provide the correct organization name and URL.
+- **Web documents**: by URL and title. Describe what the document is.
+
+## Output format
+
+For each reference, return a JSON object with:
+
+- **reference_id**: the same ID from the input
+- **confidence**: "high" (certain), "medium" (reasonably sure), "low" (best guess), "none" (cannot identify)
+- **publication_type**: one of "journal_article", "book", "edited_book", "book_chapter", "report", "government_document", "web_document", "conference_paper", "other"
+- **corrected**: corrected bibliographic fields (only include fields you can confidently provide):
+  - authors: list of strings (full names)
+  - year: integer or string (e.g. "1984/2017" for reprints)
+  - title: full corrected title
+  - journal: full journal name (NOT abbreviated)
+  - book_title: for books/book chapters
+  - editor: list of strings (for edited books)
+  - publisher: publisher name
+  - volume: string
+  - issue: string
+  - pages: string
+  - doi: string (if known)
+  - isbn: string (if known)
+  - url: string (if known)
+- **notes**: brief explanation (1-3 sentences) — what this reference is, any caveats
+- **source_urls**: list of URLs where this publication can be found or verified
+
+## Rules
+
+1. If you are NOT confident, set confidence to "low" or "none" and explain why in notes.
+2. For books, provide publisher and ISBN if known.
+3. For journal articles with abbreviated names, always provide the FULL journal name in the "journal" field.
+4. **Government documents, reports, and web documents**: You MUST search your knowledge for the URL. Provide the URL both in `corrected.url` AND in `source_urls`. These documents are defined by their URLs — without a URL, the identification is incomplete.
+   - For Japanese government (MEXT, MHLW, etc.) documents: construct the URL from the ministry name and document title.
+   - For international organizations (WHO, UN, OECD, etc.): provide the official publication URL.
+   - For statistical reports and white papers: provide the direct PDF or landing page URL.
+5. **If publication_type is government_document, report, or web_document, you MUST include at least one URL.** If you truly cannot find a URL, set confidence to "low" and explain why in notes.
+6. Do NOT invent DOIs or ISBNs — only provide them if you know them with certainty.
+7. If a reference has no DOI (e.g., it's a manual, report, or older book), do NOT make one up — simply omit the doi field.
+
+IMPORTANT: Respond ONLY with a JSON object. No markdown, no explanation outside the JSON.
+
+The JSON must follow this exact structure:
+{
+  "references": [
+    {
+      "reference_id": "R001",
+      "confidence": "high",
+      "publication_type": "edited_book",
+      "corrected": {
+        "authors": ["Helfer, R. E.", "Kempe, C. H."],
+        "year": 1968,
+        "title": "The Battered Child",
+        "publisher": "University of Chicago Press",
+        "isbn": "978-0226327204"
+      },
+      "notes": "Classic edited volume on child abuse.",
+      "source_urls": ["https://press.uchicago.edu/ucp/books/book/chicago/B/bo3683497.html"]
+    }
+  ]
+}"""
+
+    user_parts = [
+        "The following references could not be matched by Crossref or PubMed.",
+        "Please identify each one using your knowledge of academic literature.",
+        "",
+    ]
+
+    for t in targets:
+        rid = t["reference_id"]
+        raw = t["raw_text"]
+        parsed = t.get("parsed", {})
+        user_parts.append(f"## {rid}")
+        user_parts.append("```")
+        user_parts.append(raw)
+        user_parts.append("```")
+        if parsed.get("title"):
+            user_parts.append(f"Parsed title: {parsed['title']}")
+        if parsed.get("journal"):
+            user_parts.append(f"Parsed journal: {parsed['journal']}")
+        if parsed.get("year"):
+            user_parts.append(f"Parsed year: {parsed['year']}")
+        user_parts.append("")
 
     user_message = "\n".join(user_parts)
 

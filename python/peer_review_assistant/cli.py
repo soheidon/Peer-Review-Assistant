@@ -3548,6 +3548,8 @@ def run_check(project_dir, check_name, slot, provider, base_url, model, api_key,
               f"No API key provided. Use --api-key, --api-key-env, or set "
               f"PRA_LLM_KEY_{slot.upper()} environment variable.")
 
+    key_info = "key=provided" if api_key else "key=missing"
+
     # Load inputs
     emit("progress", task="run-check", step="load_inputs", percent=20,
          check=check_name, slot=slot)

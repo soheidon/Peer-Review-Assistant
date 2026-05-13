@@ -5,8 +5,12 @@ interface LlmSlot {
   provider: string;
   baseUrl: string;
   model: string;
+  proModel?: string;
   apiKey: string;
   enabled?: boolean;
+  apiKeyMode?: "direct" | "env_var";
+  apiKeyEnvName?: string;
+  apiKeyStorage?: "none" | "windows_hello";
 }
 
 interface ReviewChecksPanelProps {
@@ -58,10 +62,39 @@ export default function ReviewChecksPanel({
   onNavigateToSettings,
   statusMessage,
 }: ReviewChecksPanelProps) {
+  function isReviewerConfigured(s: LlmSlot): boolean {
+    if (s.enabled === false) return false;
+    if (!s.provider?.trim()) return false;
+    if (!s.baseUrl?.trim()) return false;
+    // apiKeyMode === "direct" かつ windows_hello なら apiKey 空でも OK
+    if (s.apiKeyMode === "direct") {
+      if (s.apiKeyStorage === "windows_hello") return true;
+      return !!s.apiKey?.trim();
+    }
+    // apiKeyMode === "env_var" なら apiKeyEnvName があれば OK
+    if (s.apiKeyMode === "env_var") {
+      return !!s.apiKeyEnvName?.trim();
+    }
+    // fallback: apiKeyMode 未設定なら apiKey 直接チェック
+    return !!s.apiKey?.trim();
+  }
+
+  function getReviewerDisabledReason(s: LlmSlot): string | null {
+    if (!s) return "査読AIスロットが見つかりません。";
+    if (s.enabled === false) return "査読AIスロットが無効です。";
+    if (!s.provider?.trim()) return "プロバイダが未設定です。";
+    if (!s.baseUrl?.trim()) return "API URLが未設定です。";
+    if (s.apiKeyMode === "direct" && s.apiKeyStorage !== "windows_hello" && !s.apiKey?.trim()) {
+      return "APIキーが未入力です。";
+    }
+    if (s.apiKeyMode === "env_var" && !s.apiKeyEnvName?.trim()) {
+      return "APIキー環境変数名が未設定です。";
+    }
+    return null;
+  }
+
   const reviewers = llmSlots.filter((s) => s.name.startsWith("reviewer") && s.enabled !== false);
-  const allReviewersConfigured = reviewers.length > 0 && reviewers.every(
-    (s) => s.provider.trim() && s.baseUrl.trim() && s.model.trim() && s.apiKey.trim()
-  );
+  const allReviewersConfigured = reviewers.length > 0 && reviewers.every(isReviewerConfigured);
   const anyReviewerDone = (results: Record<string, string>) =>
     reviewers.some((s) => results[s.name] === "done");
 
@@ -98,17 +131,21 @@ export default function ReviewChecksPanel({
       {!crossrefDone && (
         <div className="disabled-reason">先に文献DB照合を完了してください</div>
       )}
-      {crossrefDone && !allReviewersConfigured && (
-        <div className="disabled-reason">
-          LLM設定が未完了です。
-          <button
-            onClick={onNavigateToSettings}
-            style={{ fontSize: "11px", height: "22px", padding: "1px 8px", marginLeft: 6 }}
-          >
-            設定を開く
-          </button>
-        </div>
-      )}
+      {crossrefDone && !allReviewersConfigured && (() => {
+        const bad = reviewers.find((s) => !isReviewerConfigured(s));
+        const reason = bad ? getReviewerDisabledReason(bad) : "LLM設定が未完了です。";
+        return (
+          <div className="disabled-reason">
+            {reason}
+            <button
+              onClick={onNavigateToSettings}
+              style={{ fontSize: "11px", height: "22px", padding: "1px 8px", marginLeft: 6 }}
+            >
+              設定を開く
+            </button>
+          </div>
+        );
+      })()}
     </div>
   );
 

@@ -3514,7 +3514,10 @@ _VALID_CHECKS = {"structure", "expression", "methods_stats"}
               help="API key. Falls back to --api-key-env or PRA_LLM_KEY_<SLOT> env var.")
 @click.option("--api-key-env", default=None,
               help="Environment variable name containing the API key.")
-def run_check(project_dir, check_name, slot, provider, base_url, model, api_key, api_key_env):
+@click.option("--thinking-enabled", is_flag=True, default=False,
+              help="Enable reasoning/thinking mode (DeepSeek/OpenAI reasoning models).")
+def run_check(project_dir, check_name, slot, provider, base_url, model, api_key, api_key_env,
+              thinking_enabled):
     """Run an LLM review check on the manuscript."""
     from peer_review_assistant.llm import LLMProvider, chat_completion
     from peer_review_assistant.llm.prompts import (
@@ -3622,10 +3625,10 @@ def run_check(project_dir, check_name, slot, provider, base_url, model, api_key,
         api_key=api_key,
     )
 
-    timeout = 120 if check_name in ("expression", "methods_stats") else 30
+    timeout = 300 if check_name in ("expression", "methods_stats") else 120
     max_tokens = 8192 if check_name in ("expression", "methods_stats") else 4096
     result = chat_completion(prov, messages, max_tokens=max_tokens, temperature=0.0,
-                             timeout_seconds=timeout)
+                             timeout_seconds=timeout, thinking_enabled=thinking_enabled)
 
     if not result["ok"]:
         _log_llm_call(project_dir, slot, check_name, model, key_info,

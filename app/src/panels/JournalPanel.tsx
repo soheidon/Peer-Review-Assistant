@@ -32,6 +32,66 @@ interface ReviewPolicy {
   editorial_policy_summary: string;
 }
 
+export interface PublicationCriteria {
+  novelty_required: string;
+  impact_required: string;
+  significance_required: string;
+  technical_soundness_focus: string;
+  methodological_rigour_focus: string;
+  statistical_rigour_focus: string;
+  conclusion_supported_by_data_focus: string;
+  ethical_robustness_focus: string;
+  data_availability_focus: string;
+  reproducibility_transparency_focus: string;
+}
+
+export interface ResearchTypeAcceptance {
+  accepts_incremental_research: string;
+  accepts_confirmatory_research: string;
+  accepts_replication: string;
+  accepts_negative_or_null_results: string;
+  accepts_niche_scope: string;
+  accepts_multidisciplinary_work: string;
+}
+
+export interface JournalPosition {
+  multidisciplinary_mega_journal: string;
+  broad_scope_journal: string;
+  field_specific_high_impact_journal: string;
+  clinical_high_impact_journal: string;
+  society_journal: string;
+  journal_position_summary: string;
+}
+
+export interface JournalMetrics {
+  impact_factor: string;
+  five_year_impact_factor: string;
+  cite_score: string;
+  sjr: string;
+  snip: string;
+  quartile: string;
+  category_rankings: string;
+  indexing: string;
+  acceptance_rate_if_available: string;
+}
+
+export interface SubmissionStrategy {
+  suitable_novelty_strategy: string;
+  suitable_framing_strategy: string;
+  unsuitable_claims: string;
+  claims_to_avoid: string;
+  reviewer_likely_concerns: string;
+  manuscript_strengths_to_emphasize: string;
+  manuscript_weaknesses_to_control: string;
+}
+
+export interface SourceEntry {
+  url: string;
+  title: string;
+  accessed_at: string;
+  retrieved_text_summary: string;
+}
+
 export interface JournalProfile {
   journal_name: string;
   journal_url: string;
@@ -40,6 +100,12 @@ export interface JournalProfile {
   reference_style: ReferenceStyle;
   submission_guidelines: SubmissionGuidelines;
   review_policy: ReviewPolicy;
+  publication_criteria: PublicationCriteria;
+  research_type_acceptance: ResearchTypeAcceptance;
+  journal_position: JournalPosition;
+  metrics: JournalMetrics;
+  submission_strategy: SubmissionStrategy;
+  sources: SourceEntry[];
   notes: string;
   source: string;
   source_details: string;
@@ -213,6 +279,55 @@ function JournalAcquisitionModal({
         reviewer_guidance: "",
         editorial_policy_summary: "",
       },
+      publication_criteria: {
+        novelty_required: "unknown",
+        impact_required: "unknown",
+        significance_required: "unknown",
+        technical_soundness_focus: "unknown",
+        methodological_rigour_focus: "unknown",
+        statistical_rigour_focus: "unknown",
+        conclusion_supported_by_data_focus: "unknown",
+        ethical_robustness_focus: "unknown",
+        data_availability_focus: "unknown",
+        reproducibility_transparency_focus: "unknown",
+      },
+      research_type_acceptance: {
+        accepts_incremental_research: "unknown",
+        accepts_confirmatory_research: "unknown",
+        accepts_replication: "unknown",
+        accepts_negative_or_null_results: "unknown",
+        accepts_niche_scope: "unknown",
+        accepts_multidisciplinary_work: "unknown",
+      },
+      journal_position: {
+        multidisciplinary_mega_journal: "unknown",
+        broad_scope_journal: "unknown",
+        field_specific_high_impact_journal: "unknown",
+        clinical_high_impact_journal: "unknown",
+        society_journal: "unknown",
+        journal_position_summary: "",
+      },
+      metrics: {
+        impact_factor: "",
+        five_year_impact_factor: "",
+        cite_score: "",
+        sjr: "",
+        snip: "",
+        quartile: "",
+        category_rankings: "",
+        indexing: "",
+        acceptance_rate_if_available: "",
+      },
+      submission_strategy: {
+        suitable_novelty_strategy: "",
+        suitable_framing_strategy: "",
+        unsuitable_claims: "",
+        claims_to_avoid: "",
+        reviewer_likely_concerns: "",
+        manuscript_strengths_to_emphasize: "",
+        manuscript_weaknesses_to_control: "",
+      },
+      sources: [],
       notes: "",
       source: "external",
       source_details: "",
@@ -281,6 +396,55 @@ function JournalAcquisitionModal({
           reviewer_guidance: "",
           editorial_policy_summary: "",
         },
+        publication_criteria: {
+          novelty_required: "unknown",
+          impact_required: "unknown",
+          significance_required: "unknown",
+          technical_soundness_focus: "unknown",
+          methodological_rigour_focus: "unknown",
+          statistical_rigour_focus: "unknown",
+          conclusion_supported_by_data_focus: "unknown",
+          ethical_robustness_focus: "unknown",
+          data_availability_focus: "unknown",
+          reproducibility_transparency_focus: "unknown",
+        },
+        research_type_acceptance: {
+          accepts_incremental_research: "unknown",
+          accepts_confirmatory_research: "unknown",
+          accepts_replication: "unknown",
+          accepts_negative_or_null_results: "unknown",
+          accepts_niche_scope: "unknown",
+          accepts_multidisciplinary_work: "unknown",
+        },
+        journal_position: {
+          multidisciplinary_mega_journal: "unknown",
+          broad_scope_journal: "unknown",
+          field_specific_high_impact_journal: "unknown",
+          clinical_high_impact_journal: "unknown",
+          society_journal: "unknown",
+          journal_position_summary: "",
+        },
+        metrics: {
+          impact_factor: "",
+          five_year_impact_factor: "",
+          cite_score: "",
+          sjr: "",
+          snip: "",
+          quartile: "",
+          category_rankings: "",
+          indexing: "",
+          acceptance_rate_if_available: "",
+        },
+        submission_strategy: {
+          suitable_novelty_strategy: "",
+          suitable_framing_strategy: "",
+          unsuitable_claims: "",
+          claims_to_avoid: "",
+          reviewer_likely_concerns: "",
+          manuscript_strengths_to_emphasize: "",
+          manuscript_weaknesses_to_control: "",
+        },
+        sources: [],
         notes: "",
         source: "external",
         source_details: "pasted JSON",

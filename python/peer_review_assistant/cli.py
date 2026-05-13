@@ -44,6 +44,23 @@ def _get_env(key):
             pass
     return ""
 
+
+def _resolve_api_key(api_key, api_key_env, slot):
+    """Resolve API key from direct value, env var name, or slot convention.
+
+    Priority:
+      1. Direct --api-key value
+      2. Environment variable named by --api-key-env
+      3. PRA_LLM_KEY_{SLOT} environment variable
+    """
+    resolved = api_key
+    if not resolved and api_key_env:
+        resolved = _get_env(api_key_env).strip()
+    if not resolved:
+        resolved = _get_env(f"PRA_LLM_KEY_{slot.upper()}").strip()
+    return resolved
+
+
 JST = timezone(timedelta(hours=9))
 
 
@@ -4253,8 +4270,10 @@ def delete_all_section_translations_ja(project_dir):
               help="API key. Falls back to --api-key-env or PRA_LLM_KEY_<SLOT> env var.")
 @click.option("--api-key-env", default=None,
               help="Environment variable name containing the API key.")
+@click.option("--thinking-enabled", is_flag=True, default=False,
+              help="Enable the thinking/reasoning parameter in the API request.")
 def novelty_summarize_cmd(project_dir, target_journal, slot, provider, base_url,
-                           model, api_key, api_key_env):
+                           model, api_key, api_key_env, thinking_enabled):
     """Extract paper summary and multi-angle novelty candidates via LLM.
 
     Reads manuscript_full.json and section texts, then calls the LLM
@@ -4352,8 +4371,9 @@ def novelty_summarize_cmd(project_dir, target_journal, slot, provider, base_url,
         api_key=api_key,
     )
 
-    result = chat_completion(prov, messages, max_tokens=4096, temperature=0.0,
-                             timeout_seconds=60)
+    result = chat_completion(prov, messages, max_tokens=16384, temperature=0.0,
+                             timeout_seconds=120,
+                             thinking_enabled=thinking_enabled)
 
     if not result["ok"]:
         _log_llm_call(project_dir, slot, "novelty-summarize", model, key_info,
@@ -4368,11 +4388,17 @@ def novelty_summarize_cmd(project_dir, target_journal, slot, provider, base_url,
     # Parse JSON response
     parsed = parse_llm_json(result["content"])
     if parsed is None:
+        content_preview = (result["content"] or "")[:200]
+        detail = "Model returned empty or invalid JSON content."
+        if not result["content"] or not result["content"].strip():
+            detail = ("Model returned empty content (all 16384 tokens may have "
+                      "been consumed by reasoning). Try a higher max_tokens or "
+                      "a non-reasoning model.")
         _log_llm_call(project_dir, slot, "novelty-summarize", model, key_info,
                       success=False, error="LLM_INVALID_JSON",
                       latency_ms=result.get("latency_ms"))
         error("LLM_INVALID_JSON",
-              "Failed to parse LLM response as JSON. The model may not have returned valid JSON.")
+              f"{detail} Content preview: {content_preview}")
 
     # Save output
     emit("progress", task="novelty-summarize", step="save_output", percent=90, slot=slot)
@@ -4418,18 +4444,27 @@ def novelty_summarize_cmd(project_dir, target_journal, slot, provider, base_url,
               help="Path to the project working folder.")
 @click.option("--target-journal", default="",
               help="Target journal name (optional, overrides summary value).")
-def novelty_deep_research_prompt_cmd(project_dir, target_journal):
-    """Generate a Deep Research prompt from the novelty summary.
+@click.option("--prompt-kind", default="both",
+              type=click.Choice(["broad", "critical", "both"]),
+              help="Which prompt to generate: broad (comprehensive search), "
+                   "critical (verification/weakness), or both (default).")
+def novelty_deep_research_prompt_cmd(project_dir, target_journal, prompt_kind):
+    """Generate Deep Research prompt(s) from the novelty summary.
 
     Loads outputs/novelty/novelty_summary.json, fills the Deep Research
-    prompt template with extracted fields, and saves the result to
-    outputs/novelty/deep_research_prompt.md.
+    prompt template(s), and saves to:
+      - outputs/novelty/deep_research_prompt_broad.md
+      - outputs/novelty/deep_research_prompt_critical.md
 
-    This command does NOT call any LLM — it only fills a template.
+    This command does NOT call any LLM — it only fills templates.
     """
-    from peer_review_assistant.novelty.prompts import NOVELTY_DEEP_RESEARCH_PROMPT_TEMPLATE
+    from peer_review_assistant.novelty.prompts import (
+        NOVELTY_DEEP_RESEARCH_PROMPT_BROAD,
+        NOVELTY_DEEP_RESEARCH_PROMPT_CRITICAL,
+    )
 
-    emit("progress", task="novelty-deep-research-prompt", step="validate", percent=0)
+    task_id = "novelty-deep-research-prompt"
+    emit("progress", task=task_id, step="validate", percent=0)
 
     # Validate project
     proj_path = os.path.join(project_dir, "project.json")
@@ -4437,7 +4472,7 @@ def novelty_deep_research_prompt_cmd(project_dir, target_journal):
         error("NO_PROJECT", "project.json not found. Run init-project first.")
 
     # Load novelty summary
-    emit("progress", task="novelty-deep-research-prompt", step="load_summary", percent=20)
+    emit("progress", task=task_id, step="load_summary", percent=20)
 
     summary_path = os.path.join(project_dir, "outputs", "novelty", "novelty_summary.json")
     if not os.path.isfile(summary_path):
@@ -4450,12 +4485,7 @@ def novelty_deep_research_prompt_cmd(project_dir, target_journal):
     # Resolve target journal
     journal = (target_journal or summary.get("target_journal", "")).strip()
 
-    # Build sample summary string
-    sample_parts = []
-    if summary.get("sample_summary"):
-        sample_parts.append(summary["sample_summary"])
-
-    # Extract fields for template, with safe defaults
+    # Extract fields for templates, with safe defaults
     fields = {
         "research_topic": summary.get("research_topic", "（論文から抽出できませんでした）"),
         "objective": summary.get("objective", "（論文から抽出できませんでした）"),
@@ -4469,23 +4499,41 @@ def novelty_deep_research_prompt_cmd(project_dir, target_journal):
         "target_journal": journal or "（未指定）",
     }
 
-    # Fill template
-    emit("progress", task="novelty-deep-research-prompt", step="fill_template", percent=60)
-
-    try:
-        prompt_text = NOVELTY_DEEP_RESEARCH_PROMPT_TEMPLATE.format(**fields)
-    except KeyError as e:
-        error("TEMPLATE_FILL_FAILED",
-              f"Missing template field: {e}. This is a bug in the prompt template.")
-
-    # Save output
-    emit("progress", task="novelty-deep-research-prompt", step="save_output", percent=80)
-
     out_dir = os.path.join(project_dir, "outputs", "novelty")
     os.makedirs(out_dir, exist_ok=True)
-    out_path = os.path.join(out_dir, "deep_research_prompt.md")
-    with open(out_path, "w", encoding="utf-8") as f:
-        f.write(prompt_text)
+
+    result = {}
+
+    # Generate broad prompt
+    if prompt_kind in ("broad", "both"):
+        emit("progress", task=task_id, step="fill_broad", percent=40)
+        try:
+            broad_text = NOVELTY_DEEP_RESEARCH_PROMPT_BROAD.format(**fields)
+        except KeyError as e:
+            error("TEMPLATE_FILL_FAILED",
+                  f"Missing template field in broad prompt: {e}.")
+        broad_path = os.path.join(out_dir, "deep_research_prompt_broad.md")
+        with open(broad_path, "w", encoding="utf-8") as f:
+            f.write(broad_text)
+        result["prompt_broad"] = broad_text
+        result["prompt_broad_length"] = len(broad_text)
+        result["prompt_broad_path"] = broad_path
+
+    # Generate critical prompt
+    if prompt_kind in ("critical", "both"):
+        emit("progress", task=task_id,
+             step="fill_critical", percent=60 if prompt_kind == "both" else 40)
+        try:
+            critical_text = NOVELTY_DEEP_RESEARCH_PROMPT_CRITICAL.format(**fields)
+        except KeyError as e:
+            error("TEMPLATE_FILL_FAILED",
+                  f"Missing template field in critical prompt: {e}.")
+        critical_path = os.path.join(out_dir, "deep_research_prompt_critical.md")
+        with open(critical_path, "w", encoding="utf-8") as f:
+            f.write(critical_text)
+        result["prompt_critical"] = critical_text
+        result["prompt_critical_length"] = len(critical_text)
+        result["prompt_critical_path"] = critical_path
 
     # Update project.json timestamp
     now = datetime.now(JST)
@@ -4495,11 +4543,192 @@ def novelty_deep_research_prompt_cmd(project_dir, target_journal):
     with open(proj_path, "w", encoding="utf-8") as f:
         json.dump(proj, f, indent=2, ensure_ascii=False)
 
+    result["message"] = (
+        f"Deep Research prompt(s) generated: {prompt_kind}. "
+        f"Saved to outputs/novelty/."
+    )
+    emit("done", task=task_id, **result)
+
+
+# ── novelty-merge-research ─────────────────────────────────────────────
+
+@main.command(name="novelty-merge-research")
+@click.option("--project", "project_dir", required=True,
+              type=click.Path(file_okay=False, writable=True),
+              help="Path to the project working folder.")
+@click.option("--slot", required=True,
+              help="LLM slot name (uses Pro model).")
+@click.option("--provider", required=True,
+              help="Provider name.")
+@click.option("--base-url", required=True,
+              help="LLM API base URL.")
+@click.option("--model", required=True,
+              help="LLM model name.")
+@click.option("--api-key", default=None,
+              help="LLM API key (direct value).")
+@click.option("--api-key-env", default=None,
+              help="Environment variable name for LLM API key.")
+@click.option("--thinking-enabled", is_flag=True, default=False,
+              help="Enable the thinking/reasoning parameter in the API request.")
+def novelty_merge_research_cmd(project_dir, slot, provider, base_url, model,
+                                api_key, api_key_env, thinking_enabled):
+    """Merge two Deep Research results (A and B) via LLM.
+
+    Loads Deep Research results A and B, the novelty summary, and
+    optionally the journal profile. Calls the LLM to compare, integrate,
+    and structure the findings.
+
+    Saves:
+      - outputs/novelty/deep_research_merged.md  (Markdown)
+      - outputs/novelty/deep_research_merged.json (structured JSON)
+    """
+    from peer_review_assistant.llm import LLMProvider, chat_completion
+    from peer_review_assistant.novelty.prompts import build_novelty_merge_messages
+
+    task_id = "novelty-merge-research"
+    out_dir = os.path.join(project_dir, "outputs", "novelty")
+    os.makedirs(out_dir, exist_ok=True)
+
+    emit("progress", task=task_id, step="validate", percent=0)
+
+    # Validate project
+    proj_path = os.path.join(project_dir, "project.json")
+    if not os.path.isfile(proj_path):
+        error("NO_PROJECT", "project.json not found. Run init-project first.")
+
+    # Resolve API key
+    resolved_key = _resolve_api_key(api_key, api_key_env, slot)
+    if not resolved_key:
+        error("NO_API_KEY",
+              f"No API key found for slot '{slot}'. "
+              f"Provide --api-key or --api-key-env, or set "
+              f"PRA_LLM_KEY_{slot.upper()} in the environment.")
+
+    # Load novelty summary
+    emit("progress", task=task_id, step="load_inputs", percent=10)
+    summary_path = os.path.join(out_dir, "novelty_summary.json")
+    if not os.path.isfile(summary_path):
+        error("NO_NOVELTY_SUMMARY",
+              "novelty_summary.json not found. Run novelty-summarize first.")
+    with open(summary_path, "r", encoding="utf-8") as f:
+        summary = json.load(f)
+
+    # Load Deep Research A
+    dr_a_path = os.path.join(out_dir, "deep_research_a.txt")
+    dr_a_text = ""
+    if os.path.isfile(dr_a_path):
+        with open(dr_a_path, "r", encoding="utf-8") as f:
+            dr_a_text = f.read()
+
+    # Load Deep Research B
+    dr_b_path = os.path.join(out_dir, "deep_research_b.txt")
+    dr_b_text = ""
+    if os.path.isfile(dr_b_path):
+        with open(dr_b_path, "r", encoding="utf-8") as f:
+            dr_b_text = f.read()
+
+    # Load meta
+    meta_path = os.path.join(out_dir, "deep_research_meta.json")
+    meta = None
+    if os.path.isfile(meta_path):
+        with open(meta_path, "r", encoding="utf-8") as f:
+            meta = json.load(f)
+
+    # Load journal profile
+    jp_path = os.path.join(project_dir, "journal_profile.json")
+    journal_profile = None
+    if os.path.isfile(jp_path):
+        with open(jp_path, "r", encoding="utf-8") as f:
+            journal_profile = json.load(f)
+
+    has_a = bool(dr_a_text.strip())
+    has_b = bool(dr_b_text.strip())
+
+    if not has_a and not has_b:
+        error("NO_DR_RESULTS",
+              "Neither deep_research_a.txt nor deep_research_b.txt found. "
+              "Save at least one Deep Research result first.")
+    elif not has_a or not has_b:
+        key_info = {
+            "deep_research_count": 1,
+            "note": "Only one Deep Research result available — merge is partial.",
+        }
+    else:
+        key_info = {"deep_research_count": 2}
+
+    # Build messages
+    emit("progress", task=task_id, step="llm_call", percent=30)
+    msgs = build_novelty_merge_messages(
+        novelty_summary=summary,
+        deep_research_a_text=dr_a_text,
+        deep_research_b_text=dr_b_text,
+        deep_research_meta=meta,
+        journal_profile=journal_profile,
+    )
+
+    prov = LLMProvider(
+        name=slot,
+        provider=provider,
+        base_url=base_url,
+        model=model,
+        api_key=resolved_key,
+    )
+
+    result = chat_completion(prov, msgs, max_tokens=8192, temperature=0.0,
+                             timeout_seconds=120,
+                             thinking_enabled=thinking_enabled)
+
+    if not result["ok"]:
+        _log_llm_call(project_dir, slot, "novelty-merge-research", model,
+                      f"key={'provided' if resolved_key else 'missing'}",
+                      success=False, error=result.get("error"),
+                      latency_ms=result.get("latency_ms"))
+        error("LLM_CONNECTION_FAILED",
+              f"LLM call failed for {slot}: {result.get('error', 'Unknown error')}")
+
+    raw = result["content"]
+
+    # Save markdown
+    emit("progress", task=task_id, step="save", percent=80)
+    md_path = os.path.join(out_dir, "deep_research_merged.md")
+    with open(md_path, "w", encoding="utf-8") as f:
+        f.write(raw)
+
+    # Try to extract structured JSON from the markdown
+    merged_json = {"raw_markdown": raw, "deep_research_count": key_info["deep_research_count"]}
+    try:
+        # Look for JSON code fence
+        fence_start = raw.find("```json")
+        if fence_start >= 0:
+            fence_start = raw.find("\n", fence_start) + 1
+            fence_end = raw.find("```", fence_start)
+            if fence_end > fence_start:
+                json_text = raw[fence_start:fence_end].strip()
+                parsed = json.loads(json_text)
+                merged_json.update(parsed)
+    except (json.JSONDecodeError, Exception):
+        pass
+
+    json_path = os.path.join(out_dir, "deep_research_merged.json")
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(merged_json, f, indent=2, ensure_ascii=False)
+
+    # Update project.json
+    now = datetime.now(JST)
+    with open(proj_path, "r", encoding="utf-8") as f:
+        proj = json.load(f)
+    proj.setdefault("novelty", {})["merge_research_at"] = now.isoformat()
+    proj["updated_at"] = now.isoformat()
+    with open(proj_path, "w", encoding="utf-8") as f:
+        json.dump(proj, f, indent=2, ensure_ascii=False)
+
     emit("done",
-         task="novelty-deep-research-prompt",
-         prompt_text=prompt_text,
-         prompt_length=len(prompt_text),
-         message="Deep Research prompt generated successfully.")
+         task=task_id,
+         content=raw,
+         merged_path=md_path,
+         merged_json_path=json_path,
+         deep_research_count=key_info["deep_research_count"],
+         message=f"Merged {key_info['deep_research_count']} Deep Research result(s).")
 
 
 @main.command(name="novelty-assess")
@@ -4520,19 +4749,23 @@ def novelty_deep_research_prompt_cmd(project_dir, target_journal):
               help="API key.")
 @click.option("--api-key-env", default=None,
               help="Environment variable name containing the API key.")
+@click.option("--thinking-enabled", is_flag=True, default=False,
+              help="Enable the thinking/reasoning parameter in the API request.")
 def novelty_assess_cmd(project_dir, target_journal, slot, provider, base_url,
-                        model, api_key, api_key_env):
-    """Assess novelty by comparing the manuscript against Deep Research results.
+                        model, api_key, api_key_env, thinking_enabled):
+    """Assess novelty using Deep Research results and journal profile.
 
-    Loads novelty_summary.json and deep_research_input.txt, then calls
-    the LLM to produce a comprehensive novelty assessment as Markdown.
+    Loads novelty_summary.json, merged Deep Research (or individual A/B),
+    and journal_profile.json. Calls the LLM to produce a journal-aware
+    novelty assessment.
 
     Saves to outputs/novelty/novelty_assessment.md.
     """
     from peer_review_assistant.llm import LLMProvider, chat_completion
     from peer_review_assistant.novelty.prompts import build_novelty_assessment_messages
 
-    emit("progress", task="novelty-assess", step="validate", percent=0, slot=slot)
+    task_id = "novelty-assess"
+    emit("progress", task=task_id, step="validate", percent=0, slot=slot)
 
     # Validate project
     proj_path = os.path.join(project_dir, "project.json")
@@ -4552,9 +4785,10 @@ def novelty_assess_cmd(project_dir, target_journal, slot, provider, base_url,
     key_info = "key=provided" if api_key else "key=missing"
 
     # Load novelty summary
-    emit("progress", task="novelty-assess", step="load_inputs", percent=20, slot=slot)
+    emit("progress", task=task_id, step="load_inputs", percent=20, slot=slot)
 
-    summary_path = os.path.join(project_dir, "outputs", "novelty", "novelty_summary.json")
+    out_dir = os.path.join(project_dir, "outputs", "novelty")
+    summary_path = os.path.join(out_dir, "novelty_summary.json")
     if not os.path.isfile(summary_path):
         error("NO_NOVELTY_SUMMARY",
               "novelty_summary.json not found. Run novelty-summarize first.")
@@ -4562,31 +4796,63 @@ def novelty_assess_cmd(project_dir, target_journal, slot, provider, base_url,
     with open(summary_path, "r", encoding="utf-8") as f:
         novelty_summary = json.load(f)
 
-    # Load deep research input
-    dr_path = os.path.join(project_dir, "outputs", "novelty", "deep_research_input.txt")
-    if not os.path.isfile(dr_path):
-        error("NO_DEEP_RESEARCH_INPUT",
-              "deep_research_input.txt not found. "
-              "Paste Deep Research results and save them first.")
+    # Load Deep Research (prefer merged, fall back to individual)
+    dr_text = ""
+    dr_count = 0
 
-    with open(dr_path, "r", encoding="utf-8") as f:
-        deep_research_text = f.read()
+    merged_path = os.path.join(out_dir, "deep_research_merged.md")
+    dr_a_path = os.path.join(out_dir, "deep_research_a.txt")
+    dr_b_path = os.path.join(out_dir, "deep_research_b.txt")
+    dr_old_path = os.path.join(out_dir, "deep_research_input.txt")
 
-    if not deep_research_text.strip():
-        error("EMPTY_DEEP_RESEARCH_INPUT",
-              "deep_research_input.txt is empty. Paste Deep Research results first.")
+    if os.path.isfile(merged_path):
+        with open(merged_path, "r", encoding="utf-8") as f:
+            dr_text = f.read()
+        dr_count = 2  # merged implies 2 inputs were available
+    else:
+        has_a = os.path.isfile(dr_a_path)
+        has_b = os.path.isfile(dr_b_path)
+        if has_a:
+            with open(dr_a_path, "r", encoding="utf-8") as f:
+                dr_text += f.read()
+            dr_count += 1
+        if has_b:
+            with open(dr_b_path, "r", encoding="utf-8") as f:
+                if dr_text:
+                    dr_text += "\n\n---\n\n"
+                dr_text += f.read()
+            dr_count += 1
+        if dr_count == 0 and os.path.isfile(dr_old_path):
+            # Legacy single file
+            with open(dr_old_path, "r", encoding="utf-8") as f:
+                dr_text = f.read()
+            dr_count = 1
+
+    # Load journal profile
+    journal_profile = None
+    jp_path = os.path.join(project_dir, "journal_profile.json")
+    if os.path.isfile(jp_path):
+        with open(jp_path, "r", encoding="utf-8") as f:
+            journal_profile = json.load(f)
 
     # Resolve target journal
     journal = (target_journal or novelty_summary.get("target_journal", "")).strip()
+    if not journal and journal_profile:
+        journal = journal_profile.get("journal_name", "").strip()
 
     # Build prompt
-    emit("progress", task="novelty-assess", step="building_prompt", percent=40, slot=slot)
+    emit("progress", task=task_id, step="building_prompt", percent=40, slot=slot)
 
     messages = build_novelty_assessment_messages(
-        novelty_summary, deep_research_text, journal)
+        novelty_summary=novelty_summary,
+        deep_research_text=dr_text,
+        journal_profile=journal_profile,
+        deep_research_count=dr_count,
+        target_journal=journal,
+    )
 
     # Call LLM
-    emit("progress", task="novelty-assess", step="calling_llm", percent=60,
+    emit("progress", task=task_id, step="calling_llm", percent=60,
          slot=slot, model=model, provider=provider)
 
     prov = LLMProvider(
@@ -4598,7 +4864,8 @@ def novelty_assess_cmd(project_dir, target_journal, slot, provider, base_url,
     )
 
     result = chat_completion(prov, messages, max_tokens=8192, temperature=0.0,
-                             timeout_seconds=120)
+                             timeout_seconds=120,
+                             thinking_enabled=thinking_enabled)
 
     if not result["ok"]:
         _log_llm_call(project_dir, slot, "novelty-assess", model, key_info,
@@ -4607,14 +4874,13 @@ def novelty_assess_cmd(project_dir, target_journal, slot, provider, base_url,
         error("LLM_CONNECTION_FAILED",
               f"LLM call failed for {slot}: {result.get('error', 'Unknown error')}")
 
-    emit("progress", task="novelty-assess", step="save_output", percent=90,
+    emit("progress", task=task_id, step="save_output", percent=90,
          slot=slot, latency_ms=result.get("latency_ms"), usage=result.get("usage"))
 
-    # Save output (Markdown, not JSON)
+    # Save output (Markdown)
     now = datetime.now(JST)
     content = result["content"]
 
-    out_dir = os.path.join(project_dir, "outputs", "novelty")
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, "novelty_assessment.md")
     with open(out_path, "w", encoding="utf-8") as f:
@@ -4642,12 +4908,12 @@ def novelty_assess_cmd(project_dir, target_journal, slot, provider, base_url,
          message="Novelty assessment generated successfully.")
 
 
-@main.command(name="novelty-review-comment")
+# ── novelty-review-comment-candidates ──────────────────────────────────
+
+@main.command(name="novelty-review-comment-candidates")
 @click.option("--project", "project_dir", required=True,
               type=click.Path(file_okay=False, writable=True),
               help="Path to the project working folder.")
-@click.option("--target-journal", default="",
-              help="Target journal name (required).")
 @click.option("--slot", required=True,
               help="LLM slot name.")
 @click.option("--provider", required=True,
@@ -4660,123 +4926,413 @@ def novelty_assess_cmd(project_dir, target_journal, slot, provider, base_url,
               help="API key.")
 @click.option("--api-key-env", default=None,
               help="Environment variable name containing the API key.")
-def novelty_review_comment_cmd(project_dir, target_journal, slot, provider, base_url,
-                                model, api_key, api_key_env):
-    """Generate the 'Originality and Overlap' section for final review comments.
+@click.option("--thinking-enabled", is_flag=True, default=False,
+              help="Enable the thinking/reasoning parameter in the API request.")
+def novelty_review_comment_candidates_cmd(project_dir, slot, provider, base_url,
+                                          model, api_key, api_key_env,
+                                          thinking_enabled):
+    """Generate per-item review comment candidates.
 
-    Loads novelty_summary.json and novelty_assessment.md, then calls
-    the LLM to generate review comment text in both Japanese and English.
+    Produces 12 candidate items (theme, sample, context, methods, measures,
+    statistics, data rarity, clinical significance, theoretical contribution,
+    overlap, cautions, journal-fit expression) with Japanese + English text.
 
-    This is for the reviewer's final comments, NOT a submission cover letter.
-
-    Saves to outputs/novelty/novelty_review_comment.md.
+    Saves to outputs/novelty/novelty_review_comment_candidates.json.
     """
     from peer_review_assistant.llm import LLMProvider, chat_completion
-    from peer_review_assistant.novelty.prompts import build_novelty_review_comment_messages
+    from peer_review_assistant.llm.json_repair import parse_llm_json
+    from peer_review_assistant.novelty.prompts import build_novelty_comment_candidates_messages
 
-    emit("progress", task="novelty-review-comment", step="validate", percent=0, slot=slot)
+    task_id = "novelty-review-comment-candidates"
+    out_dir = os.path.join(project_dir, "outputs", "novelty")
+    os.makedirs(out_dir, exist_ok=True)
 
-    # Validate project
+    emit("progress", task=task_id, step="validate", percent=0, slot=slot)
+
     proj_path = os.path.join(project_dir, "project.json")
     if not os.path.isfile(proj_path):
-        error("NO_PROJECT", "project.json not found. Run init-project first.")
+        error("NO_PROJECT", "project.json not found.")
 
     # Resolve API key
-    if not api_key and api_key_env:
-        api_key = _get_env(api_key_env).strip()
-    if not api_key:
-        api_key = _get_env(f"PRA_LLM_KEY_{slot.upper()}").strip()
-    if not api_key:
-        error("NO_API_KEY",
-              f"No API key provided. Use --api-key, --api-key-env, or set "
-              f"PRA_LLM_KEY_{slot.upper()} environment variable.")
+    resolved_key = _resolve_api_key(api_key, api_key_env, slot)
+    if not resolved_key:
+        error("NO_API_KEY", f"No API key for slot '{slot}'.")
 
-    key_info = "key=provided" if api_key else "key=missing"
+    # Load inputs
+    emit("progress", task=task_id, step="load_inputs", percent=20, slot=slot)
 
-    # Load novelty summary
-    emit("progress", task="novelty-review-comment", step="load_inputs", percent=20, slot=slot)
-
-    summary_path = os.path.join(project_dir, "outputs", "novelty", "novelty_summary.json")
+    summary_path = os.path.join(out_dir, "novelty_summary.json")
     if not os.path.isfile(summary_path):
-        error("NO_NOVELTY_SUMMARY",
-              "novelty_summary.json not found. Run novelty-summarize first.")
-
+        error("NO_NOVELTY_SUMMARY", "novelty_summary.json not found.")
     with open(summary_path, "r", encoding="utf-8") as f:
         novelty_summary = json.load(f)
 
-    # Load novelty assessment
-    assessment_path = os.path.join(project_dir, "outputs", "novelty", "novelty_assessment.md")
+    assessment_path = os.path.join(out_dir, "novelty_assessment.md")
     if not os.path.isfile(assessment_path):
-        error("NO_NOVELTY_ASSESSMENT",
-              "novelty_assessment.md not found. Run novelty-assess first.")
-
+        error("NO_NOVELTY_ASSESSMENT", "novelty_assessment.md not found.")
     with open(assessment_path, "r", encoding="utf-8") as f:
         novelty_assessment = f.read()
 
-    # Resolve target journal
-    journal = (target_journal or novelty_summary.get("target_journal", "")).strip()
+    # Load journal profile
+    jp_path = os.path.join(project_dir, "journal_profile.json")
+    journal_profile = None
+    if os.path.isfile(jp_path):
+        with open(jp_path, "r", encoding="utf-8") as f:
+            journal_profile = json.load(f)
 
     # Build prompt
-    emit("progress", task="novelty-review-comment", step="building_prompt", percent=40, slot=slot)
+    emit("progress", task=task_id, step="building_prompt", percent=40, slot=slot)
 
-    messages = build_novelty_review_comment_messages(
-        novelty_summary, novelty_assessment, journal)
+    messages = build_novelty_comment_candidates_messages(
+        novelty_summary, novelty_assessment, journal_profile)
 
     # Call LLM
-    emit("progress", task="novelty-review-comment", step="calling_llm", percent=60,
+    emit("progress", task=task_id, step="calling_llm", percent=60,
          slot=slot, model=model, provider=provider)
 
     prov = LLMProvider(
-        name=slot,
-        provider=provider,
-        base_url=base_url,
-        model=model,
-        api_key=api_key,
+        name=slot, provider=provider, base_url=base_url,
+        model=model, api_key=resolved_key,
     )
 
-    result = chat_completion(prov, messages, max_tokens=4096, temperature=0.0,
-                             timeout_seconds=60)
+    result = chat_completion(prov, messages, max_tokens=8192, temperature=0.0,
+                             timeout_seconds=120, thinking_enabled=thinking_enabled)
 
     if not result["ok"]:
-        _log_llm_call(project_dir, slot, "novelty-review-comment", model, key_info,
+        _log_llm_call(project_dir, slot, task_id, model,
+                      f"key={'provided' if resolved_key else 'missing'}",
                       success=False, error=result.get("error"),
                       latency_ms=result.get("latency_ms"))
         error("LLM_CONNECTION_FAILED",
-              f"LLM call failed for {slot}: {result.get('error', 'Unknown error')}")
+              f"LLM call failed: {result.get('error', 'Unknown error')}")
 
-    emit("progress", task="novelty-review-comment", step="save_output", percent=90,
-         slot=slot, latency_ms=result.get("latency_ms"), usage=result.get("usage"))
+    emit("progress", task=task_id, step="parsing", percent=80,
+         slot=slot, latency_ms=result.get("latency_ms"))
 
-    # Save output (Markdown)
-    now = datetime.now(JST)
-    content = result["content"]
+    # Parse JSON
+    parsed = parse_llm_json(result["content"])
+    if parsed is None:
+        error("LLM_INVALID_JSON", "Failed to parse candidates JSON.")
 
-    out_dir = os.path.join(project_dir, "outputs", "novelty")
-    os.makedirs(out_dir, exist_ok=True)
-    out_path = os.path.join(out_dir, "novelty_review_comment.md")
+    # Save
+    emit("progress", task=task_id, step="save", percent=90, slot=slot)
+    out_path = os.path.join(out_dir, "novelty_review_comment_candidates.json")
     with open(out_path, "w", encoding="utf-8") as f:
-        f.write(content)
+        json.dump(parsed, f, indent=2, ensure_ascii=False)
 
-    # Log LLM call
-    _log_llm_call(project_dir, slot, "novelty-review-comment", model, key_info,
-                  success=True, latency_ms=result.get("latency_ms"),
-                  usage=result.get("usage"))
-
-    # Update project.json timestamp
+    now = datetime.now(JST)
     with open(proj_path, "r", encoding="utf-8") as f:
         proj = json.load(f)
+    proj.setdefault("novelty", {})["comment_candidates_at"] = now.isoformat()
     proj["updated_at"] = now.isoformat()
     with open(proj_path, "w", encoding="utf-8") as f:
         json.dump(proj, f, indent=2, ensure_ascii=False)
 
-    emit("done",
-         task="novelty-review-comment",
-         slot=slot,
-         model=result.get("model"),
-         content=content,
-         content_length=len(content),
-         latency_ms=result.get("latency_ms"),
-         message="Novelty review comment generated successfully.")
+    cand_count = len(parsed.get("candidates", []))
+    emit("done", task=task_id, slot=slot, model=result.get("model"),
+         content=json.dumps(parsed, ensure_ascii=False),
+         candidate_count=cand_count,
+         message=f"Generated {cand_count} review comment candidates.")
+
+
+# ── novelty-review-comment-compose ─────────────────────────────────────
+
+@main.command(name="novelty-review-comment-compose")
+@click.option("--project", "project_dir", required=True,
+              type=click.Path(file_okay=False, writable=True),
+              help="Path to the project working folder.")
+@click.option("--slot", required=True,
+              help="LLM slot name.")
+@click.option("--provider", required=True,
+              help="Provider name.")
+@click.option("--base-url", required=True,
+              help="Base URL for the chat completions endpoint.")
+@click.option("--model", required=True,
+              help="Model name.")
+@click.option("--api-key", default=None,
+              help="API key.")
+@click.option("--api-key-env", default=None,
+              help="Environment variable name containing the API key.")
+@click.option("--language", default="both",
+              type=click.Choice(["ja", "en", "both"]),
+              help="Output language(s).")
+@click.option("--selected-ids", default="",
+              help="Comma-separated candidate IDs to include.")
+@click.option("--thinking-enabled", is_flag=True, default=False,
+              help="Enable the thinking/reasoning parameter in the API request.")
+def novelty_review_comment_compose_cmd(project_dir, slot, provider, base_url,
+                                       model, api_key, api_key_env,
+                                       language, selected_ids,
+                                       thinking_enabled):
+    """Compose a final review comment from selected candidates.
+
+    Takes only the user-selected candidates and generates a cohesive
+    'Novelty and Overlap' section for the final review comments.
+
+    Saves to outputs/novelty/novelty_review_comment_final.md.
+    """
+    from peer_review_assistant.llm import LLMProvider, chat_completion
+    from peer_review_assistant.novelty.prompts import build_novelty_comment_compose_messages
+
+    task_id = "novelty-review-comment-compose"
+    out_dir = os.path.join(project_dir, "outputs", "novelty")
+    os.makedirs(out_dir, exist_ok=True)
+
+    emit("progress", task=task_id, step="validate", percent=0, slot=slot)
+
+    proj_path = os.path.join(project_dir, "project.json")
+    if not os.path.isfile(proj_path):
+        error("NO_PROJECT", "project.json not found.")
+
+    resolved_key = _resolve_api_key(api_key, api_key_env, slot)
+    if not resolved_key:
+        error("NO_API_KEY", f"No API key for slot '{slot}'.")
+
+    # Load candidates
+    emit("progress", task=task_id, step="load_inputs", percent=20, slot=slot)
+
+    candidates_path = os.path.join(out_dir, "novelty_review_comment_candidates.json")
+    if not os.path.isfile(candidates_path):
+        error("NO_CANDIDATES", "novelty_review_comment_candidates.json not found.")
+    with open(candidates_path, "r", encoding="utf-8") as f:
+        all_candidates = json.load(f)
+
+    # Filter by selected IDs
+    if selected_ids.strip():
+        id_list = [x.strip() for x in selected_ids.split(",") if x.strip()]
+        filtered = [
+            c for c in all_candidates.get("candidates", [])
+            if c.get("id") in id_list
+        ]
+    else:
+        # Default: select candidates with recommendation high or medium
+        filtered = [
+            c for c in all_candidates.get("candidates", [])
+            if c.get("recommendation") in ("high", "medium")
+        ]
+
+    if not filtered:
+        error("NO_SELECTED_CANDIDATES",
+              "No candidates match the selection criteria.")
+
+    selected_json = json.dumps({"candidates": filtered}, ensure_ascii=False, indent=2)
+
+    # Load journal profile
+    jp_path = os.path.join(project_dir, "journal_profile.json")
+    journal_profile = None
+    if os.path.isfile(jp_path):
+        with open(jp_path, "r", encoding="utf-8") as f:
+            journal_profile = json.load(f)
+
+    # Build prompt
+    emit("progress", task=task_id, step="building_prompt", percent=40, slot=slot)
+
+    messages = build_novelty_comment_compose_messages(
+        selected_json, language, journal_profile)
+
+    # Call LLM
+    emit("progress", task=task_id, step="calling_llm", percent=60,
+         slot=slot, model=model, provider=provider)
+
+    prov = LLMProvider(
+        name=slot, provider=provider, base_url=base_url,
+        model=model, api_key=resolved_key,
+    )
+
+    result = chat_completion(prov, messages, max_tokens=8192, temperature=0.0,
+                             timeout_seconds=120,
+                             thinking_enabled=thinking_enabled)
+
+    if not result["ok"]:
+        _log_llm_call(project_dir, slot, task_id, model,
+                      f"key={'provided' if resolved_key else 'missing'}",
+                      success=False, error=result.get("error"),
+                      latency_ms=result.get("latency_ms"))
+        error("LLM_CONNECTION_FAILED",
+              f"LLM call failed: {result.get('error', 'Unknown error')}")
+
+    content = result["content"]
+
+    # Save
+    emit("progress", task=task_id, step="save", percent=90, slot=slot)
+    out_path = os.path.join(out_dir, "novelty_review_comment_final.md")
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write(content)
+
+    now = datetime.now(JST)
+    with open(proj_path, "r", encoding="utf-8") as f:
+        proj = json.load(f)
+    proj.setdefault("novelty", {})["comment_compose_at"] = now.isoformat()
+    proj["updated_at"] = now.isoformat()
+    with open(proj_path, "w", encoding="utf-8") as f:
+        json.dump(proj, f, indent=2, ensure_ascii=False)
+
+    emit("done", task=task_id, slot=slot, model=result.get("model"),
+         content=content, content_length=len(content),
+         selected_count=len(filtered), language=language,
+         message=f"Composed review comment from {len(filtered)} candidates ({language}).")
+
+
+# ── novelty-review-comment-auto ────────────────────────────────────────
+
+@main.command(name="novelty-review-comment-auto")
+@click.option("--project", "project_dir", required=True,
+              type=click.Path(file_okay=False, writable=True),
+              help="Path to the project working folder.")
+@click.option("--slot", required=True,
+              help="LLM slot name.")
+@click.option("--provider", required=True,
+              help="Provider name.")
+@click.option("--base-url", required=True,
+              help="Base URL for the chat completions endpoint.")
+@click.option("--model", required=True,
+              help="Model name.")
+@click.option("--api-key", default=None,
+              help="API key.")
+@click.option("--api-key-env", default=None,
+              help="Environment variable name containing the API key.")
+@click.option("--language", default="both",
+              type=click.Choice(["ja", "en", "both"]),
+              help="Output language(s).")
+@click.option("--thinking-enabled", is_flag=True, default=False,
+              help="Enable the thinking/reasoning parameter in the API request.")
+def novelty_review_comment_auto_cmd(project_dir, slot, provider, base_url,
+                                     model, api_key, api_key_env, language,
+                                     thinking_enabled):
+    """Fully automated review comment generation.
+
+    Generates candidates, then composes a final review comment from all
+    candidates with recommendation 'high' or 'medium' in one step.
+
+    This is a convenience command that runs both candidates + compose.
+
+    Saves to outputs/novelty/novelty_review_comment_auto.md.
+    Also saves candidates to novelty_review_comment_candidates.json.
+    """
+    from peer_review_assistant.llm import LLMProvider, chat_completion
+    from peer_review_assistant.llm.json_repair import parse_llm_json
+    from peer_review_assistant.novelty.prompts import (
+        build_novelty_comment_candidates_messages,
+        build_novelty_comment_compose_messages,
+    )
+
+    task_id = "novelty-review-comment-auto"
+    out_dir = os.path.join(project_dir, "outputs", "novelty")
+    os.makedirs(out_dir, exist_ok=True)
+
+    emit("progress", task=task_id, step="validate", percent=0, slot=slot)
+
+    proj_path = os.path.join(project_dir, "project.json")
+    if not os.path.isfile(proj_path):
+        error("NO_PROJECT", "project.json not found.")
+
+    resolved_key = _resolve_api_key(api_key, api_key_env, slot)
+    if not resolved_key:
+        error("NO_API_KEY", f"No API key for slot '{slot}'.")
+
+    # Load inputs
+    emit("progress", task=task_id, step="load_inputs", percent=10, slot=slot)
+
+    summary_path = os.path.join(out_dir, "novelty_summary.json")
+    if not os.path.isfile(summary_path):
+        error("NO_NOVELTY_SUMMARY", "novelty_summary.json not found.")
+    with open(summary_path, "r", encoding="utf-8") as f:
+        novelty_summary = json.load(f)
+
+    assessment_path = os.path.join(out_dir, "novelty_assessment.md")
+    if not os.path.isfile(assessment_path):
+        error("NO_NOVELTY_ASSESSMENT", "novelty_assessment.md not found.")
+    with open(assessment_path, "r", encoding="utf-8") as f:
+        novelty_assessment = f.read()
+
+    jp_path = os.path.join(project_dir, "journal_profile.json")
+    journal_profile = None
+    if os.path.isfile(jp_path):
+        with open(jp_path, "r", encoding="utf-8") as f:
+            journal_profile = json.load(f)
+
+    prov = LLMProvider(
+        name=slot, provider=provider, base_url=base_url,
+        model=model, api_key=resolved_key,
+    )
+
+    # Step 1: Generate candidates
+    emit("progress", task=task_id, step="generating_candidates", percent=30,
+         slot=slot, model=model)
+
+    cand_msgs = build_novelty_comment_candidates_messages(
+        novelty_summary, novelty_assessment, journal_profile)
+
+    cand_result = chat_completion(prov, cand_msgs, max_tokens=8192,
+                                   temperature=0.0, timeout_seconds=120,
+                                   thinking_enabled=thinking_enabled)
+
+    if not cand_result["ok"]:
+        _log_llm_call(project_dir, slot, task_id, model, "key=provided",
+                      success=False, error=cand_result.get("error"),
+                      latency_ms=cand_result.get("latency_ms"))
+        error("LLM_CONNECTION_FAILED",
+              f"Candidate generation failed: {cand_result.get('error', 'Unknown')}")
+
+    parsed = parse_llm_json(cand_result["content"])
+    if parsed is None:
+        error("LLM_INVALID_JSON", "Failed to parse candidates JSON.")
+
+    # Save candidates
+    cand_path = os.path.join(out_dir, "novelty_review_comment_candidates.json")
+    with open(cand_path, "w", encoding="utf-8") as f:
+        json.dump(parsed, f, indent=2, ensure_ascii=False)
+
+    cand_count = len(parsed.get("candidates", []))
+
+    # Step 2: Auto-select high+medium candidates and compose
+    emit("progress", task=task_id, step="composing", percent=70,
+         slot=slot, candidate_count=cand_count)
+
+    selected = [
+        c for c in parsed.get("candidates", [])
+        if c.get("recommendation") in ("high", "medium")
+    ]
+    if not selected:
+        selected = parsed.get("candidates", [])  # fallback: use all
+
+    selected_json = json.dumps({"candidates": selected}, ensure_ascii=False, indent=2)
+
+    comp_msgs = build_novelty_comment_compose_messages(
+        selected_json, language, journal_profile)
+
+    comp_result = chat_completion(prov, comp_msgs, max_tokens=8192,
+                                   temperature=0.0, timeout_seconds=120,
+                                   thinking_enabled=thinking_enabled)
+
+    if not comp_result["ok"]:
+        _log_llm_call(project_dir, slot, task_id, model, "key=provided",
+                      success=False, error=comp_result.get("error"),
+                      latency_ms=comp_result.get("latency_ms"))
+        error("LLM_CONNECTION_FAILED",
+              f"Compose failed: {comp_result.get('error', 'Unknown')}")
+
+    content = comp_result["content"]
+
+    # Save
+    emit("progress", task=task_id, step="save", percent=90, slot=slot)
+    out_path = os.path.join(out_dir, "novelty_review_comment_auto.md")
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write(content)
+
+    now = datetime.now(JST)
+    with open(proj_path, "r", encoding="utf-8") as f:
+        proj = json.load(f)
+    proj.setdefault("novelty", {})["comment_auto_at"] = now.isoformat()
+    proj["updated_at"] = now.isoformat()
+    with open(proj_path, "w", encoding="utf-8") as f:
+        json.dump(proj, f, indent=2, ensure_ascii=False)
+
+    emit("done", task=task_id, slot=slot, model=comp_result.get("model"),
+         content=content, content_length=len(content),
+         candidate_count=cand_count, selected_count=len(selected),
+         language=language,
+         message=f"Auto-generated review comment from {len(selected)}/{cand_count} candidates ({language}).")
 
 
 if __name__ == "__main__":

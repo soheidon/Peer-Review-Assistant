@@ -203,6 +203,55 @@ function App() {
       reviewer_guidance: "",
       editorial_policy_summary: "",
     },
+    publication_criteria: {
+      novelty_required: "unknown",
+      impact_required: "unknown",
+      significance_required: "unknown",
+      technical_soundness_focus: "unknown",
+      methodological_rigour_focus: "unknown",
+      statistical_rigour_focus: "unknown",
+      conclusion_supported_by_data_focus: "unknown",
+      ethical_robustness_focus: "unknown",
+      data_availability_focus: "unknown",
+      reproducibility_transparency_focus: "unknown",
+    },
+    research_type_acceptance: {
+      accepts_incremental_research: "unknown",
+      accepts_confirmatory_research: "unknown",
+      accepts_replication: "unknown",
+      accepts_negative_or_null_results: "unknown",
+      accepts_niche_scope: "unknown",
+      accepts_multidisciplinary_work: "unknown",
+    },
+    journal_position: {
+      multidisciplinary_mega_journal: "unknown",
+      broad_scope_journal: "unknown",
+      field_specific_high_impact_journal: "unknown",
+      clinical_high_impact_journal: "unknown",
+      society_journal: "unknown",
+      journal_position_summary: "",
+    },
+    metrics: {
+      impact_factor: "",
+      five_year_impact_factor: "",
+      cite_score: "",
+      sjr: "",
+      snip: "",
+      quartile: "",
+      category_rankings: "",
+      indexing: "",
+      acceptance_rate_if_available: "",
+    },
+    submission_strategy: {
+      suitable_novelty_strategy: "",
+      suitable_framing_strategy: "",
+      unsuitable_claims: "",
+      claims_to_avoid: "",
+      reviewer_likely_concerns: "",
+      manuscript_strengths_to_emphasize: "",
+      manuscript_weaknesses_to_control: "",
+    },
+    sources: [],
     notes: "",
     source: "manual",
     source_details: "",
@@ -463,6 +512,67 @@ function App() {
           setJournalLoaded(true);
           setJournalSaved(true);
         } catch { /* journal_profile.json not found — that's fine */ }
+
+        // Restore novelty check state from persisted files
+        const noveltyDir = "outputs/novelty";
+        try {
+          // Phase 1: Paper summary
+          if (await checkFile(`${noveltyDir}/novelty_summary.json`)) {
+            const raw = await invoke<string>("read_text_file", { path: `${base}/${noveltyDir}/novelty_summary.json` });
+            setNoveltySummaryContent(raw);
+            setNoveltySummaryDone(true);
+          }
+        } catch { /* novelty_summary.json not found */ }
+        try {
+          // Phase 2: Deep Research prompts
+          const hasBroad = await checkFile(`${noveltyDir}/deep_research_prompt_broad.md`);
+          const hasCritical = await checkFile(`${noveltyDir}/deep_research_prompt_critical.md`);
+          if (hasBroad || hasCritical) {
+            if (hasBroad) {
+              const raw = await invoke<string>("read_text_file", { path: `${base}/${noveltyDir}/deep_research_prompt_broad.md` });
+              setNoveltyPromptBroad(raw);
+            }
+            if (hasCritical) {
+              const raw = await invoke<string>("read_text_file", { path: `${base}/${noveltyDir}/deep_research_prompt_critical.md` });
+              setNoveltyPromptCritical(raw);
+            }
+            setNoveltyPromptDone(true);
+          }
+        } catch { /* prompts not found */ }
+        try {
+          // Phase 3: Deep Research results
+          if (await checkFile(`${noveltyDir}/deep_research_meta.json`)) {
+            const metaRaw = await invoke<string>("read_text_file", { path: `${base}/${noveltyDir}/deep_research_meta.json` });
+            const meta = JSON.parse(metaRaw);
+            if (meta.a) {
+              let aText = "";
+              try { aText = await invoke<string>("read_text_file", { path: `${base}/${noveltyDir}/deep_research_a.txt` }); } catch { /* ok */ }
+              setNoveltyDrA({ source_name: meta.a.source_name || "", executed_at: meta.a.executed_at || "", text: aText, notes: meta.a.notes || "" });
+            }
+            if (meta.b) {
+              let bText = "";
+              try { bText = await invoke<string>("read_text_file", { path: `${base}/${noveltyDir}/deep_research_b.txt` }); } catch { /* ok */ }
+              setNoveltyDrB({ source_name: meta.b.source_name || "", executed_at: meta.b.executed_at || "", text: bText, notes: meta.b.notes || "" });
+            }
+            setNoveltyDrSaved(true);
+          }
+        } catch { /* deep research results not found */ }
+        try {
+          // Phase 4: Merge result
+          if (await checkFile(`${noveltyDir}/deep_research_merged.md`)) {
+            const raw = await invoke<string>("read_text_file", { path: `${base}/${noveltyDir}/deep_research_merged.md` });
+            setNoveltyMergeContent(raw);
+            setNoveltyMergeDone(true);
+          }
+        } catch { /* not found */ }
+        try {
+          // Phase 5: Assessment
+          if (await checkFile(`${noveltyDir}/novelty_assessment.md`)) {
+            const raw = await invoke<string>("read_text_file", { path: `${base}/${noveltyDir}/novelty_assessment.md` });
+            setNoveltyAssessmentContent(raw);
+            setNoveltyAssessDone(true);
+          }
+        } catch { /* not found */ }
 
         // Restore app settings (LLM slot config, DB API config — no API keys)
         // Pass explicit path since React state hasn't updated yet
@@ -1473,29 +1583,28 @@ function App() {
   const [llmReferenceProcessRunning, setLlmReferenceProcessRunning] = useState(false);
 
   // ── Novelty check states ──
-  const [noveltyTargetJournal, setNoveltyTargetJournal] = useState("");
+  // ── Novelty check states (7-phase pipeline) ─────────────────────────
+  // Phase 1: Paper summary
   const [noveltySummaryDone, setNoveltySummaryDone] = useState(false);
   const [noveltySummaryRunning, setNoveltySummaryRunning] = useState(false);
   const [noveltySummaryContent, setNoveltySummaryContent] = useState("");
-  const [noveltyDeepResearchPrompt, setNoveltyDeepResearchPrompt] = useState("");
-  const [noveltyDeepResearchDone, setNoveltyDeepResearchDone] = useState(false);
-  const [noveltyDeepResearchInput, setNoveltyDeepResearchInput] = useState("");
-  const [noveltyDeepResearchSaved, setNoveltyDeepResearchSaved] = useState(false);
+  // Phase 2: Deep Research prompts
+  const [noveltyPromptBroad, setNoveltyPromptBroad] = useState("");
+  const [noveltyPromptCritical, setNoveltyPromptCritical] = useState("");
+  const [noveltyPromptDone, setNoveltyPromptDone] = useState(false);
+  // Phase 3: Deep Research results (A/B)
+  const defaultDrEntry = { source_name: "", executed_at: "", text: "", notes: "" };
+  const [noveltyDrA, setNoveltyDrA] = useState<{ source_name: string; executed_at: string; text: string; notes: string }>({ ...defaultDrEntry });
+  const [noveltyDrB, setNoveltyDrB] = useState<{ source_name: string; executed_at: string; text: string; notes: string }>({ ...defaultDrEntry });
+  const [noveltyDrSaved, setNoveltyDrSaved] = useState(false);
+  // Phase 4: Merge
+  const [noveltyMergeDone, setNoveltyMergeDone] = useState(false);
+  const [noveltyMergeRunning, setNoveltyMergeRunning] = useState(false);
+  const [noveltyMergeContent, setNoveltyMergeContent] = useState("");
+  // Phase 5: Assessment
   const [noveltyAssessDone, setNoveltyAssessDone] = useState(false);
   const [noveltyAssessRunning, setNoveltyAssessRunning] = useState(false);
   const [noveltyAssessmentContent, setNoveltyAssessmentContent] = useState("");
-  const [noveltyCommentDone, setNoveltyCommentDone] = useState(false);
-  const [noveltyCommentRunning, setNoveltyCommentRunning] = useState(false);
-  const [noveltyCommentContent, setNoveltyCommentContent] = useState("");
-
-  // Auto-populate novelty target journal from journal profile
-  useEffect(() => {
-    if (!noveltyTargetJournal.trim() && journalProfile.journal_name.trim()) {
-      setNoveltyTargetJournal(journalProfile.journal_name.trim());
-    }
-    // Only run when journal profile loads and novelty target is empty
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [journalProfile.journal_name]);
 
   /** Run LLM re-parse + flags + viewer data refresh in one operation.
    *  Human decisions in human_reference_decisions.json are automatically
@@ -2411,8 +2520,14 @@ function App() {
     setNoveltySummaryRunning(true);
     setNoveltySummaryDone(false);
     setNoveltySummaryContent("");
-    setNoveltyDeepResearchDone(false);
-    setNoveltyDeepResearchPrompt("");
+    setNoveltyPromptDone(false);
+    setNoveltyPromptBroad("");
+    setNoveltyPromptCritical("");
+    setNoveltyDrSaved(false);
+    setNoveltyMergeDone(false);
+    setNoveltyMergeContent("");
+    setNoveltyAssessDone(false);
+    setNoveltyAssessmentContent("");
     setStatusMessage(null);
     addLog({ event: "info", message: `Running novelty summarize on ${slotDisplayName(slotName)}...` });
 
@@ -2423,9 +2538,6 @@ function App() {
         "--project", projectPath,
         "--slot", slotName,
       ], slot.proModel, "pro");
-      if (noveltyTargetJournal.trim()) {
-        args.push("--target-journal", noveltyTargetJournal.trim());
-      }
       const cmd = Command.create("pra-cli", args);
       const output = await cmd.execute();
       parseOutput(output.stdout);
@@ -2460,34 +2572,32 @@ function App() {
       return;
     }
 
-    setNoveltyDeepResearchDone(false);
-    setNoveltyDeepResearchPrompt("");
+    setNoveltyPromptDone(false);
+    setNoveltyPromptBroad("");
+    setNoveltyPromptCritical("");
     setStatusMessage(null);
-    addLog({ event: "info", message: "Generating Deep Research prompt..." });
+    addLog({ event: "info", message: "Generating Deep Research prompts (broad + critical)..." });
 
     try {
       const { Command } = await import("@tauri-apps/plugin-shell");
-      const args = ["novelty-deep-research-prompt", "--project", projectPath];
-      if (noveltyTargetJournal.trim()) {
-        args.push("--target-journal", noveltyTargetJournal.trim());
-      }
+      const args = ["novelty-deep-research-prompt", "--project", projectPath, "--prompt-kind", "both"];
       const cmd = Command.create("pra-cli", args);
       const output = await cmd.execute();
       parseOutput(output.stdout);
       if (output.stderr) addLog({ event: "stderr", message: output.stderr });
 
       if (output.code === 0) {
-        setNoveltyDeepResearchDone(true);
-        // Load the generated prompt
+        setNoveltyPromptDone(true);
         try {
           const { invoke } = await import("@tauri-apps/api/core");
-          const path = `${projectPath.replace(/\\/g, "/")}/outputs/novelty/deep_research_prompt.md`;
-          const raw = await invoke<string>("read_text_file", { path });
-          setNoveltyDeepResearchPrompt(raw);
-        } catch {
-          // File might not be readable immediately
-        }
-        setStatusMessage({ text: "Deep Researchプロンプトを生成しました。", type: "ok" });
+          const broadPath = `${projectPath.replace(/\\/g, "/")}/outputs/novelty/deep_research_prompt_broad.md`;
+          const criticalPath = `${projectPath.replace(/\\/g, "/")}/outputs/novelty/deep_research_prompt_critical.md`;
+          const broad = await invoke<string>("read_text_file", { path: broadPath });
+          const critical = await invoke<string>("read_text_file", { path: criticalPath });
+          setNoveltyPromptBroad(broad);
+          setNoveltyPromptCritical(critical);
+        } catch { /* File might not be readable immediately */ }
+        setStatusMessage({ text: "Deep Researchプロンプトを生成しました（広範囲探索用 + 批判的検証用）。", type: "ok" });
       } else {
         setStatusMessage({ text: "Deep Researchプロンプトの生成に失敗しました。", type: "error" });
       }
@@ -2497,14 +2607,32 @@ function App() {
     }
   };
 
-  const saveNoveltyDeepResearchInput = async () => {
-    if (!projectPath.trim() || !noveltyDeepResearchInput.trim()) return;
+  const saveDeepResearch = async (slot: "A" | "B", data: { source_name: string; executed_at: string; text: string; notes: string }) => {
+    if (!projectPath.trim()) return;
     try {
       const { invoke } = await import("@tauri-apps/api/core");
-      const path = `${projectPath.replace(/\\/g, "/")}/outputs/novelty/deep_research_input.txt`;
-      await invoke("write_text_file", { path, content: noveltyDeepResearchInput });
-      setNoveltyDeepResearchSaved(true);
-      setStatusMessage({ text: "Deep Research結果を保存しました。", type: "ok" });
+      const base = `${projectPath.replace(/\\/g, "/")}/outputs/novelty`;
+      // Save individual text file
+      const txtPath = slot === "A" ? `${base}/deep_research_a.txt` : `${base}/deep_research_b.txt`;
+      await invoke("write_text_file", { path: txtPath, content: data.text });
+      // Save/update meta JSON
+      const metaPath = `${base}/deep_research_meta.json`;
+      let meta: Record<string, unknown> = {};
+      try {
+        const existing = await invoke<string>("read_text_file", { path: metaPath });
+        meta = JSON.parse(existing);
+      } catch { /* file doesn't exist yet */ }
+      meta[slot === "A" ? "a" : "b"] = {
+        source_name: data.source_name,
+        executed_at: data.executed_at,
+        notes: data.notes,
+        saved_at: new Date().toISOString(),
+      };
+      await invoke("write_text_file", { path: metaPath, content: JSON.stringify(meta, null, 2) });
+
+      if (slot === "A") setNoveltyDrA(data); else setNoveltyDrB(data);
+      setNoveltyDrSaved(true);
+      setStatusMessage({ text: `Deep Research結果${slot}を保存しました。`, type: "ok" });
     } catch (e: unknown) {
       addLog({ event: "error", message: e instanceof Error ? e.message : String(e) });
       setStatusMessage({ text: "保存に失敗しました。", type: "error" });
@@ -2523,8 +2651,6 @@ function App() {
     setNoveltyAssessRunning(true);
     setNoveltyAssessDone(false);
     setNoveltyAssessmentContent("");
-    setNoveltyCommentDone(false);
-    setNoveltyCommentContent("");
     setStatusMessage(null);
     addLog({ event: "info", message: `Running novelty assess on ${slotDisplayName(slotName)}...` });
 
@@ -2535,9 +2661,6 @@ function App() {
         "--project", projectPath,
         "--slot", slotName,
       ], slot.proModel, "pro");
-      if (noveltyTargetJournal.trim()) {
-        args.push("--target-journal", noveltyTargetJournal.trim());
-      }
       const cmd = Command.create("pra-cli", args);
       const output = await cmd.execute();
       parseOutput(output.stdout);
@@ -2565,7 +2688,7 @@ function App() {
     }
   };
 
-  const runNoveltyReviewComment = async (slotName: string) => {
+  const runNoveltyMerge = async (slotName: string) => {
     const slot = llmSlots.find((s) => s.name === slotName);
     if (!slot) return;
 
@@ -2574,46 +2697,43 @@ function App() {
       return;
     }
 
-    setNoveltyCommentRunning(true);
-    setNoveltyCommentDone(false);
-    setNoveltyCommentContent("");
+    setNoveltyMergeRunning(true);
+    setNoveltyMergeDone(false);
+    setNoveltyMergeContent("");
+    setNoveltyAssessDone(false);
+    setNoveltyAssessmentContent("");
     setStatusMessage(null);
-    addLog({ event: "info", message: `Running novelty review comment on ${slotDisplayName(slotName)}...` });
+    addLog({ event: "info", message: `Running novelty merge on ${slotDisplayName(slotName)}...` });
 
     try {
       const { Command } = await import("@tauri-apps/plugin-shell");
       const args = buildLlmArgs(slot, [
-        "novelty-review-comment",
+        "novelty-merge-research",
         "--project", projectPath,
         "--slot", slotName,
       ], slot.proModel, "pro");
-      if (noveltyTargetJournal.trim()) {
-        args.push("--target-journal", noveltyTargetJournal.trim());
-      }
       const cmd = Command.create("pra-cli", args);
       const output = await cmd.execute();
       parseOutput(output.stdout);
       if (output.stderr) addLog({ event: "stderr", message: output.stderr });
 
       if (output.code === 0) {
-        setNoveltyCommentDone(true);
+        setNoveltyMergeDone(true);
         try {
           const { invoke } = await import("@tauri-apps/api/core");
-          const path = `${projectPath.replace(/\\/g, "/")}/outputs/novelty/novelty_review_comment.md`;
+          const path = `${projectPath.replace(/\\/g, "/")}/outputs/novelty/deep_research_merged.md`;
           const raw = await invoke<string>("read_text_file", { path });
-          setNoveltyCommentContent(raw);
-        } catch {
-          // File might not be readable immediately
-        }
-        setStatusMessage({ text: "最終査読コメント用の新規性説明を生成しました。", type: "ok" });
+          setNoveltyMergeContent(raw);
+        } catch { /* File might not be readable immediately */ }
+        setStatusMessage({ text: "Deep Research結果を統合しました。", type: "ok" });
       } else {
-        setStatusMessage({ text: "新規性説明の生成に失敗しました。", type: "error" });
+        setStatusMessage({ text: "Deep Research統合に失敗しました。", type: "error" });
       }
     } catch (e: unknown) {
       addLog({ event: "error", message: e instanceof Error ? e.message : String(e) });
-      setStatusMessage({ text: "新規性説明の生成でエラーが発生しました。", type: "error" });
+      setStatusMessage({ text: "Deep Research統合でエラーが発生しました。", type: "error" });
     } finally {
-      setNoveltyCommentRunning(false);
+      setNoveltyMergeRunning(false);
     }
   };
 
@@ -3377,27 +3497,28 @@ function App() {
               sectionsDone={sectionsDone}
               viewerDataReady={viewerDataReady}
               llmSlots={llmSlots}
-              noveltyTargetJournal={noveltyTargetJournal}
-              onTargetJournalChange={setNoveltyTargetJournal}
+              journalProfile={journalProfile}
+              journalLoaded={journalLoaded}
               noveltySummaryDone={noveltySummaryDone}
               noveltySummaryRunning={noveltySummaryRunning}
               noveltySummaryContent={noveltySummaryContent}
               onNoveltySummarize={runNoveltySummarize}
-              noveltyDeepResearchPrompt={noveltyDeepResearchPrompt}
-              noveltyDeepResearchDone={noveltyDeepResearchDone}
+              noveltyPromptBroad={noveltyPromptBroad}
+              noveltyPromptCritical={noveltyPromptCritical}
+              noveltyPromptDone={noveltyPromptDone}
               onNoveltyDeepResearchPrompt={runNoveltyDeepResearchPrompt}
-              noveltyDeepResearchInput={noveltyDeepResearchInput}
-              noveltyDeepResearchSaved={noveltyDeepResearchSaved}
-              onDeepResearchInputChange={setNoveltyDeepResearchInput}
-              onSaveDeepResearchInput={saveNoveltyDeepResearchInput}
+              noveltyDrA={noveltyDrA}
+              noveltyDrB={noveltyDrB}
+              noveltyDrSaved={noveltyDrSaved}
+              onSaveDeepResearch={saveDeepResearch}
+              noveltyMergeDone={noveltyMergeDone}
+              noveltyMergeRunning={noveltyMergeRunning}
+              noveltyMergeContent={noveltyMergeContent}
+              onNoveltyMerge={runNoveltyMerge}
               noveltyAssessDone={noveltyAssessDone}
               noveltyAssessRunning={noveltyAssessRunning}
               noveltyAssessmentContent={noveltyAssessmentContent}
               onNoveltyAssess={runNoveltyAssess}
-              noveltyCommentDone={noveltyCommentDone}
-              noveltyCommentRunning={noveltyCommentRunning}
-              noveltyCommentContent={noveltyCommentContent}
-              onNoveltyReviewComment={runNoveltyReviewComment}
               onNavigateToSettings={() => setActiveView("settings")}
               statusMessage={statusMessage}
             />

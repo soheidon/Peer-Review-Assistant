@@ -44,6 +44,61 @@ DEFAULT_JOURNAL_PROFILE = {
         "reviewer_guidance": "",
         "editorial_policy_summary": "",
     },
+    # ── Publication criteria / evaluation axis ──
+    "publication_criteria": {
+        "novelty_required": "unknown",
+        "impact_required": "unknown",
+        "significance_required": "unknown",
+        "technical_soundness_focus": "unknown",
+        "methodological_rigour_focus": "unknown",
+        "statistical_rigour_focus": "unknown",
+        "conclusion_supported_by_data_focus": "unknown",
+        "ethical_robustness_focus": "unknown",
+        "data_availability_focus": "unknown",
+        "reproducibility_transparency_focus": "unknown",
+    },
+    # ── Research type acceptance ──
+    "research_type_acceptance": {
+        "accepts_incremental_research": "unknown",
+        "accepts_confirmatory_research": "unknown",
+        "accepts_replication": "unknown",
+        "accepts_negative_or_null_results": "unknown",
+        "accepts_niche_scope": "unknown",
+        "accepts_multidisciplinary_work": "unknown",
+    },
+    # ── Journal positioning ──
+    "journal_position": {
+        "multidisciplinary_mega_journal": "unknown",
+        "broad_scope_journal": "unknown",
+        "field_specific_high_impact_journal": "unknown",
+        "clinical_high_impact_journal": "unknown",
+        "society_journal": "unknown",
+        "journal_position_summary": "",
+    },
+    # ── Metrics ──
+    "metrics": {
+        "impact_factor": "",
+        "five_year_impact_factor": "",
+        "cite_score": "",
+        "sjr": "",
+        "snip": "",
+        "quartile": "",
+        "category_rankings": "",
+        "indexing": "",
+        "acceptance_rate_if_available": "",
+    },
+    # ── Submission strategy ──
+    "submission_strategy": {
+        "suitable_novelty_strategy": "",
+        "suitable_framing_strategy": "",
+        "unsuitable_claims": "",
+        "claims_to_avoid": "",
+        "reviewer_likely_concerns": "",
+        "manuscript_strengths_to_emphasize": "",
+        "manuscript_weaknesses_to_control": "",
+    },
+    # ── Sources ──
+    "sources": [],
     "notes": "",
     "source": "manual",
     "source_details": "",
@@ -82,20 +137,73 @@ JOURNAL_PROFILE_SCHEMA_DESC = """{
     "reviewer_guidance": "string",
     "editorial_policy_summary": "string"
   },
+  "publication_criteria": {
+    "novelty_required": "high | moderate | low | not_explicitly_required | unknown",
+    "impact_required": "high | moderate | low | not_explicitly_required | unknown",
+    "significance_required": "high | moderate | low | not_explicitly_required | unknown",
+    "technical_soundness_focus": "true | false | unknown",
+    "methodological_rigour_focus": "true | false | unknown",
+    "statistical_rigour_focus": "true | false | unknown",
+    "conclusion_supported_by_data_focus": "true | false | unknown",
+    "ethical_robustness_focus": "true | false | unknown",
+    "data_availability_focus": "true | false | unknown",
+    "reproducibility_transparency_focus": "true | false | unknown"
+  },
+  "research_type_acceptance": {
+    "accepts_incremental_research": "true | false | unknown",
+    "accepts_confirmatory_research": "true | false | unknown",
+    "accepts_replication": "true | false | unknown",
+    "accepts_negative_or_null_results": "true | false | unknown",
+    "accepts_niche_scope": "true | false | unknown",
+    "accepts_multidisciplinary_work": "true | false | unknown"
+  },
+  "journal_position": {
+    "multidisciplinary_mega_journal": "true | false | unknown",
+    "broad_scope_journal": "true | false | unknown",
+    "field_specific_high_impact_journal": "true | false | unknown",
+    "clinical_high_impact_journal": "true | false | unknown",
+    "society_journal": "true | false | unknown",
+    "journal_position_summary": "string (1-2 sentence summary)"
+  },
+  "metrics": {
+    "impact_factor": "string (number or empty if unknown)",
+    "five_year_impact_factor": "string",
+    "cite_score": "string",
+    "sjr": "string (SCImago Journal Rank)",
+    "snip": "string (Source Normalized Impact per Paper)",
+    "quartile": "string (Q1 | Q2 | Q3 | Q4)",
+    "category_rankings": "string (e.g. '15/120 in Neuroscience')",
+    "indexing": "string (e.g. 'Scopus, Web of Science, PubMed, EMBASE')",
+    "acceptance_rate_if_available": "string"
+  },
+  "submission_strategy": {
+    "suitable_novelty_strategy": "string (how to position novelty for this journal)",
+    "suitable_framing_strategy": "string (how to frame the contribution)",
+    "unsuitable_claims": "string (what claims to avoid)",
+    "claims_to_avoid": "string (specific claims that reviewers dislike)",
+    "reviewer_likely_concerns": "string",
+    "manuscript_strengths_to_emphasize": "string",
+    "manuscript_weaknesses_to_control": "string"
+  },
+  "sources": [{"url": "string", "title": "string", "accessed_at": "string (ISO datetime)", "retrieved_text_summary": "string"}],
   "notes": "string (free notes)"
 }"""
 
 JOURNAL_PROFILE_SYSTEM_PROMPT = """\
 You are a scholarly publishing expert. Your task is to research a target journal
 and produce structured information about its submission guidelines, citation style,
-and review policies.
+review policies, publication criteria, journal positioning, and metrics.
 
 IMPORTANT RULES:
-- Only include information you are confident about. Use null or empty strings for unknown fields.
-- DO NOT fabricate or guess information. If you don't know, say so with null/empty.
-- Prioritize information from the journal's official submission guidelines page.
-- Focus especially on: in-text citation format, reference list format, DOI/URL handling,
-  data availability policy, ethics policy, and methodological/statistical reporting requirements.
+- Only include information you are confident about. Use null, empty strings, or "unknown" for unknown fields.
+- DO NOT fabricate or guess information. If you don't know, say so with null/empty/"unknown".
+- Prioritize information from the journal's official submission guidelines page, aims & scope, and guide to referees.
+- For the publication_criteria section, determine whether this journal emphasizes thematic novelty/impact OR technical soundness/methodological rigor. Some journals (e.g. Scientific Reports, PLOS ONE) explicitly state they prioritize soundness over novelty.
+- For rating fields (novelty_required, impact_required, significance_required), use "high"/"moderate"/"low"/"not_explicitly_required"/"unknown".
+- For boolean fields, use "true"/"false"/"unknown".
+- Search for journal metrics (Impact Factor, CiteScore, SJR, quartile, etc.) using your knowledge. Fill in what you know.
+- For the submission_strategy section, provide actionable guidance based on the journal's known editorial preferences.
+- Use your knowledge of the journal. If uncertain, mark as "unknown" rather than guessing.
 - Output ONLY valid JSON — no markdown, no explanations, no code fences.
 
 The output must match the following JSON schema exactly:"""
@@ -176,6 +284,12 @@ def _build_journal_markdown(profile):
     rs = profile.get("reference_style", {})
     sg = profile.get("submission_guidelines", {})
     rp = profile.get("review_policy", {})
+    pc = profile.get("publication_criteria", {})
+    rt = profile.get("research_type_acceptance", {})
+    jp = profile.get("journal_position", {})
+    mx = profile.get("metrics", {})
+    ss = profile.get("submission_strategy", {})
+    sources = profile.get("sources", [])
 
     lines = [
         f"# Journal Profile: {profile.get('journal_name', '(unknown)')}",
@@ -227,6 +341,71 @@ def _build_journal_markdown(profile):
         f"- **Reviewer Guidance**: {rp.get('reviewer_guidance') or '(not set)'}",
         f"- **Editorial Policy Summary**: {rp.get('editorial_policy_summary') or '(not set)'}",
         "",
+        "## Publication Criteria / Evaluation Axis",
+        "",
+        f"- **Novelty Required**: {pc.get('novelty_required', 'unknown')}",
+        f"- **Impact Required**: {pc.get('impact_required', 'unknown')}",
+        f"- **Significance Required**: {pc.get('significance_required', 'unknown')}",
+        f"- **Technical Soundness Focus**: {pc.get('technical_soundness_focus', 'unknown')}",
+        f"- **Methodological Rigour Focus**: {pc.get('methodological_rigour_focus', 'unknown')}",
+        f"- **Statistical Rigour Focus**: {pc.get('statistical_rigour_focus', 'unknown')}",
+        f"- **Conclusion-Supported-by-Data Focus**: {pc.get('conclusion_supported_by_data_focus', 'unknown')}",
+        f"- **Ethical Robustness Focus**: {pc.get('ethical_robustness_focus', 'unknown')}",
+        f"- **Data Availability Focus**: {pc.get('data_availability_focus', 'unknown')}",
+        f"- **Reproducibility/Transparency Focus**: {pc.get('reproducibility_transparency_focus', 'unknown')}",
+        "",
+        "## Research Type Acceptance",
+        "",
+        f"- **Incremental Research**: {rt.get('accepts_incremental_research', 'unknown')}",
+        f"- **Confirmatory Research**: {rt.get('accepts_confirmatory_research', 'unknown')}",
+        f"- **Replication**: {rt.get('accepts_replication', 'unknown')}",
+        f"- **Negative/Null Results**: {rt.get('accepts_negative_or_null_results', 'unknown')}",
+        f"- **Niche Scope**: {rt.get('accepts_niche_scope', 'unknown')}",
+        f"- **Multidisciplinary Work**: {rt.get('accepts_multidisciplinary_work', 'unknown')}",
+        "",
+        "## Journal Positioning",
+        "",
+        f"- **Multidisciplinary Mega-Journal**: {jp.get('multidisciplinary_mega_journal', 'unknown')}",
+        f"- **Broad-Scope Journal**: {jp.get('broad_scope_journal', 'unknown')}",
+        f"- **Field-Specific High-Impact**: {jp.get('field_specific_high_impact_journal', 'unknown')}",
+        f"- **Clinical High-Impact**: {jp.get('clinical_high_impact_journal', 'unknown')}",
+        f"- **Society Journal**: {jp.get('society_journal', 'unknown')}",
+        f"- **Summary**: {jp.get('journal_position_summary', '') or '(not set)'}",
+        "",
+        "## Metrics",
+        "",
+        f"- **Impact Factor**: {mx.get('impact_factor') or '(not set)'}",
+        f"- **5-Year IF**: {mx.get('five_year_impact_factor') or '(not set)'}",
+        f"- **CiteScore**: {mx.get('cite_score') or '(not set)'}",
+        f"- **SJR**: {mx.get('sjr') or '(not set)'}",
+        f"- **SNIP**: {mx.get('snip') or '(not set)'}",
+        f"- **Quartile**: {mx.get('quartile') or '(not set)'}",
+        f"- **Category Rankings**: {mx.get('category_rankings') or '(not set)'}",
+        f"- **Indexing**: {mx.get('indexing') or '(not set)'}",
+        f"- **Acceptance Rate**: {mx.get('acceptance_rate_if_available') or '(not set)'}",
+        "",
+        "## Submission Strategy",
+        "",
+        f"- **Novelty Strategy**: {ss.get('suitable_novelty_strategy') or '(not set)'}",
+        f"- **Framing Strategy**: {ss.get('suitable_framing_strategy') or '(not set)'}",
+        f"- **Unsuitable Claims**: {ss.get('unsuitable_claims') or '(not set)'}",
+        f"- **Claims to Avoid**: {ss.get('claims_to_avoid') or '(not set)'}",
+        f"- **Reviewer Concerns**: {ss.get('reviewer_likely_concerns') or '(not set)'}",
+        f"- **Strengths to Emphasize**: {ss.get('manuscript_strengths_to_emphasize') or '(not set)'}",
+        f"- **Weaknesses to Control**: {ss.get('manuscript_weaknesses_to_control') or '(not set)'}",
+        "",
+    ])
+
+    if sources:
+        lines.append("## Sources")
+        lines.append("")
+        for src in sources:
+            lines.append(f"- [{src.get('title', 'Untitled')}]({src.get('url', '')}) — accessed {src.get('accessed_at', '')}")
+            if src.get('retrieved_text_summary'):
+                lines.append(f"  {src['retrieved_text_summary']}")
+        lines.append("")
+
+    lines.extend([
         "## Notes",
         "",
         profile.get("notes", "") or "(none)",

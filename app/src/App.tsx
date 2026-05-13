@@ -3526,7 +3526,7 @@ function App() {
 
           {activeView === "review" && (
             <ReviewChecksPanel
-              crossrefDone={crossrefDone}
+              projectPath={projectPath}
               llmSlots={llmSlots}
               structureCheckResults={structureCheckResults}
               expressionCheckResults={expressionCheckResults}

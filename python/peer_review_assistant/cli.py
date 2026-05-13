@@ -3727,6 +3727,154 @@ def _log_llm_call(project_dir, slot, check_name, model, key_info,
         f.write(entry)
 
 
+@main.command(name="translate-check-result")
+@click.option("--project", "project_dir", required=True,
+              type=click.Path(file_okay=False, writable=True),
+              help="Path to the project working folder.")
+@click.option("--check", "check_name", required=True,
+              type=click.Choice(["structure", "expression", "methods_stats"]),
+              help="Check type.")
+@click.option("--slot", required=True,
+              help="LLM slot name (reviewer1, reviewer2, reviewer3).")
+@click.option("--provider", required=True,
+              help="LLM provider (e.g., openai, deepseek).")
+@click.option("--base-url", required=True,
+              help="LLM API base URL.")
+@click.option("--model", required=True,
+              help="LLM model name (use a fast/cheap model for translation).")
+@click.option("--api-key", default=None,
+              help="API key. Falls back to --api-key-env or PRA_LLM_KEY_<SLOT> env var.")
+@click.option("--api-key-env", default=None,
+              help="Environment variable name containing the API key.")
+def translate_check_result(project_dir, check_name, slot, provider, base_url, model,
+                           api_key, api_key_env):
+    """Translate a check result (summary + findings) from English to Japanese."""
+    from peer_review_assistant.llm import LLMProvider, chat_completion
+    from peer_review_assistant.llm.json_repair import parse_llm_json
+
+    emit("progress", task="translate-check", step="validate", percent=0,
+         check=check_name, slot=slot)
+
+    # Resolve API key
+    if not api_key and api_key_env:
+        api_key = _get_env(api_key_env).strip()
+    if not api_key:
+        api_key = _get_env(f"PRA_LLM_KEY_{slot.upper()}").strip()
+    if not api_key:
+        error("NO_API_KEY",
+              f"No API key provided for translation.")
+
+    # Load check result
+    src_path = os.path.join(project_dir, "outputs", check_name, f"{slot}.raw.json")
+    if not os.path.isfile(src_path):
+        error("NO_CHECK_RESULT",
+              f"Check result not found: {src_path}. Run the check first.")
+
+    with open(src_path, "r", encoding="utf-8") as f:
+        result = json.load(f)
+
+    summary = result.get("summary", "")
+    findings = result.get("findings", [])
+
+    # Build compact translation payload: only translate summary + issue + comment
+    items_to_translate = []
+    if summary.strip():
+        items_to_translate.append({"kind": "summary", "text": summary})
+    for fi in findings:
+        items_to_translate.append({
+            "kind": "finding",
+            "finding_id": fi.get("finding_id", ""),
+            "issue": fi.get("issue", ""),
+            "suggested_comment": fi.get("suggested_comment", ""),
+        })
+
+    if not items_to_translate:
+        emit("done", task="translate-check", check=check_name, slot=slot,
+             translated=False, message="Nothing to translate.")
+        return
+
+    emit("progress", task="translate-check", step="calling_llm", percent=50,
+         check=check_name, slot=slot, item_count=len(items_to_translate))
+
+    system_prompt = (
+        "You are a professional academic translator. "
+        "Translate the following peer review content from English to Japanese. "
+        "Use formal academic Japanese appropriate for scholarly peer review. "
+        "Preserve technical terms accurately. "
+        "Respond ONLY with a JSON object in this exact format:\n"
+        '{"translated":[{"kind":"summary","text_ja":"..."},'
+        '{"kind":"finding","finding_id":"...","issue_ja":"...","suggested_comment_ja":"..."}]}'
+    )
+
+    user_msg = "Translate these peer review items to Japanese:\n\n"
+    for item in items_to_translate:
+        if item["kind"] == "summary":
+            user_msg += f"[SUMMARY]\n{item['text']}\n\n"
+        else:
+            user_msg += (
+                f"[FINDING {item['finding_id']}]\n"
+                f"ISSUE: {item['issue']}\n"
+                f"SUGGESTED COMMENT: {item['suggested_comment']}\n\n"
+            )
+
+    prov = LLMProvider(name=slot, provider=provider, base_url=base_url, model=model, api_key=api_key)
+    llm_result = chat_completion(prov, [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_msg},
+    ], max_tokens=4096, temperature=0.0, timeout_seconds=120)
+
+    if not llm_result["ok"]:
+        error("LLM_CONNECTION_FAILED",
+              f"Translation LLM call failed: {llm_result.get('error', 'Unknown error')}")
+
+    emit("progress", task="translate-check", step="parsing", percent=80,
+         check=check_name, slot=slot)
+
+    parsed = parse_llm_json(llm_result["content"])
+    if parsed is None:
+        error("LLM_INVALID_JSON", "Failed to parse translation response as JSON.")
+
+    translated_items = parsed.get("translated", [])
+
+    # Build output matching source structure
+    summary_ja = ""
+    findings_ja = []
+    for ti in translated_items:
+        if ti.get("kind") == "summary":
+            summary_ja = ti.get("text_ja", "")
+        elif ti.get("kind") == "finding":
+            findings_ja.append({
+                "finding_id": ti.get("finding_id", ""),
+                "issue_ja": ti.get("issue_ja", ""),
+                "suggested_comment_ja": ti.get("suggested_comment_ja", ""),
+            })
+
+    output = {
+        "check_name": check_name,
+        "source": slot,
+        "translated_at": datetime.now(JST).isoformat(),
+        "model": llm_result.get("model"),
+        "summary_ja": summary_ja,
+        "findings_ja": findings_ja,
+    }
+
+    # Save translation
+    out_dir = os.path.join(project_dir, "outputs", check_name)
+    os.makedirs(out_dir, exist_ok=True)
+    out_path = os.path.join(out_dir, f"{slot}.translation.json")
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(output, f, indent=2, ensure_ascii=False)
+
+    emit("done",
+         task="translate-check",
+         check=check_name,
+         slot=slot,
+         model=llm_result.get("model"),
+         translated_count=len(findings_ja),
+         latency_ms=llm_result.get("latency_ms"),
+         message=f"Translation complete ({len(findings_ja)} findings translated).")
+
+
 @main.command(name="merge-section")
 @click.option("--project", "project_dir", required=True,
               type=click.Path(file_okay=False, writable=True),

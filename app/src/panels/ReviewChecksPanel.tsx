@@ -114,11 +114,23 @@ export default function ReviewChecksPanel({
   }, [projectPath]);
   const crossrefReallyDone = crossrefDone || crossrefFileOk;
 
+  interface CheckTranslation {
+    check_name: string;
+    source: string;
+    translated_at: string;
+    model: string;
+    summary_ja: string;
+    findings_ja: { finding_id: string; issue_ja: string; suggested_comment_ja: string }[];
+  }
+
   const [viewerCheck, setViewerCheck] = useState<string | null>(null);
   const [viewerSlot, setViewerSlot] = useState<string | null>(null);
   const [viewerData, setViewerData] = useState<CheckResult | null>(null);
   const [viewerLoading, setViewerLoading] = useState(false);
   const [viewerError, setViewerError] = useState<string | null>(null);
+  const [translationData, setTranslationData] = useState<CheckTranslation | null>(null);
+  const [translationLoading, setTranslationLoading] = useState(false);
+  const [translationError, setTranslationError] = useState<string | null>(null);
 
   function isReviewerConfigured(s: LlmSlot): boolean {
     if (s.enabled === false) return false;
@@ -177,7 +189,71 @@ export default function ReviewChecksPanel({
     } finally {
       setViewerLoading(false);
     }
+    // Also try loading existing translation
+    loadTranslationFile(checkName, slotName);
   };
+
+  const loadTranslationFile = async (checkName: string, slotName: string) => {
+    if (!projectPath.trim()) return;
+    setTranslationData(null);
+    setTranslationError(null);
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const path = `${projectPath.replace(/\\/g, "/")}/outputs/${checkName}/${slotName}.translation.json`;
+      const raw = await invoke<string>("read_text_file", { path });
+      const parsed = JSON.parse(raw) as CheckTranslation;
+      setTranslationData(parsed);
+    } catch {
+      // No translation yet — that's OK
+    }
+  };
+
+  const runTranslation = async () => {
+    if (!projectPath.trim() || !viewerCheck || !viewerSlot) return;
+    // Find a configured reviewer slot for translation
+    const slot = reviewers.find((s) => isReviewerConfigured(s));
+    if (!slot) {
+      setTranslationError("翻訳に使用できるLLMスロットが設定されていません。");
+      return;
+    }
+    setTranslationLoading(true);
+    setTranslationError(null);
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const args: string[] = [
+        "translate-check-result",
+        "--project", projectPath,
+        "--check", viewerCheck,
+        "--slot", viewerSlot,
+        "--provider", sanitize(slot.provider),
+        "--base-url", sanitize(slot.baseUrl),
+        "--model", sanitize(slot.proModel || slot.model),
+      ];
+      if (slot.apiKeyMode === "direct" && slot.apiKey.trim()) {
+        args.push("--api-key", slot.apiKey.trim());
+      } else if (slot.apiKeyMode === "env_var" && slot.apiKeyEnvName?.trim()) {
+        args.push("--api-key-env", slot.apiKeyEnvName.trim());
+      }
+      const cmd = Command.create("pra-cli", args);
+      const output = await cmd.execute();
+      if (output.stderr) {
+        // parseOutput not available, just log
+        console.error("translate-check-result stderr:", output.stderr);
+      }
+      if (output.code === 0) {
+        await loadTranslationFile(viewerCheck, viewerSlot);
+      } else {
+        setTranslationError("翻訳に失敗しました。ログを確認してください。");
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setTranslationError(`翻訳エラー: ${msg}`);
+    } finally {
+      setTranslationLoading(false);
+    }
+  };
+
+  const sanitize = (s: string) => (s || "").replace(/["\n\r]/g, "");
 
   const renderCheckRow = (
     checkName: string,
@@ -286,95 +362,167 @@ export default function ReviewChecksPanel({
     }}>{c === "high" ? "高" : c === "medium" ? "中" : "低"}</span>;
   };
 
-  const renderViewer = () => (
-    <div style={{ flex: 1, minWidth: 0, padding: "8px 12px", borderLeft: "1px solid #ccc", overflowY: "auto", maxHeight: "calc(100vh - 160px)" }}>
-      {viewerLoading && <div style={{ color: "#888", padding: 20 }}>読み込み中...</div>}
-      {viewerError && <div className="status-banner err" style={{ margin: 8 }}>{viewerError}</div>}
-      {viewerData && (
-        <div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8, flexWrap: "wrap" }}>
-            <h3 style={{ margin: 0 }}>
-              {CHECK_LABELS[viewerData.check_name] || viewerData.check_name}
-              {" — "}{slotDisplayName(viewerData.source)}
-            </h3>
-            <span style={{ fontSize: "11px", color: "#888" }}>{viewerData.model}</span>
-            <span style={{ fontSize: "11px", color: "#888" }}>
-              {new Date(viewerData.generated_at).toLocaleString("ja-JP")}
-            </span>
-          </div>
-
-          {/* Summary */}
-          <div style={{
-            background: "#f5f5f5", padding: "10px 14px", borderRadius: 6,
-            marginBottom: 12, fontSize: "13px", lineHeight: 1.6, whiteSpace: "pre-wrap"
-          }}>
-            {viewerData.summary}
-          </div>
-
-          {/* Findings */}
-          <div style={{ fontSize: "12px" }}>
-            <strong>指摘事項 ({viewerData.findings.length}件)</strong>
-          </div>
-          {viewerData.findings.length === 0 && (
-            <div style={{ color: "#888", padding: "12px 0" }}>指摘事項はありません。</div>
-          )}
-          {viewerData.findings.map((f, i) => (
-            <div key={f.finding_id || i} style={{
-              border: "1px solid #e0e0e0", borderRadius: 6, padding: "10px 12px",
-              marginTop: 8, background: "#fafafa"
-            }}>
-              <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6, flexWrap: "wrap" }}>
-                <strong>#{i + 1}</strong>
-                {severityBadge(f.severity)}
-                {confidenceBadge(f.confidence)}
-                <span style={{ fontSize: "11px", color: "#555" }}>{f.category}</span>
+  /** Render one finding card (English or Japanese). jaIdx maps finding index to findings_ja. */
+  const renderFindingCard = (f: CheckFinding, i: number, ja: CheckTranslation | null, lang: "en" | "ja") => {
+    const fiJa = ja?.findings_ja?.[i];
+    const issue = lang === "ja" ? (fiJa?.issue_ja || "") : f.issue;
+    const comment = lang === "ja" ? (fiJa?.suggested_comment_ja || "") : f.suggested_comment;
+    if (!issue && !comment) return null;
+    return (
+      <div key={f.finding_id || i} style={{
+        border: "1px solid #e0e0e0", borderRadius: 6, padding: "10px 12px",
+        marginTop: 8, background: "#fafafa"
+      }}>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6, flexWrap: "wrap" }}>
+          <strong>#{i + 1}</strong>
+          {severityBadge(f.severity)}
+          {confidenceBadge(f.confidence)}
+          <span style={{ fontSize: "11px", color: "#555" }}>{f.category}</span>
+        </div>
+        {/* Location (only EN side) */}
+        {lang === "en" && f.location && (
+          <div style={{ fontSize: "11px", color: "#666", marginBottom: 6 }}>
+            {f.location.section && <span>📍 {f.location.section}</span>}
+            {(f.location.paragraph_start != null) && (
+              <span> P{f.location.paragraph_start}{f.location.paragraph_end != null && f.location.paragraph_end !== f.location.paragraph_start ? `–${f.location.paragraph_end}` : ""}</span>
+            )}
+            {f.location.text_excerpt && (
+              <div style={{
+                marginTop: 2, padding: "4px 8px", background: "#fff",
+                borderLeft: "3px solid #ccc", fontSize: "11px", color: "#444",
+                fontStyle: "italic"
+              }}>
+                「{f.location.text_excerpt}」
               </div>
+            )}
+          </div>
+        )}
+        {/* Issue */}
+        {issue && (
+          <div style={{ fontSize: "13px", lineHeight: 1.5, marginBottom: comment ? 8 : 0 }}>
+            {issue}
+          </div>
+        )}
+        {/* Suggested comment */}
+        {comment && (
+          <div style={{
+            padding: "8px 12px", background: lang === "ja" ? "#fef9e7" : "#e8f4fd",
+            borderRadius: 4, fontSize: "12px", lineHeight: 1.5,
+            borderLeft: `3px solid ${lang === "ja" ? "#f39c12" : "#2196F3"}`
+          }}>
+            <div style={{
+              fontSize: "10px", fontWeight: 600, marginBottom: 2,
+              color: lang === "ja" ? "#f39c12" : "#2196F3"
+            }}>
+              {lang === "ja" ? "査読コメント案（和訳）" : "査読コメント案"}
+            </div>
+            {comment}
+          </div>
+        )}
+      </div>
+    );
+  };
 
-              {/* Location */}
-              {f.location && (
-                <div style={{ fontSize: "11px", color: "#666", marginBottom: 6 }}>
-                  {f.location.section && <span>📍 {f.location.section}</span>}
-                  {(f.location.paragraph_start != null) && (
-                    <span> P{f.location.paragraph_start}{f.location.paragraph_end != null && f.location.paragraph_end !== f.location.paragraph_start ? `–${f.location.paragraph_end}` : ""}</span>
-                  )}
-                  {f.location.text_excerpt && (
-                    <div style={{
-                      marginTop: 2, padding: "4px 8px", background: "#fff",
-                      borderLeft: "3px solid #ccc", fontSize: "11px", color: "#444",
-                      fontStyle: "italic"
-                    }}>
-                      「{f.location.text_excerpt}」
-                    </div>
-                  )}
+  const renderViewer = () => {
+    const hasTranslation = !!translationData;
+    const colStyle: React.CSSProperties = hasTranslation
+      ? { flex: 1, minWidth: 0, overflowY: "auto", padding: "0 8px" }
+      : { flex: 1, minWidth: 0, overflowY: "auto", padding: "0 8px" };
+
+    return (
+      <div style={{ flex: 1, minWidth: 0, padding: "8px 12px", borderLeft: "1px solid #ccc", overflowY: "auto", maxHeight: "calc(100vh - 160px)" }}>
+        {viewerLoading && <div style={{ color: "#888", padding: 20 }}>読み込み中...</div>}
+        {viewerError && <div className="status-banner err" style={{ margin: 8 }}>{viewerError}</div>}
+        {translationError && <div className="status-banner err" style={{ margin: 8 }}>{translationError}</div>}
+        {viewerData && (
+          <div>
+            {/* Header with translate button */}
+            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8, flexWrap: "wrap" }}>
+              <h3 style={{ margin: 0 }}>
+                {CHECK_LABELS[viewerData.check_name] || viewerData.check_name}
+                {" — "}{slotDisplayName(viewerData.source)}
+              </h3>
+              <span style={{ fontSize: "11px", color: "#888" }}>{viewerData.model}</span>
+              <span style={{ fontSize: "11px", color: "#888" }}>
+                {new Date(viewerData.generated_at).toLocaleString("ja-JP")}
+              </span>
+              <div style={{ flex: 1 }} />
+              {!hasTranslation && (
+                <button
+                  onClick={runTranslation}
+                  disabled={translationLoading}
+                  style={{ fontSize: "12px", height: "26px", padding: "2px 12px" }}
+                >
+                  {translationLoading ? "翻訳中..." : "翻訳する"}
+                </button>
+              )}
+              {hasTranslation && (
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <span className="status-chip ok" style={{ fontSize: "10px" }}>翻訳済</span>
+                  <button
+                    onClick={runTranslation}
+                    disabled={translationLoading}
+                    style={{ fontSize: "11px", height: "24px", padding: "1px 8px" }}
+                  >
+                    {translationLoading ? "翻訳中..." : "再翻訳"}
+                  </button>
                 </div>
               )}
-
-              {/* Issue */}
-              <div style={{ fontSize: "13px", lineHeight: 1.5, marginBottom: 8 }}>
-                {f.issue}
-              </div>
-
-              {/* Suggested comment */}
-              <div style={{
-                padding: "8px 12px", background: "#e8f4fd", borderRadius: 4,
-                fontSize: "12px", lineHeight: 1.5, borderLeft: "3px solid #2196F3"
-              }}>
-                <div style={{ fontSize: "10px", color: "#2196F3", fontWeight: 600, marginBottom: 2 }}>
-                  査読コメント案
-                </div>
-                {f.suggested_comment}
-              </div>
             </div>
-          ))}
-        </div>
-      )}
-      {!viewerLoading && !viewerError && !viewerData && (
-        <div style={{ color: "#aaa", padding: 20, textAlign: "center" }}>
-          チェック完了後に「結果」ボタンをクリックしてください
-        </div>
-      )}
-    </div>
-  );
+
+            {/* Summary row */}
+            <div style={{ display: "flex", gap: 12 }}>
+              <div style={colStyle}>
+                {!hasTranslation && <div style={{ fontSize: "10px", color: "#888", marginBottom: 2 }}>EN</div>}
+                <div style={{
+                  background: "#f5f5f5", padding: "10px 14px", borderRadius: 6,
+                  marginBottom: 12, fontSize: "13px", lineHeight: 1.6, whiteSpace: "pre-wrap"
+                }}>
+                  {viewerData.summary}
+                </div>
+              </div>
+              {hasTranslation && (
+                <div style={colStyle}>
+                  <div style={{ fontSize: "10px", color: "#888", marginBottom: 2 }}>日本語</div>
+                  <div style={{
+                    background: "#fef9e7", padding: "10px 14px", borderRadius: 6,
+                    marginBottom: 12, fontSize: "13px", lineHeight: 1.6, whiteSpace: "pre-wrap"
+                  }}>
+                    {translationData.summary_ja || "(翻訳なし)"}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Findings */}
+            <div style={{ fontSize: "12px", marginBottom: 8 }}>
+              <strong>指摘事項 ({viewerData.findings.length}件)</strong>
+            </div>
+            {viewerData.findings.length === 0 && (
+              <div style={{ color: "#888", padding: "12px 0" }}>指摘事項はありません。</div>
+            )}
+            <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+              <div style={colStyle}>
+                {!hasTranslation && <div style={{ fontSize: "10px", color: "#888", marginBottom: 2 }}>EN</div>}
+                {viewerData.findings.map((f, i) => renderFindingCard(f, i, null, "en"))}
+              </div>
+              {hasTranslation && (
+                <div style={colStyle}>
+                  <div style={{ fontSize: "10px", color: "#888", marginBottom: 2 }}>日本語</div>
+                  {viewerData.findings.map((f, i) => renderFindingCard(f, i, translationData, "ja"))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        {!viewerLoading && !viewerError && !viewerData && (
+          <div style={{ color: "#aaa", padding: 20, textAlign: "center" }}>
+            チェック完了後に「結果」ボタンをクリックしてください
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div>

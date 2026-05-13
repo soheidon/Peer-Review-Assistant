@@ -468,8 +468,9 @@ GUI の「文献確認」パネルでは、照合結果をタブで表示する�
 | **表現** (Expression) | 英語文法、冠詞、時制、学術表現、曖昧表現、過剰主張 |
 | **方法・統計** (Methods/Stats) | 研究デザイン、介入内容、統計手法、サンプルサイズ、欠測値処理、倫理審査 |
 | **引用文献** (Citation) | 文献実在性、引用の妥当性、不適切引用・孫引き検出 |
-| **先行研究** (Originality) | 類似研究との重複、新規性の妥当性、重要先行研究の不足 |
+| **新規性** (Novelty) | 5フェーズパイプライン: (1)論文概要生成→(2)Deep Researchプロンプト生成(広範囲探索用+批判的検証用)→(3)外部AI結果貼り付け→(4)Deep Research統合→(5)新規性・適合性評価 |
 
+新規性チェックは統括AI（summary）の Pro/reasoning モデルを使用する。Deep Research 統合結果は査読チェック時の参照データとして利用する。ジャーナルプロファイルの `publication_criteria`（技術的健全性重視/新規性重視 etc.）に基づき評価軸を自動調整する。
 ### 7.2 LLM スロット
 
 | スロット | 役割 |
@@ -647,9 +648,11 @@ outputs/final/
 | ProjectPanel | `panels/ProjectPanel.tsx` | プロジェクト作成/開く、docx/PDF選択、ファイル検証・取り込み |
 | PreprocessPanel | `panels/PreprocessPanel.tsx` | 前処理パイプライン（本文抽出〜引用抽出）、文献DB一括照合（Crossref→PubMed→Google Books→Semantic Scholar→CiNii）、個別DB実行、文献確認データ作成 |
 | CitationReviewPanel | `panels/CitationReviewPanel.tsx` | 文献照合結果のタブ表示（サマリー/確認済/要確認/未照合/LLM補正候補/Google Books/Semantic Scholar/後段LLM確認/保留）、LLM文献情報整理、要確認→確認済移動 |
-| ReviewChecksPanel | `panels/ReviewChecksPanel.tsx` | 評価者1/2/3 のLLMチェック実行、チェック項目内マージ、最終出力 |
+| JournalPanel | `panels/JournalPanel.tsx` | 投稿先ジャーナルの評価基準分析（LLMで40+フィールドの構造化プロファイルを生成）。publication_criteria（技術的健全性重視/新規性重視）、査読ポリシー、投稿規定を抽出 |
+| NoveltyCheckPanel | `panels/NoveltyCheckPanel.tsx` | 新規性チェック5フェーズパイプライン。論文概要生成→Deep Researchプロンプト（広範囲+批判的）→外部AI結果A/B貼り付け（DeepResearchModal使用）→Deep Research統合→新規性・適合性評価。ジャーナルプロファイル連携で評価軸自動調整 |
+| ReviewChecksPanel | `panels/ReviewChecksPanel.tsx` | 構成・表現・方法統計・引用文献のLLMチェック実行、チェック項目内マージ、最終出力 |
 | ResultsPanel | `panels/ResultsPanel.tsx` | 出力ファイルの選択表示（最終査読/著者向け/編集者向け/推奨判定/処理記録） |
-| SettingsPanel | `panels/SettingsPanel.tsx` | LLMスロット設定、APIキー、接続テスト |
+| SettingsPanel | `panels/SettingsPanel.tsx` | LLMスロット設定（Provider/Base URL/Model/ProModel/FlashModel/reasoningMode）、APIキー（直接入力/環境変数/Windows Hello）、接続テスト |
 
 ### 10.5 ボトムログペイン
 
@@ -660,15 +663,17 @@ outputs/final/
 
 ### 10.6 状態管理
 
-全状態は `App.tsx` に `useState` で集約（30+ state）。React Context 不使用。各パネルは純粋なプレゼンテーションコンポーネントで、必要な props のみ受け取る。
+全状態は `App.tsx` に `useState` で集約（50+ state）。React Context 不使用。各パネルは純粋なプレゼンテーションコンポーネントで、必要な props のみ受け取る。
 
 主な状態カテゴリ:
 - **ナビゲーション**: `activeView`
 - **プロジェクト**: `projectPath`, `projectCreated`, `docxPath`, `pdfPath`
 - **進捗フラグ**: `validationOk`, `sourceAttached`, `preprocessDone`, `numberingDone`, `sectionsDone`, `citationExtractionDone`, `crossrefDone`, `pubmedDone`, `googleBooksDone`, `semanticScholarDone`, `cniiDone`, `viewerDataReady`, `llmRepairDone`, `llmFlagsDone`, `searchReferencesDone`, `structureMergeDone`, `expressionMergeDone`, `methodsStatsMergeDone`, `finalMergeDone`
 - **実行中フラグ**: `validateRunning`, `attachRunning`, `preprocessRunning`, `numberingRunning`, `sectionsRunning`, `citationExtractionRunning`, `crossrefRunning`, `pubmedRunning`, `googleBooksGenerating`, `semanticScholarRunning`, `cniiRunning`, `dbCascadeRunning`, `viewerDataGenerating`, `llmRepairGenerating`, `llmFlagsGenerating`, `llmReferenceProcessRunning`, `searchReferencesGenerating`, `unmatchedExportGenerating`, `structureMergeRunning`, `expressionMergeRunning`, `methodsStatsMergeRunning`, `finalMergeRunning`
+- **ジャーナル**: `journalProfile`, `journalLoaded`, `journalSaved`
+- **新規性チェック (Phase 1-5)**: `noveltySummaryDone/Running/Content`, `noveltyPromptBroad/Critical/Done`, `noveltyDrA/DrB/DrSaved`, `noveltyMergeDone/Running/Content`, `noveltyAssessDone/Running/Content`
 - **フィードバック**: `statusMessage`（8秒で自動消去）, `preprocessResults`, `crossrefSummary`
-- **LLM設定**: `llmSlots`, `llmTestResults`
+- **LLM設定**: `llmSlots`（proModel/flashModel/reasoningMode/apiKeyMode/apiKeyEnvName/apiKeyStorage/enabled を含む拡張スロット）, `llmTestResults`
 - **結果表示**: `selectedResultFile`, `resultFileContent`, `resultFileLoading`
 - **ログ**: `logs`, `logExpanded`
 
@@ -787,19 +792,19 @@ outputs/final/
 
 ## 13. MVP 範囲と実装状況
 
-### 13.1 実装済み（v0.2.0）
+### 13.1 実装済み（v0.3.0）
 
 | 機能 | 状況 |
 |---|---|
 | Tauri v2 + React TypeScript GUI | ✅ |
-| サイドバーナビゲーション（7画面） | ✅ |
+| サイドバーナビゲーション（9画面） | ✅ |
 | プログレスバー（クリック可能ステップ） | ✅ |
 | ボトムログペイン | ✅ |
 | プロジェクトヘッダー表示 | ✅ |
 | Python CLI (Click) subprocess 実行 | ✅ |
 | `healthcheck` / `init-project` / `validate-input` / `attach-source` | ✅ |
 | 3入力モード（docx_only/docx_with_pdf/docx_with_line_numbered_pdf） | ✅ |
-| 既存プロジェクト開く（project.json 読み取り） | ✅ |
+| 既存プロジェクト開く（project.json + 全出力ファイルの状態復元） | ✅ |
 | UTF-8 エンコーディング対応 | ✅ |
 | **前処理パイプライン** | |
 | docx 本文抽出 (preprocess CLI) | ✅ |
@@ -823,25 +828,41 @@ outputs/final/
 | 手動文献検索 | ✅ |
 | 要確認→確認済 自動移動（human_verification_status優先） | ✅ |
 | 未照合文献CSV出力 | ✅ |
+| **ジャーナル分析** | |
+| ジャーナルプロファイル生成 CLI（LLMで40+フィールド構造化） | ✅ |
+| publication_criteria に基づく評価軸自動判定 | ✅ |
+| **新規性チェック** | |
+| 論文概要生成 CLI (`novelty-summarize`) | ✅ |
+| Deep Research プロンプト生成 CLI（広範囲探索用+批判的検証用） | ✅ |
+| Deep Research 結果貼り付け（DeepResearchModal、外部AI 7種+カスタム） | ✅ |
+| Deep Research 統合 CLI (`novelty-merge-research`) | ✅ |
+| 新規性・適合性評価 CLI (`novelty-assess`) | ✅ |
+| DeepSeek reasoning model 対応（--thinking-enabled） | ✅ |
+| 出力ファイル永続化・プロジェクト再開時の自動復元 | ✅ |
+| **査読チェック・マージ** | |
+| 構成チェック CLI | ✅ |
+| 表現チェック CLI | ✅ |
+| 方法・統計チェック CLI | ✅ |
+| 引用文献チェック CLI | ✅ |
+| チェック項目内マージ CLI（構成/表現/方法統計） | ✅ |
+| 最終マージ CLI | ✅ |
 | **GUI全般** | |
-| 全パネル（ホーム/プロジェクト/前処理/文献確認/査読チェック/結果/設定） | ✅ |
+| 全パネル（ホーム/プロジェクト/前処理/文献確認/ジャーナル/新規性/査読チェック/結果/設定） | ✅ |
 | 全ボタン日本語ラベル | ✅ |
 | ステータスチップ（未実行/実行中/完了/要確認/エラー） | ✅ |
 | ステータスメッセージバナー（8秒自動消去） | ✅ |
 | 無効ボタン理由表示 / 次ステップ提案 / 補足情報表示 | ✅ |
+| LLMスロット拡張設定（proModel/flashModel/reasoningMode/APIキーモード） | ✅ |
 
 ### 13.2 未実装（将来フェーズ）
 
 | 機能 | 優先度 |
 |---|---|
-| LLM チェック実行 CLI | 次フェーズ |
-| チェック項目内マージ CLI | 次フェーズ |
-| 最終マージ CLI | 次フェーズ |
 | 結果パネル（出力ファイル表示）連携 | 次フェーズ |
 | 手入力モード | 将来 |
 | APIキー暗号化保存 | 将来 |
 | セキュアモード | 将来 |
-| 全自動解析モード | 将来 |
+| 全自動解析モード（ワンクリックで全パイプライン実行） | 将来 |
 | macOS 対応 | 将来 |
 
 ### 13.3 MVP で後回しにするもの

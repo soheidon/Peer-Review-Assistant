@@ -482,17 +482,31 @@ Tauri v2 では、実行可能なコマンドを capabilities で明示的に許
 | `pra-cli llm-search-log` | LLM検索ログ出力 |
 | `pra-cli test-llm` | LLM 接続テスト |
 | `pra-cli config-manage --list` | LLM設定一覧表示 |
+| **ジャーナル分析** | |
+| `pra-cli journal-profile` | ジャーナルプロファイル生成（LLMで40+フィールド構造化） |
+| **新規性チェック** | |
+| `pra-cli novelty-summarize` | 論文概要生成（8角度の新規性候補を抽出） |
+| `pra-cli novelty-deep-research-prompt` | Deep Research プロンプト生成（広範囲探索用+批判的検証用） |
+| `pra-cli novelty-merge-research` | 2つのDeep Research結果をLLMで比較・統合 |
+| `pra-cli novelty-assess` | 新規性・ジャーナル適合性評価（ジャーナルプロファイル連携） |
+| `pra-cli novelty-review-comment-candidates` | 査読コメント候補生成（12項目、将来の自動化用） |
+| `pra-cli novelty-review-comment-compose` | 選択候補から査読コメント統合（将来の自動化用） |
+| `pra-cli novelty-review-comment-auto` | 全自動査読コメント生成（将来の自動化用） |
+| **査読チェック・マージ** | |
+| `pra-cli run-structure-check` | 構成チェック（IMRaD整合性など） |
+| `pra-cli run-expression-check` | 表現チェック（文法・学術表現・過剰主張） |
+| `pra-cli run-methods-stats-check` | 方法・統計チェック（研究デザイン・統計手法・倫理） |
+| `pra-cli run-citation-check` | 引用文献チェック（文献実在性・引用妥当性） |
+| `pra-cli merge-check-section` | チェック項目内マージ（構成/表現/方法統計） |
+| `pra-cli final-merge` | 最終マージ・査読コメント出力 |
 
 ### 11.2 今後実装予定
 
 | コマンド | 説明 |
 |---|---|
-| `pra-cli run-check` | チェック項目の LLM 実行 |
-| `pra-cli merge-section` | チェック項目内マージ |
-| `pra-cli summarize-manuscript` | 原稿要約 |
-| `pra-cli final-merge` | 最終マージ・査読コメント出力 |
 | `pra-cli make-manual-prompt` | 手動入力用プロンプト生成 |
 | `pra-cli import-manual-result` | 手動入力結果のインポート |
+| `pra-cli auto-pipeline` | 全自動解析モード（ワンクリック全パイプライン実行） |
 
 ---
 

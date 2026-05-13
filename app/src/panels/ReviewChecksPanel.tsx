@@ -275,7 +275,7 @@ export default function ReviewChecksPanel({
                 onClick={() => onCheck(slot.name)}
                 disabled={!crossrefReallyDone || isRunning || !allReviewersConfigured}
               >
-                {isRunning ? `${runningLabel}中...` : slotDisplayName(slot.name)}
+                {isRunning ? `${runningLabel}中...` : isDone ? `再${slotDisplayName(slot.name)}` : slotDisplayName(slot.name)}
               </button>
               {result && result !== "running" && (
                 <span className={`status-chip ${isDone ? "ok" : "err"}`}>

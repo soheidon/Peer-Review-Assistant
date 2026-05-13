@@ -3516,8 +3516,10 @@ _VALID_CHECKS = {"structure", "expression", "methods_stats"}
               help="Environment variable name containing the API key.")
 @click.option("--thinking-enabled", is_flag=True, default=False,
               help="Enable reasoning/thinking mode (DeepSeek/OpenAI reasoning models).")
+@click.option("--temperature", type=float, default=None,
+              help="LLM temperature (Kimi/Moonshot requires 1.0).")
 def run_check(project_dir, check_name, slot, provider, base_url, model, api_key, api_key_env,
-              thinking_enabled):
+              thinking_enabled, temperature):
     """Run an LLM review check on the manuscript."""
     from peer_review_assistant.llm import LLMProvider, chat_completion
     from peer_review_assistant.llm.prompts import (
@@ -3627,7 +3629,7 @@ def run_check(project_dir, check_name, slot, provider, base_url, model, api_key,
 
     timeout = 300 if check_name in ("expression", "methods_stats") else 120
     max_tokens = 8192 if check_name in ("expression", "methods_stats") else 4096
-    result = chat_completion(prov, messages, max_tokens=max_tokens, temperature=0.0,
+    result = chat_completion(prov, messages, max_tokens=max_tokens, temperature=temperature,
                              timeout_seconds=timeout, thinking_enabled=thinking_enabled)
 
     if not result["ok"]:

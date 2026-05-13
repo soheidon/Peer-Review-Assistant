@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { slotDisplayName } from "../slotLabels";
 
 interface LlmSlot {
@@ -96,6 +96,24 @@ export default function ReviewChecksPanel({
   onNavigateToSettings,
   statusMessage,
 }: ReviewChecksPanelProps) {
+  // 親の crossrefDone が false でも実際にファイルがあれば OK とする自己防衛チェック
+  const [crossrefFileOk, setCrossrefFileOk] = useState(false);
+  useEffect(() => {
+    if (!projectPath.trim()) return;
+    const check = async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const path = `${projectPath.replace(/\\/g, "/")}/citations/db_verified_references.json`;
+        await invoke<string>("read_text_file", { path });
+        setCrossrefFileOk(true);
+      } catch {
+        setCrossrefFileOk(false);
+      }
+    };
+    check();
+  }, [projectPath]);
+  const crossrefReallyDone = crossrefDone || crossrefFileOk;
+
   const [viewerCheck, setViewerCheck] = useState<string | null>(null);
   const [viewerSlot, setViewerSlot] = useState<string | null>(null);
   const [viewerData, setViewerData] = useState<CheckResult | null>(null);
@@ -179,7 +197,7 @@ export default function ReviewChecksPanel({
             <div key={slot.name} style={{ display: "flex", gap: 4, alignItems: "center" }}>
               <button
                 onClick={() => onCheck(slot.name)}
-                disabled={!crossrefDone || isRunning || !allReviewersConfigured}
+                disabled={!crossrefReallyDone || isRunning || !allReviewersConfigured}
               >
                 {isRunning ? `${runningLabel}中...` : slotDisplayName(slot.name)}
               </button>
@@ -201,10 +219,10 @@ export default function ReviewChecksPanel({
           );
         })}
       </div>
-      {!crossrefDone && (
+      {!crossrefReallyDone && (
         <div className="disabled-reason">先に文献DB照合を完了してください</div>
       )}
-      {crossrefDone && !allReviewersConfigured && (() => {
+      {crossrefReallyDone && !allReviewersConfigured && (() => {
         const bad = reviewers.find((s) => !isReviewerConfigured(s));
         const reason = bad ? getReviewerDisabledReason(bad) : "LLM設定が未完了です。";
         return (
@@ -427,9 +445,9 @@ export default function ReviewChecksPanel({
 
           {/* Next step */}
           <div className="next-step">
-            {!crossrefDone && "次: 「前処理」メニューから文献DB照合を完了してください"}
-            {crossrefDone && !allReviewersConfigured && "次: 「設定」メニューからLLM API設定を行ってください"}
-            {crossrefDone && allReviewersConfigured && !anyReviewerDone(structureCheckResults) && "次: 構成チェックを実行してください"}
+            {!crossrefReallyDone && "次: 「前処理」メニューから文献DB照合を完了してください"}
+            {crossrefReallyDone && !allReviewersConfigured && "次: 「設定」メニューからLLM API設定を行ってください"}
+            {crossrefReallyDone && allReviewersConfigured && !anyReviewerDone(structureCheckResults) && "次: 構成チェックを実行してください"}
             {structureMergeDone && !finalMergeDone && "次: 最終査読コメントを生成してください"}
             {finalMergeDone && "査読完了。「結果」メニューで出力を確認してください"}
           </div>

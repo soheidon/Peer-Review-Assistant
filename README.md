@@ -34,16 +34,36 @@
 
 ## インストール方法
 
-> MVP 開発中のため、現在はソースコードからのビルドのみ対応しています。
+### 推奨: インストーラーを使用する（Windows）
+
+[Releases](https://github.com/soheidon/Peer-Review-Assistant/releases) から最新の `Peer Review Assistant_x.x.x_x64-setup.exe` をダウンロードして実行してください。
+
+インストーラーが以下のセットアップを行います：
+- アプリケーション本体のインストール
+- スタートメニュー・デスクトップへのショートカット作成
+
+**別途必要なもの**:
+- **Python 3.11 以上** — Python CLI（査読処理エンジン）の実行に必要です
+- Python CLI のインストール:
 
 ```bash
 # リポジトリをクローン
-git clone <repository-url>
-cd peer-review-assistant
+git clone https://github.com/soheidon/Peer-Review-Assistant.git
+cd Peer-Review-Assistant/python
+pip install -e .
+```
 
-# Tauri アプリのセットアップ
+### 開発者向け: ソースコードからビルド
+
+```bash
+# リポジトリをクローン
+git clone https://github.com/soheidon/Peer-Review-Assistant.git
+cd Peer-Review-Assistant
+
+# Tauri アプリのビルド
 cd app
 npm install
+npm run tauri build
 
 # Python CLI のセットアップ
 cd ../python
@@ -72,9 +92,9 @@ pip install -e .
 ## 動作環境
 
 - **OS**: Windows 11（主対象）
-- **Python**: 3.11 以上
-- **Node.js**: 20 以上
-- **Rust**: Tauri のビルドに必要
+- **Python**: 3.11 以上（必須）
+- **Node.js**: 20 以上（ソースコードからビルドする場合のみ）
+- **Rust**: 最新の stable（ソースコードからビルドする場合のみ）
 
 ## 注意事項
 

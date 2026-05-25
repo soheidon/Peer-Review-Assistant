@@ -260,8 +260,13 @@ function App() {
       ethics_policy: "",
       conflict_of_interest_policy: "",
       funding_statement_policy: "",
+      informed_consent_policy: "",
+      ethics_review_required: "unknown",
+      informed_consent_required: "unknown",
+      coi_disclosure_required: "unknown",
       recommended_manuscript_structure: [],
       section_order: "",
+      section_order_notes: "",
       methods_position: "",
       abstract_structure: "",
       main_text_word_limit: null,
@@ -398,7 +403,7 @@ function App() {
   // Auto-save settings debounce
   const autoSaveTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const settingsVersion = React.useRef(0);
-  const runningCommands = React.useRef<Record<string, { kill: () => Promise<void> }>>({});
+  const runningCommands = React.useRef<Record<string, any>>({});
   const reviewChecksRef = useRef<ReviewChecksPanelHandle>(null);
 
   // Auto-save settings on any settings change (debounced 2 seconds)

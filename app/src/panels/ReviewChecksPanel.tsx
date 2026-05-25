@@ -31,6 +31,7 @@ interface CheckFinding {
   suggested_comment: string;
   confidence: string;
   finding_id?: string;
+  comment_id?: string;
 }
 
 interface CheckResult {
@@ -547,11 +548,11 @@ const ReviewChecksPanel = forwardRef<ReviewChecksPanelHandle, ReviewChecksPanelP
   const [externalCheckInput, setExternalCheckInput] = useState("");
   const [externalCheckSaveError, setExternalCheckSaveError] = useState<string | null>(null);
   const [externalCheckData, setExternalCheckData] = useState<Record<string, {
-    generated_at: string; verdicts: {comment_id:string; verdict:string; reasoning:string}[];
+    generated_at: string; verdicts: {comment_id:string; verdict:string; reasoning:string; reasoning_ja?: string}[];
   } | null>>({});
   const [copyFeedback, setCopyFeedback] = useState<Record<string, boolean>>({});
   const [reevaluationData, setReevaluationData] = useState<Record<string, {
-    generated_at: string; model: string; slot: string; verdicts: {comment_id:string; verdict:string; reasoning:string}[];
+    generated_at: string; model: string; slot: string; verdicts: {comment_id:string; verdict:string; reasoning:string; reasoning_ja?: string; author_comment?: string; author_comment_ja?: string}[];
   } | null>>({});
   const [solutionData, setSolutionData] = useState<Record<string, {
     solutions: Array<{

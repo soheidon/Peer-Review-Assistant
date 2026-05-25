@@ -98,7 +98,6 @@ interface ViewerCard {
     confidence: string | null;
     warnings: string[];
   } | null;
-  llm_flags: Record<string, boolean> | null;
   google_books_candidates: GoogleBooksCandidate[] | null;
   best_google_books_candidate: GoogleBooksCandidate | null;
   google_books_candidate_count: number;
@@ -149,6 +148,7 @@ interface ViewerSummary {
   crossref_matched: number;
   pubmed_matched: number;
   cnii_matched: number;
+  s2_matched?: number;
   google_books_candidate_count: number;
   unmatched_breakdown: Record<string, number>;
   generated_at: string;

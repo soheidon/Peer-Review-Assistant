@@ -322,42 +322,42 @@ export default function LlmSearchSupport({
       </div>
       {searchResult.corrected && (
         <div className="llm-search-corrected">
-          {((searchResult.corrected as Record<string, unknown>).title) && (
+          {((searchResult.corrected as Record<string, any>).title) && (
             <div className="llm-search-field">
               <span className="llm-search-field-label">タイトル:</span>
-              <span>{(searchResult.corrected as Record<string, unknown>).title as string}</span>
+              <span>{(searchResult.corrected as Record<string, any>).title as string}</span>
             </div>
           )}
-          {((searchResult.corrected as Record<string, unknown>).journal) && (
+          {((searchResult.corrected as Record<string, any>).journal) && (
             <div className="llm-search-field">
               <span className="llm-search-field-label">雑誌名:</span>
-              <span>{(searchResult.corrected as Record<string, unknown>).journal as string}</span>
+              <span>{(searchResult.corrected as Record<string, any>).journal as string}</span>
             </div>
           )}
-          {((searchResult.corrected as Record<string, unknown>).publisher) && (
+          {((searchResult.corrected as Record<string, any>).publisher) && (
             <div className="llm-search-field">
               <span className="llm-search-field-label">出版社:</span>
-              <span>{(searchResult.corrected as Record<string, unknown>).publisher as string}</span>
+              <span>{(searchResult.corrected as Record<string, any>).publisher as string}</span>
             </div>
           )}
-          {((searchResult.corrected as Record<string, unknown>).doi) && (
+          {((searchResult.corrected as Record<string, any>).doi) && (
             <div className="llm-search-field">
               <span className="llm-search-field-label">DOI:</span>
-              <span>{(searchResult.corrected as Record<string, unknown>).doi as string}</span>
+              <span>{(searchResult.corrected as Record<string, any>).doi as string}</span>
             </div>
           )}
-          {((searchResult.corrected as Record<string, unknown>).isbn) && (
+          {((searchResult.corrected as Record<string, any>).isbn) && (
             <div className="llm-search-field">
               <span className="llm-search-field-label">ISBN:</span>
-              <span>{(searchResult.corrected as Record<string, unknown>).isbn as string}</span>
+              <span>{(searchResult.corrected as Record<string, any>).isbn as string}</span>
             </div>
           )}
-          {((searchResult.corrected as Record<string, unknown>).url) && (
+          {((searchResult.corrected as Record<string, any>).url) && (
             <div className="llm-search-field">
               <span className="llm-search-field-label">URL:</span>
-              <a href={(searchResult.corrected as Record<string, unknown>).url as string}
+              <a href={(searchResult.corrected as Record<string, any>).url as string}
                  target="_blank" rel="noopener noreferrer">
-                {(searchResult.corrected as Record<string, unknown>).url as string}
+                {(searchResult.corrected as Record<string, any>).url as string}
               </a>
             </div>
           )}

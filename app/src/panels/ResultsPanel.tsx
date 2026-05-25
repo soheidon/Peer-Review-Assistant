@@ -76,8 +76,8 @@ interface Candidate {
   id: string;
   text_ja: string;
   text_en: string;
-  strength: "strong" | "moderate" | "cautious" | "not_recommended";
-  recommendation: "high" | "medium" | "low";
+  strength: string;
+  recommendation: string;
   style?: { ja: string; en: string };
   source_check?: string;
   source_comment_id?: string;

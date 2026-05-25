@@ -261,7 +261,7 @@ function validateJournalProfile(profile: JournalProfile): ValidationWarning[] {
   const ratingFields = ["novelty_required", "impact_required", "significance_required"] as const;
   const validRatings = ["high", "moderate", "low", "not_explicitly_required", "unknown"];
   for (const f of ratingFields) {
-    const val = (pc as Record<string, string>)[f];
+    const val = (pc as any)[f];
     if (val && !validRatings.includes(val)) {
       warnings.push({
         field: `publication_criteria.${f}`,
@@ -278,7 +278,7 @@ function validateJournalProfile(profile: JournalProfile): ValidationWarning[] {
     "data_availability_focus", "reproducibility_transparency_focus",
   ];
   for (const f of booleanFields) {
-    const val = (pc as Record<string, string>)[f];
+    const val = (pc as any)[f];
     if (val && !["true", "false", "unknown"].includes(val)) {
       warnings.push({
         field: `publication_criteria.${f}`,
@@ -295,7 +295,7 @@ function validateJournalProfile(profile: JournalProfile): ValidationWarning[] {
     "claims_must_be_supported_by_data", "methods_analysis_interpretation_focus",
   ];
   for (const f of axisFields) {
-    const val = (rp as Record<string, string>)[f];
+    const val = (rp as any)[f] as string;
     if (val && !["true", "false", "unknown"].includes(val)) {
       warnings.push({
         field: `review_policy.${f}`,
@@ -322,7 +322,7 @@ function validateJournalProfile(profile: JournalProfile): ValidationWarning[] {
     "main_text_word_limit", "title_word_limit", "keyword_limit",
     "reference_limit", "display_item_limit", "figure_legend_limit",
   ];
-  const nullLimits = limitFields.filter((f) => (sg as Record<string, unknown>)[f] === null);
+  const nullLimits = limitFields.filter((f) => (sg as Record<string, any>)[f] === null);
   if (nullLimits.length >= 4) {
     warnings.push({
       field: "submission_guidelines",
@@ -853,7 +853,7 @@ function JournalAcquisitionModal({
       const tv = target[key];
       if (sv !== null && typeof sv === "object" && !Array.isArray(sv) &&
           tv !== null && typeof tv === "object" && !Array.isArray(tv)) {
-        deepMergeProfile(tv as Record<string, unknown>, sv as Record<string, unknown>);
+        deepMergeProfile(tv as Record<string, any>, sv as Record<string, any>);
       } else if (sv !== undefined) {
         target[key] = sv;
       }
@@ -989,7 +989,7 @@ function JournalAcquisitionModal({
       deepMergeProfile(merged, result.value!);
       normalizeSources(merged);
       console.debug("[parseExternalResult] merged keys:", Object.keys(merged));
-      console.debug("[parseExternalResult] submission_guidelines:", (merged as Record<string, unknown>).submission_guidelines);
+      console.debug("[parseExternalResult] submission_guidelines:", (merged as Record<string, any>).submission_guidelines);
       console.debug("[parseExternalResult] sources count:", (merged.sources as Array<unknown>)?.length);
       const profile = merged as JournalProfile;
 
@@ -1615,7 +1615,7 @@ export default function JournalPanel({
                   <textarea
                     style={txtStyle}
                     rows={2}
-                    value={(sg as Record<string, unknown>)[key] as string || ""}
+                    value={(sg as Record<string, any>)[key] as string || ""}
                     onChange={(e) => onUpdateField(`submission_guidelines.${key}`, e.target.value)}
                   />
                 </div>
@@ -1629,7 +1629,7 @@ export default function JournalPanel({
                   <span style={labelStyle}>{label}</span>
                   <select
                     className="path-input"
-                    value={(sg as Record<string, unknown>)[key] as string || "unknown"}
+                    value={(sg as Record<string, any>)[key] as string || "unknown"}
                     onChange={(e) => onUpdateField(`submission_guidelines.${key}`, e.target.value)}
                     style={{ flex: 1 }}
                   >
@@ -1661,7 +1661,7 @@ export default function JournalPanel({
                   <textarea
                     style={txtStyle}
                     rows={2}
-                    value={(rp as Record<string, unknown>)[key] as string}
+                    value={(rp as Record<string, any>)[key] as string}
                     onChange={(e) => onUpdateField(`review_policy.${key}`, e.target.value)}
                   />
                 </div>
@@ -1690,7 +1690,7 @@ export default function JournalPanel({
                   <textarea
                     style={txtStyle}
                     rows={3}
-                    value={(rp as Record<string, unknown>)[key] as string}
+                    value={(rp as Record<string, any>)[key] as string}
                     onChange={(e) => onUpdateField(`review_policy.${key}`, e.target.value)}
                   />
                 </div>

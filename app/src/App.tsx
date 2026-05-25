@@ -26,6 +26,7 @@ export interface CommentCard {
 
 import Sidebar from "./Sidebar";
 import ProgressBar from "./ProgressBar";
+import HomePanel from "./panels/HomePanel";
 import ProjectPanel from "./panels/ProjectPanel";
 import PreprocessPanel from "./panels/PreprocessPanel";
 import CitationReviewPanel from "./panels/CitationReviewPanel";
@@ -207,6 +208,16 @@ function App() {
   const [logExpanded, setLogExpanded] = useState(true);
   const [logHeight, setLogHeight] = useState(150);
 
+  // ── Auto-setup state ──
+  const [setupPhase, setSetupPhase] = useState<
+    "loading" | "setup_needed" | "installing" | "installed_verifying" | "ready" | "error"
+  >("loading");
+  const [setupLog, setSetupLog] = useState<string>("");
+  const [setupCompleted, setSetupCompleted] = useState(() => {
+    try { return localStorage.getItem("pra-setup-completed") === "true"; }
+    catch { return false; }
+  });
+
   // Phase A: settings configured state
   const [settingsConfigured, setSettingsConfigured] = useState(false);
 
@@ -234,6 +245,42 @@ function App() {
       }
     };
     check();
+  }, []);
+
+  // ── Auto healthcheck on startup ──
+  useEffect(() => {
+    if (setupCompleted) { setSetupPhase("ready"); return; }
+    const checkOnStart = async () => {
+      try {
+        const { Command } = await import("@tauri-apps/plugin-shell");
+        const cmd = Command.create("pra-cli", ["healthcheck"]);
+        const output = await cmd.execute();
+        setHealthcheckStatus("running");
+        const lines = output.stdout.trim().split("\n");
+        for (const line of lines) {
+          if (line.trim()) {
+            try {
+              const parsed = JSON.parse(line);
+              addLog(parsed);
+              if (parsed.event === "healthcheck" && parsed.status === "ok") {
+                setHealthcheckStatus("ok");
+                setSetupPhase("ready");
+                try { localStorage.setItem("pra-setup-completed", "true"); } catch {}
+                return;
+              }
+            } catch { addLog({ event: "stdout", message: line }); }
+          }
+        }
+        setHealthcheckStatus("error");
+        setSetupPhase("setup_needed");
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        addLog({ event: "error", message: msg });
+        setHealthcheckStatus("error");
+        setSetupPhase("setup_needed");
+      }
+    };
+    checkOnStart();
   }, []);
 
   // Journal tab state
@@ -616,6 +663,70 @@ function App() {
       const msg = e instanceof Error ? e.message : String(e);
       addLog({ event: "error", message: msg });
       setHealthcheckStatus("error");
+    }
+  };
+
+  const runSetup = async () => {
+    setSetupPhase("installing");
+    setSetupLog("pip install を実行中...\n\n");
+    setStatusMessage(null);
+    addLog({ event: "info", message: "Starting pip install for pra-cli..." });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const cmd = Command.create("cmd", [
+        "/c", "pip", "install",
+        "git+https://github.com/soheidon/Peer-Review-Assistant.git#subdirectory=python",
+      ]);
+      const output = await cmd.execute();
+
+      setSetupLog(
+        "pip install を実行中...\n\n" +
+        "--- stdout ---\n" + output.stdout + "\n" +
+        (output.stderr ? "--- stderr ---\n" + output.stderr + "\n" : "")
+      );
+      addLog({ event: "pip-stdout", message: output.stdout });
+      if (output.stderr) addLog({ event: "pip-stderr", message: output.stderr });
+
+      if (output.code !== 0) {
+        setSetupPhase("error");
+        setStatusMessage({ text: "pip install が終了コード " + output.code + " で失敗しました。", type: "error" });
+        return;
+      }
+
+      // Verify installation
+      setSetupPhase("installed_verifying");
+      setSetupLog((prev) => prev + "\n\nインストールが完了しました。ヘルスチェックを実行中...");
+      setHealthcheckStatus("running");
+
+      const hcCmd = Command.create("pra-cli", ["healthcheck"]);
+      const hcOutput = await hcCmd.execute();
+
+      const lines = hcOutput.stdout.trim().split("\n");
+      for (const line of lines) {
+        if (line.trim()) {
+          try {
+            const parsed = JSON.parse(line);
+            addLog(parsed);
+            if (parsed.event === "healthcheck" && parsed.status === "ok") {
+              setHealthcheckStatus("ok");
+              setSetupPhase("ready");
+              setSetupLog((prev) => prev + "\n\nヘルスチェック: OK\nPython " + parsed.python_version + "\nCLI " + parsed.package_version);
+              try { localStorage.setItem("pra-setup-completed", "true"); } catch {}
+              setStatusMessage({ text: "Python CLI のセットアップが完了しました。", type: "ok" });
+              return;
+            }
+          } catch { addLog({ event: "stdout", message: line }); }
+        }
+      }
+      throw new Error("インストールは成功しましたが、ヘルスチェックで正常応答が得られませんでした。");
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setSetupLog((prev) => prev + "\n\nエラー:\n" + msg);
+      setSetupPhase("error");
+      setHealthcheckStatus("error");
+      setStatusMessage({ text: "Python CLI のセットアップに失敗しました。", type: "error" });
+      addLog({ event: "error", message: msg });
     }
   };
 
@@ -6329,6 +6440,25 @@ function App() {
         </div>
 
         <div className="app-content">
+          {activeView === "home" && (
+            <HomePanel
+              setupPhase={setupPhase}
+              setupLog={setupLog}
+              healthcheckStatus={healthcheckStatus}
+              onRunSetup={runSetup}
+              onRunHealthcheck={runHealthcheck}
+              projectPath={projectPath}
+              projectCreated={projectCreated}
+              sourceAttached={sourceAttached}
+              preprocessDone={preprocessDone}
+              citationExtractionDone={citationExtractionDone}
+              crossrefDone={crossrefDone}
+              viewerDataReady={viewerDataReady}
+              structureMergeDone={structureMergeDone}
+              finalMergeDone={finalMergeDone}
+              statusMessage={statusMessage}
+            />
+          )}
           {activeView === "project" && (
             <ProjectPanel
               projectPath={projectPath}

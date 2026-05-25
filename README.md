@@ -13,7 +13,7 @@
 
 ## 現在の状態
 
-**v0.3.0** — 査読チェックパイプラインが実装済み。以下の機能が利用可能です：
+**v0.4.0** — 査読チェックパイプラインが実装済み。以下の機能が利用可能です：
 
 - プロジェクトの作成・開く・状態復元
 - docx/PDF ファイルの検証と取り込み（3入力モード対応）
@@ -43,17 +43,16 @@
 
 [Releases](https://github.com/soheidon/Peer-Review-Assistant/releases) から最新の `Peer Review Assistant_x.x.x_x64-setup.exe` をダウンロードして実行します。
 
-### 3. Python CLI をセットアップ
-
-コマンドプロンプトまたは PowerShell で以下を実行します：
-
-```bash
-pip install git+https://github.com/soheidon/Peer-Review-Assistant.git#subdirectory=python
-```
-
-### 4. 起動
+### 3. 起動
 
 スタートメニューまたはデスクトップの **Peer Review Assistant** を起動してください。
+
+初回起動時に Python CLI（`pra-cli`）が自動検出されます。見つからない場合は、アプリ内の「Python CLI をインストール」ボタンをクリックするだけで自動セットアップが完了します。
+
+> **手動セットアップ（必要な場合のみ）**: 自動セットアップが失敗した場合は、コマンドプロンプトで以下を実行してください：
+> ```bash
+> pip install git+https://github.com/soheidon/Peer-Review-Assistant.git#subdirectory=python
+> ```
 
 > **開発者向け**: ソースコードからビルドする場合は、`git clone` 後 `cd app && npm install && npm run tauri build` でビルドできます（Node.js 20+ と Rust が必要です）。
 

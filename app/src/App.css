@@ -2673,3 +2673,113 @@ button:disabled {
 .novelty-md tr:nth-child(even) td {
   background: #fafafa;
 }
+
+/* ── Setup Flow ──────────────────────────────────────────────────────────── */
+
+.setup-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 48px 16px;
+  gap: 16px;
+  font-size: 14px;
+  color: #555;
+}
+
+.setup-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid #e0e0e0;
+  border-top: 3px solid #0078d4;
+  border-radius: 50%;
+  animation: setup-spin 0.8s linear infinite;
+}
+
+@keyframes setup-spin {
+  to { transform: rotate(360deg); }
+}
+
+.setup-warning-box {
+  background: #fff8e5;
+  border: 1px solid #f5c542;
+  border-radius: 6px;
+  padding: 20px 24px;
+  margin-top: 24px;
+}
+
+.setup-warning-box h2 {
+  font-size: 16px;
+  color: #b45309;
+  margin-bottom: 10px;
+}
+
+.setup-warning-box p {
+  font-size: 13px;
+  color: #555;
+  line-height: 1.7;
+}
+
+.setup-install-btn {
+  padding: 8px 24px;
+  background: #0078d4;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  height: auto;
+  margin-top: 16px;
+}
+
+.setup-install-btn:hover {
+  background: #106ebe;
+}
+
+.setup-log-area {
+  background: #1a1a1a;
+  color: #d0d0d0;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 12px 16px;
+  margin-top: 16px;
+  font-family: "Cascadia Code", "Consolas", monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.setup-error-box {
+  background: #fef2f2;
+  border: 1px solid #f5a3a3;
+  border-radius: 6px;
+  padding: 20px 24px;
+  margin-top: 24px;
+}
+
+.setup-error-box h2 {
+  font-size: 16px;
+  color: #c42b1c;
+  margin-bottom: 10px;
+}
+
+.setup-manual-instructions {
+  margin-top: 20px;
+  padding: 12px 16px;
+  background: #f8f8f8;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+}
+
+.setup-manual-instructions code {
+  display: block;
+  padding: 8px 12px;
+  background: #1a1a1a;
+  color: #d0d0d0;
+  border-radius: 3px;
+  font-family: "Cascadia Code", "Consolas", monospace;
+  font-size: 11px;
+  word-break: break-all;
+}

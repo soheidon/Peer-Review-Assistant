@@ -1,6 +1,10 @@
 interface HomePanelProps {
-  projectPath: string;
+  setupPhase: string;
+  setupLog: string;
   healthcheckStatus: string | null;
+  onRunSetup: () => void;
+  onRunHealthcheck: () => void;
+  projectPath: string;
   projectCreated: boolean;
   sourceAttached: boolean;
   preprocessDone: boolean;
@@ -9,13 +13,16 @@ interface HomePanelProps {
   viewerDataReady: boolean;
   structureMergeDone: boolean;
   finalMergeDone: boolean;
-  onRunHealthcheck: () => void;
   statusMessage: {text: string; type: "ok" | "error" | "info"} | null;
 }
 
 export default function HomePanel({
-  projectPath,
+  setupPhase,
+  setupLog,
   healthcheckStatus,
+  onRunSetup,
+  onRunHealthcheck,
+  projectPath,
   projectCreated,
   sourceAttached,
   preprocessDone,
@@ -24,7 +31,6 @@ export default function HomePanel({
   viewerDataReady,
   structureMergeDone,
   finalMergeDone,
-  onRunHealthcheck,
   statusMessage,
 }: HomePanelProps) {
   const stages = [
@@ -41,10 +47,124 @@ export default function HomePanel({
   const doneCount = stages.filter((s) => s.done).length;
   const nextStep = stages.find((s) => !s.done);
 
+  // ── Phase: loading ──
+  if (setupPhase === "loading") {
+    return (
+      <div className="home-panel">
+        <h1 className="home-title">Peer Review Assistant</h1>
+        <div className="setup-loading">
+          <span className="setup-spinner" />
+          <span>Python CLI を確認中...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Phase: setup_needed ──
+  if (setupPhase === "setup_needed") {
+    return (
+      <div className="home-panel">
+        <h1 className="home-title">Peer Review Assistant</h1>
+        <p className="home-subtitle">査読アシスタント v0.4.0</p>
+
+        <div className="setup-warning-box">
+          <h2>Python CLI (pra-cli) が見つかりません</h2>
+          <p>
+            このツールの査読処理エンジン（Python CLI）がインストールされていません。<br />
+            下のボタンをクリックすると、自動的にインストールされます。
+          </p>
+          <button className="setup-install-btn" onClick={onRunSetup}>
+            Python CLI をインストール
+          </button>
+        </div>
+
+        <div className="setup-manual-instructions">
+          <p style={{ fontSize: "13px", color: "#666", margin: "0 0 8px 0" }}>
+            手動でインストールする場合は、コマンドプロンプトで以下を実行してください：
+          </p>
+          <code>pip install git+https://github.com/soheidon/Peer-Review-Assistant.git#subdirectory=python</code>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Phase: installing ──
+  if (setupPhase === "installing") {
+    return (
+      <div className="home-panel">
+        <h1 className="home-title">Peer Review Assistant</h1>
+        <div className="setup-loading">
+          <span className="setup-spinner" />
+          <span style={{ fontWeight: 600 }}>Python CLI をインストール中...</span>
+          <span style={{ fontSize: "12px", color: "#888", marginTop: 8 }}>
+            初回は数分かかることがあります
+          </span>
+        </div>
+        {setupLog && <pre className="setup-log-area">{setupLog}</pre>}
+      </div>
+    );
+  }
+
+  // ── Phase: installed_verifying ──
+  if (setupPhase === "installed_verifying") {
+    return (
+      <div className="home-panel">
+        <h1 className="home-title">Peer Review Assistant</h1>
+        <div className="setup-loading">
+          <span className="setup-spinner" />
+          <span>ヘルスチェック実行中...</span>
+        </div>
+        {setupLog && <pre className="setup-log-area">{setupLog}</pre>}
+      </div>
+    );
+  }
+
+  // ── Phase: error ──
+  if (setupPhase === "error") {
+    return (
+      <div className="home-panel">
+        <h1 className="home-title">Peer Review Assistant</h1>
+        <p className="home-subtitle">査読アシスタント v0.4.0</p>
+
+        {statusMessage && (
+          <div className={`status-banner ${statusMessage.type}`}>
+            {statusMessage.text}
+          </div>
+        )}
+
+        <div className="setup-error-box">
+          <h2>セットアップに失敗しました</h2>
+          <p style={{ fontSize: "13px", color: "#333", lineHeight: 1.6 }}>
+            Python CLI のインストール中にエラーが発生しました。
+            以下を確認してください：
+          </p>
+          <ul style={{ fontSize: "13px", color: "#333", paddingLeft: 20, lineHeight: 1.8 }}>
+            <li>Python 3.11 以上がインストールされているか</li>
+            <li>pip が使用可能か（<code>pip --version</code>）</li>
+            <li>インターネットに接続されているか</li>
+          </ul>
+          <button className="setup-install-btn" onClick={onRunSetup} style={{ marginTop: 12 }}>
+            再試行
+          </button>
+        </div>
+
+        {setupLog && <pre className="setup-log-area">{setupLog}</pre>}
+
+        <div className="setup-manual-instructions">
+          <p style={{ fontSize: "13px", color: "#666", margin: "0 0 8px 0" }}>
+            手動でインストールする場合は、コマンドプロンプトで以下を実行してください：
+          </p>
+          <code>pip install git+https://github.com/soheidon/Peer-Review-Assistant.git#subdirectory=python</code>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Phase: ready (normal home screen) ──
   return (
     <div className="home-panel">
       <h1 className="home-title">Peer Review Assistant</h1>
-      <p className="home-subtitle">査読アシスタント v0.1.0</p>
+      <p className="home-subtitle">査読アシスタント v0.4.0</p>
 
       {statusMessage && (
         <div className={`status-banner ${statusMessage.type}`}>

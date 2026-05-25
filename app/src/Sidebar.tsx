@@ -1,4 +1,5 @@
 const MENU_ITEMS = [
+  { key: "home",       label: "ホーム",         icon: "🏠" },
   { key: "project",    label: "プロジェクト",   icon: "📁" },
   { key: "settings",   label: "API設定",         icon: "🔧" },
   { key: "journal",    label: "ジャーナル",     icon: "📰" },

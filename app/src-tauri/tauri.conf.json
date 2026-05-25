@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicedoc/open-tauri/main/schemas/config.schema.json",
   "productName": "Peer Review Assistant",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "identifier": "com.peerreviewassistant.app",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -31,6 +31,12 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
+    "windows": {
+      "nsis": {
+        "languages": ["Japanese", "English"],
+        "displayLanguageSelector": true
+      }
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

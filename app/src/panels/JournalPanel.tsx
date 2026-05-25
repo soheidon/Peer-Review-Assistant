@@ -1,6 +1,6 @@
 import React from "react";
 import { slotDisplayName } from "../slotLabels";
-import { parseLooseJsonObject } from "../utils";
+import { parseLooseJsonObject, extractJournalProfileFields, normalizeMarkdownLinksInObject } from "../utils";
 
 interface ReferenceStyle {
   style_name: string;
@@ -21,6 +21,24 @@ interface SubmissionGuidelines {
   ethics_policy: string;
   conflict_of_interest_policy: string;
   funding_statement_policy: string;
+  informed_consent_policy: string;
+  ethics_review_required: "required" | "not_required" | "varies" | "unknown";
+  informed_consent_required: "required" | "not_required" | "varies" | "unknown";
+  coi_disclosure_required: "required" | "not_required" | "varies" | "unknown";
+  // Manuscript structure / formatting
+  recommended_manuscript_structure: string[];
+  section_order: string;
+  section_order_notes: string;
+  methods_position: string;
+  abstract_structure: string;
+  main_text_word_limit: number | null;
+  title_word_limit: number | null;
+  keyword_limit: number | null;
+  reference_limit: number | null;
+  display_item_limit: number | null;
+  figure_legend_limit: number | null;
+  line_numbers_recommended: boolean | null;
+  footnotes_allowed: boolean | null;
 }
 
 interface ReviewPolicy {
@@ -30,6 +48,15 @@ interface ReviewPolicy {
   reporting_guidelines: string[];
   reviewer_guidance: string;
   editorial_policy_summary: string;
+  // Journal evaluation axis
+  technical_soundness_oriented: string;
+  importance_significance_impact_assessed: string;
+  niche_scope_allowed: string;
+  negative_results_allowed: string;
+  replication_allowed: string;
+  main_review_questions: string[];
+  claims_must_be_supported_by_data: string;
+  methods_analysis_interpretation_focus: string;
 }
 
 export interface PublicationCriteria {
@@ -60,15 +87,23 @@ export interface JournalPosition {
   field_specific_high_impact_journal: string;
   clinical_high_impact_journal: string;
   society_journal: string;
+  soundness_oriented_journal: string;
+  selectivity_basis: string;
+  evaluation_axis_summary: string;
   journal_position_summary: string;
 }
 
 export interface JournalMetrics {
   impact_factor: string;
+  impact_factor_year: string;
   five_year_impact_factor: string;
+  five_year_impact_factor_year: string;
   cite_score: string;
+  cite_score_year: string;
   sjr: string;
+  sjr_year: string;
   snip: string;
+  snip_year: string;
   quartile: string;
   category_rankings: string;
   indexing: string;
@@ -83,6 +118,28 @@ export interface SubmissionStrategy {
   reviewer_likely_concerns: string;
   manuscript_strengths_to_emphasize: string;
   manuscript_weaknesses_to_control: string;
+}
+
+export interface SectionAliasRule {
+  alias: string;
+  canonical: string;
+  condition: string;
+}
+
+export interface ManuscriptStructure {
+  expected_section_order: string[];
+  main_text_order: string[];
+  front_matter_sections: string[];
+  back_matter_sections: string[];
+  section_aliases: Record<string, string[]>;
+  section_alias_rules: SectionAliasRule[];
+  requires_abstract: boolean;
+  allows_heading_variation: string;
+  methods_position: string;
+  allows_conclusion_section: string;
+  allows_research_highlights: string;
+  allows_summary_instead_of_abstract: string;
+  notes: string;
 }
 
 export interface SourceEntry {
@@ -105,6 +162,7 @@ export interface JournalProfile {
   journal_position: JournalPosition;
   metrics: JournalMetrics;
   submission_strategy: SubmissionStrategy;
+  manuscript_structure: ManuscriptStructure;
   sources: SourceEntry[];
   notes: string;
   source: string;
@@ -184,6 +242,171 @@ const JOURNAL_TITLE_OPTIONS = [
   { value: "unknown", label: "不明" },
 ];
 
+/* ── Validation helper ─────────────────────────────────────────────── */
+
+interface ValidationWarning {
+  field: string;
+  message: string;
+  severity: "error" | "warning" | "info";
+}
+
+function validateJournalProfile(profile: JournalProfile): ValidationWarning[] {
+  const warnings: ValidationWarning[] = [];
+  const pc = profile.publication_criteria;
+  const rp = profile.review_policy;
+  const sg = profile.submission_guidelines;
+  const ms = profile.manuscript_structure;
+
+  // 1. publication_criteria enum validation
+  const ratingFields = ["novelty_required", "impact_required", "significance_required"] as const;
+  const validRatings = ["high", "moderate", "low", "not_explicitly_required", "unknown"];
+  for (const f of ratingFields) {
+    const val = (pc as Record<string, string>)[f];
+    if (val && !validRatings.includes(val)) {
+      warnings.push({
+        field: `publication_criteria.${f}`,
+        message: `"${val}" は許容値ではありません。${validRatings.join(" | ")} のいずれかに修正してください。`,
+        severity: "error",
+      });
+    }
+  }
+
+  // 2. true/false/unknown fields in publication_criteria
+  const booleanFields = [
+    "technical_soundness_focus", "methodological_rigour_focus", "statistical_rigour_focus",
+    "conclusion_supported_by_data_focus", "ethical_robustness_focus",
+    "data_availability_focus", "reproducibility_transparency_focus",
+  ];
+  for (const f of booleanFields) {
+    const val = (pc as Record<string, string>)[f];
+    if (val && !["true", "false", "unknown"].includes(val)) {
+      warnings.push({
+        field: `publication_criteria.${f}`,
+        message: `"${val}" は "true" | "false" | "unknown" のいずれかにしてください。`,
+        severity: "error",
+      });
+    }
+  }
+
+  // 3. review_policy axis fields
+  const axisFields = [
+    "technical_soundness_oriented", "importance_significance_impact_assessed",
+    "niche_scope_allowed", "negative_results_allowed", "replication_allowed",
+    "claims_must_be_supported_by_data", "methods_analysis_interpretation_focus",
+  ];
+  for (const f of axisFields) {
+    const val = (rp as Record<string, string>)[f];
+    if (val && !["true", "false", "unknown"].includes(val)) {
+      warnings.push({
+        field: `review_policy.${f}`,
+        message: `"${val}" は "true" | "false" | "unknown" のいずれかにしてください。`,
+        severity: "error",
+      });
+    }
+  }
+
+  // 4. section_order / methods_position
+  // Accept both arrow-separated format ("Intro → Results → ...") and long-form text descriptions
+  const hasSectionOrder = sg.section_order?.trim() && sg.section_order.trim().length >= 3;
+  const hasMethodsPosition = sg.methods_position?.trim() && sg.methods_position.trim().length >= 3;
+  if (!hasSectionOrder && !hasMethodsPosition) {
+    warnings.push({
+      field: "submission_guidelines",
+      message: "section_order と methods_position が両方空です。ジャーナルの推奨セクション順序を取得してください。",
+      severity: "warning",
+    });
+  }
+
+  // 5. Null limits check
+  const limitFields = [
+    "main_text_word_limit", "title_word_limit", "keyword_limit",
+    "reference_limit", "display_item_limit", "figure_legend_limit",
+  ];
+  const nullLimits = limitFields.filter((f) => (sg as Record<string, unknown>)[f] === null);
+  if (nullLimits.length >= 4) {
+    warnings.push({
+      field: "submission_guidelines",
+      message: `多くの制限値が未取得です: ${nullLimits.join(", ")}。公式投稿規定から取得してください。`,
+      severity: "warning",
+    });
+  }
+
+  // 6. Sources check
+  if (!profile.sources || profile.sources.length === 0) {
+    warnings.push({
+      field: "sources",
+      message: "参照ソースが空です。情報源のURLを記録してください。",
+      severity: "warning",
+    });
+  } else {
+    const hasOfficial = profile.sources.some(
+      (s) =>
+        s.url &&
+        (s.url.includes("nature.com") ||
+          s.url.includes("springer.com") ||
+          s.url.includes("wiley.com") ||
+          s.url.includes("elsevier.com") ||
+          s.url.includes("tandfonline.com") ||
+          s.url.includes("oup.com"))
+    );
+    if (!hasOfficial) {
+      warnings.push({
+        field: "sources",
+        message: "公式ジャーナルサイトのURLがソースに含まれていません。",
+        severity: "warning",
+      });
+    }
+  }
+
+  // 7. All-unknown evaluation axis
+  const evalFields = [
+    pc.novelty_required, pc.impact_required, pc.significance_required,
+    pc.technical_soundness_focus, rp.technical_soundness_oriented,
+  ];
+  const allUnknown = evalFields.every((v) => v === "unknown");
+  if (allUnknown) {
+    warnings.push({
+      field: "publication_criteria / review_policy",
+      message:
+        "評価軸がすべて unknown です。Guide to referees を確認して少なくとも technical_soundness_oriented を特定してください。",
+      severity: "warning",
+    });
+  }
+
+  // 8. expected_section_order vs section_order consistency
+  if (ms?.expected_section_order?.length > 0 && sg.section_order) {
+    const fromMs = ms.expected_section_order.join(" → ").toLowerCase();
+    const fromSg = sg.section_order.toLowerCase();
+    if (fromMs !== fromSg) {
+      warnings.push({
+        field: "manuscript_structure / submission_guidelines",
+        message: `expected_section_order と section_order が一致しません。expected_section_order: "${fromMs}" / section_order: "${fromSg}"`,
+        severity: "warning",
+      });
+    }
+  }
+
+  // 9. section_aliases empty check
+  if (ms && (!ms.section_aliases || Object.keys(ms.section_aliases).length === 0)) {
+    warnings.push({
+      field: "manuscript_structure.section_aliases",
+      message: "section_aliases が空です。セクション見出しの別名（例: abstract ← Summary, introduction ← Background）を記録してください。",
+      severity: "warning",
+    });
+  }
+
+  // 10. main_text_order empty check
+  if (ms && (!ms.main_text_order || ms.main_text_order.length === 0)) {
+    warnings.push({
+      field: "manuscript_structure.main_text_order",
+      message: "main_text_order が空です。本文セクションの正規順序を指定してください。",
+      severity: "warning",
+    });
+  }
+
+  return warnings;
+}
+
 /* ── Status helper ─────────────────────────────────────────────────── */
 
 function getJournalStatus(
@@ -242,42 +465,68 @@ function JournalAcquisitionModal({
   const [extPasteText, setExtPasteText] = React.useState("");
   const [extPreview, setExtPreview] = React.useState<JournalProfile | null>(null);
   const [extError, setExtError] = React.useState("");
+  const [extWarnings, setExtWarnings] = React.useState<ValidationWarning[]>([]);
 
   const generateExternalPrompt = () => {
     const jn = journalProfile.journal_name.trim();
     const ju = journalProfile.journal_url.trim();
     const at = journalProfile.article_type;
     const defaultProfile: JournalProfile = {
-      journal_name: "",
-      journal_url: "",
-      publisher: "",
+      journal_name: "<OFFICIAL_JOURNAL_NAME>",
+      journal_url: "<OFFICIAL_JOURNAL_WEBSITE_URL>",
+      publisher: "<PUBLISHER_NAME>",
       article_type: "Article",
       reference_style: {
-        style_name: "",
+        style_name: "<REFERENCE_STYLE_NAME>",
         in_text_citation: "numeric",
         reference_list_order: "order_of_appearance",
         doi_required: "recommended_or_required_if_available",
         url_access_date_required: null,
         journal_title_style: "abbreviated_or_full",
-        example_reference: "",
+        example_reference: "<EXAMPLE_REFERENCE_IN_JOURNAL_STYLE>",
       },
       submission_guidelines: {
         word_limit: null,
         abstract_limit: null,
         figure_table_limits: null,
-        supplementary_material_policy: "",
-        data_availability_policy: "",
-        ethics_policy: "",
-        conflict_of_interest_policy: "",
-        funding_statement_policy: "",
+        supplementary_material_policy: "<SUPPLEMENTARY_MATERIAL_POLICY>",
+        data_availability_policy: "<DATA_AVAILABILITY_POLICY>",
+        ethics_policy: "<ETHICS_POLICY>",
+        conflict_of_interest_policy: "<COI_DISCLOSURE_REQUIREMENTS>",
+        funding_statement_policy: "<FUNDING_STATEMENT_REQUIREMENTS>",
+        informed_consent_policy: "<INFORMED_CONSENT_REQUIREMENTS>",
+        ethics_review_required: "unknown",
+        informed_consent_required: "unknown",
+        coi_disclosure_required: "unknown",
+        recommended_manuscript_structure: [],
+        section_order: "<SECTION_NAMES_JOINED_BY_ARROWS>",
+        section_order_notes: "<CAVEATS_ABOUT_SECTION_ORDER_FLEXIBILITY_OR_EMPTY>",
+        methods_position: "<WHERE_METHODS_APPEARS>",
+        abstract_structure: "<ABSTRACT_STRUCTURE>",
+        main_text_word_limit: null,
+        title_word_limit: null,
+        keyword_limit: null,
+        reference_limit: null,
+        display_item_limit: null,
+        figure_legend_limit: null,
+        line_numbers_recommended: null,
+        footnotes_allowed: null,
       },
       review_policy: {
-        novelty_requirement: "",
-        methodological_requirements: "",
-        statistical_reporting_expectations: "",
+        novelty_requirement: "<NOVELTY_REQUIREMENT_DESCRIPTION>",
+        methodological_requirements: "<METHODOLOGICAL_REQUIREMENTS_DESCRIPTION>",
+        statistical_reporting_expectations: "<STATISTICAL_REPORTING_EXPECTATIONS>",
         reporting_guidelines: [],
-        reviewer_guidance: "",
-        editorial_policy_summary: "",
+        reviewer_guidance: "<REVIEWER_GUIDANCE>",
+        editorial_policy_summary: "<EDITORIAL_POLICY_SUMMARY>",
+        technical_soundness_oriented: "unknown",
+        importance_significance_impact_assessed: "unknown",
+        niche_scope_allowed: "unknown",
+        negative_results_allowed: "unknown",
+        replication_allowed: "unknown",
+        main_review_questions: [],
+        claims_must_be_supported_by_data: "unknown",
+        methods_analysis_interpretation_focus: "unknown",
       },
       publication_criteria: {
         novelty_required: "unknown",
@@ -305,50 +554,322 @@ function JournalAcquisitionModal({
         field_specific_high_impact_journal: "unknown",
         clinical_high_impact_journal: "unknown",
         society_journal: "unknown",
-        journal_position_summary: "",
+        soundness_oriented_journal: "unknown",
+        selectivity_basis: "<SELECTIVITY_BASIS>",
+        evaluation_axis_summary: "<EVALUATION_AXIS_SUMMARY>",
+        journal_position_summary: "<JOURNAL_POSITION_SUMMARY>",
       },
       metrics: {
-        impact_factor: "",
-        five_year_impact_factor: "",
-        cite_score: "",
-        sjr: "",
-        snip: "",
-        quartile: "",
-        category_rankings: "",
-        indexing: "",
-        acceptance_rate_if_available: "",
+        impact_factor: "<IMPACT_FACTOR>",
+        impact_factor_year: "<IMPACT_FACTOR_YEAR>",
+        five_year_impact_factor: "<FIVE_YEAR_IMPACT_FACTOR>",
+        five_year_impact_factor_year: "<FIVE_YEAR_IMPACT_FACTOR_YEAR>",
+        cite_score: "<CITE_SCORE>",
+        cite_score_year: "<CITE_SCORE_YEAR>",
+        sjr: "<SJR>",
+        sjr_year: "<SJR_YEAR>",
+        snip: "<SNIP>",
+        snip_year: "<SNIP_YEAR>",
+        quartile: "<QUARTILE>",
+        category_rankings: "<CATEGORY_RANKINGS>",
+        indexing: "<INDEXING_DATABASES>",
+        acceptance_rate_if_available: "<ACCEPTANCE_RATE_IF_AVAILABLE>",
       },
       submission_strategy: {
-        suitable_novelty_strategy: "",
-        suitable_framing_strategy: "",
-        unsuitable_claims: "",
-        claims_to_avoid: "",
-        reviewer_likely_concerns: "",
-        manuscript_strengths_to_emphasize: "",
-        manuscript_weaknesses_to_control: "",
+        suitable_novelty_strategy: "<SUITABLE_NOVELTY_STRATEGY>",
+        suitable_framing_strategy: "<SUITABLE_FRAMING_STRATEGY>",
+        unsuitable_claims: "<UNSUITABLE_CLAIMS>",
+        claims_to_avoid: "<CLAIMS_TO_AVOID>",
+        reviewer_likely_concerns: "<REVIEWER_LIKELY_CONCERNS>",
+        manuscript_strengths_to_emphasize: "<MANUSCRIPT_STRENGTHS_TO_EMPHASIZE>",
+        manuscript_weaknesses_to_control: "<MANUSCRIPT_WEAKNESSES_TO_CONTROL>",
       },
-      sources: [],
-      notes: "",
+      manuscript_structure: {
+        expected_section_order: [],
+        main_text_order: [],
+        front_matter_sections: [],
+        back_matter_sections: [],
+        section_aliases: {},
+        section_alias_rules: [],
+        requires_abstract: true,
+        allows_heading_variation: "unknown",
+        methods_position: "<WHERE_METHODS_APPEARS>",
+        allows_conclusion_section: "unknown",
+        allows_research_highlights: "unknown",
+        allows_summary_instead_of_abstract: "unknown",
+        notes: "<MANUSCRIPT_STRUCTURE_NOTES_OR_EMPTY>",
+      },
+      sources: [
+        {
+          url: "<URL_OF_PAGE_YOU_REFERENCED>",
+          title: "<DESCRIPTIVE_TITLE_OF_THE_PAGE>",
+          accessed_at: "<TODAYS_DATE_IN_ISO_8601>",
+          retrieved_text_summary: "<SUMMARIZE_WHAT_INFORMATION_YOU_GOT_FROM_THIS_PAGE>",
+        },
+      ],
+      notes: "<ADDITIONAL_NOTES_OR_EMPTY>",
       source: "external",
-      source_details: "",
-      updated_at: "",
+      source_details: "<WHERE_YOU_FOUND_THIS_INFORMATION>",
+      updated_at: "<TODAYS_DATE_IN_ISO_8601>",
     };
     const parts = [
+      `!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!`,
+      `!!! ⚠ CRITICAL: REPLACE EVERY <PLACEHOLDER> IN THE JSON TEMPLATE BELOW !!!`,
+      `!!!                                                                      !!!`,
+      `!!! Every value wrapped in <ANGLE_BRACKETS> is a PLACEHOLDER that must   !!!`,
+      `!!! be replaced with REAL data from the journal's official website.      !!!`,
+      `!!!                                                                      !!!`,
+      `!!! Do NOT output any <PLACEHOLDER> verbatim.                            !!!`,
+      `!!! Do NOT leave any <PLACEHOLDER> in your final output.                 !!!`,
+      `!!!                                                                      !!!`,
+      `!!! "unknown" is the ONLY acceptable value if you genuinely cannot find  !!!`,
+      `!!! the information after thorough search of the official website.       !!!`,
+      `!!!                                                                      !!!`,
+      `!!! null means "not applicable / no limit" — use only when the journal   !!!`,
+      `!!! clearly does not impose this constraint.                             !!!`,
+      `!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!`,
+      ``,
       `Please research the following journal and produce a structured JSON profile:`,
       ``,
       `Journal Name: ${jn || "(please fill in)"}`,
       `Journal URL: ${ju || "(please fill in)"}`,
       `Article Type: ${at}`,
       ``,
-      `The JSON must match this schema and contain accurate information from the journal's official submission guidelines:`,
+      `## CRITICAL: What to check`,
+      `You MUST research these pages from the journal's official website:`,
+      `1. Author instructions / submission guidelines — for manuscript structure, word limits, abstract requirements`,
+      `2. Guide to referees — for what reviewers evaluate`,
+      `3. Editorial process — for decision criteria`,
+      `4. Aims and scope / About the journal — for journal positioning`,
+      `5. Journal metrics page — for impact factor, etc.`,
+      ``,
+      `## Key extraction priorities`,
+      `- **Section order**: What is the recommended manuscript structure?`,
+      `  (e.g. Introduction → Results → Discussion → Methods for Scientific Reports)`,
+      `- **Methods position**: Where does Methods appear relative to other sections?`,
+      `- **Abstract**: Structured or unstructured? Word limit?`,
+      `- **Limits**: main text word limit, title word limit, keyword limit, reference limit,`,
+      `  display item limit, figure legend word limit`,
+      `- **Evaluation axis**: Does the journal assess importance/significance/impact,`,
+      `  or ONLY technical soundness and methodological rigor?`,
+      `  This is CRITICAL for determining how to position the manuscript.`,
+      `- **What research types are accepted?** (niche, negative results, replication, etc.)`,
+      `- **Reporting guidelines**: What reporting standards are required or recommended?`,
+      `- **Section heading taxonomy (manuscript_structure) — HIGH PRIORITY**:`,
+      `  Identify ALL heading variations the journal accepts for each canonical section:`,
+      `  - abstract: e.g. "Abstract", "Summary", "Abstract/Summary"`,
+      `  - introduction: e.g. "Introduction", "Background", "Intro"`,
+      `  - methods: e.g. "Methods", "Materials and Methods", "Experimental"`,
+      `  - results: e.g. "Results", "Findings", "Results and Discussion"`,
+      `  - discussion: e.g. "Discussion", "Discussion and Conclusions"`,
+      `  - conclusion: e.g. "Conclusion", "Conclusions", "Concluding remarks"`,
+      `  - references: e.g. "References", "Bibliography", "Literature cited"`,
+      `  - acknowledgements: e.g. "Acknowledgements", "Acknowledgments", "謝辞"`,
+      `  - competing_interests: e.g. "Competing interests", "Conflict of interest"`,
+      `  - data_availability: e.g. "Data availability", "Data and code availability"`,
+      `  - Declare which sections are front_matter (abstract, keywords, etc.),`,
+      `    main_text, and back_matter (references, appendices, etc.).`,
+      ``,
+      `## Value format rules`,
+      `For publication_criteria:`,
+      `- novelty_required, impact_required, significance_required:`,
+      `  use "high" | "moderate" | "low" | "not_explicitly_required" | "unknown"`,
+      `  DO NOT use "true" or "false" for these fields.`,
+      `- technical_soundness_focus, methodological_rigour_focus, etc.:`,
+      `  use "true" | "false" | "unknown"`,
+      ``,
+      `For review_policy axis fields (technical_soundness_oriented, etc.):`,
+      `use "true" | "false" | "unknown"`,
+      ``,
+      `For research_type_acceptance and journal_position fields:`,
+      `use "true" | "false" | "unknown"`,
+      ``,
+      `For metrics: include the year in dedicated year fields`,
+      `(impact_factor_year, five_year_impact_factor_year, etc.)`,
+      ``,
+      `For submission_guidelines ethics/compliance fields:`,
+      `- ethics_review_required, informed_consent_required, coi_disclosure_required:`,
+      `  use "required" | "not_required" | "varies" | "unknown"`,
+      `  ⚠ DO NOT use "true"/"false" for these three fields — they are NOT boolean.`,
+      ``,
+      `## COI/ethics heading terminology (IMPORTANT for automated ethics check)`,
+      `The ethics check uses the journal profile to know what headings and phrasing to expect.`,
+      `You MUST capture the following details:`,
+      `- In manuscript_structure.section_aliases, the "competing_interests" key MUST list`,
+      `  the EXACT heading(s) the journal uses for the COI/competing interests section.`,
+      `  Example for Scientific Reports: "competing_interests": ["Competing interests"]`,
+      `  Example for a journal accepting both: "competing_interests": ["Competing interests", "Conflict of interest"]`,
+      `- In submission_guidelines.conflict_of_interest_policy, include:`,
+      `  - The expected heading name`,
+      `  - The expected phrasing format (e.g., "The authors declare no competing interests.")`,
+      `  - Whether a minimal statement like "None declared" is sufficient or a full sentence is required`,
+      `  - Whether each author must be listed individually`,
+      ``,
+      `## Sources format — CRITICAL`,
+      `The "sources" field MUST be an array of objects, NOT an array of URL strings.`,
+      `Each object must have:`,
+      `- url: the full URL of the page you used`,
+      `- title: a descriptive title (e.g. "Submission guidelines | Scientific Reports")`,
+      `- accessed_at: ISO datetime (e.g. "2026-05-20T12:00:00Z") — use today's date`,
+      `- retrieved_text_summary: short summary of what info you got from this page`,
+      `Example:`,
+      `"sources": [`,
+      `  {`,
+      `    "url": "https://www.nature.com/srep/author-instructions/submission-guidelines",`,
+      `    "title": "Submission guidelines | Scientific Reports",`,
+      `    "accessed_at": "2026-05-20T12:00:00Z",`,
+      `    "retrieved_text_summary": "Manuscript structure, word limits, ethics policy, COI requirements"`,
+      `  }`,
+      `]`,
+      `DO NOT output: "sources": ["https://...", "https://..."] ← WRONG!`,
+      ``,
+      `## CRITICAL JSON RULES — READ CAREFULLY`,
+      `- The JSON template below contains <PLACEHOLDERS> wrapped in angle brackets.`,
+      `  REPLACE EVERY SINGLE ONE with real data from your research.`,
+      `  A <PLACEHOLDER> left in the output = YOUR TASK IS INCOMPLETE.`,
+      `- If a field is genuinely not mentioned anywhere on the journal's website,`,
+      `  use "" for free-text string fields, [] for array fields,`,
+      `  null for numeric limits, or "unknown" for enum fields.`,
+      `- DO NOT invent or guess — every replacement must be traceable to`,
+      `  information found on the journal's official website.`,
+      `## CRITICAL: section_order consistency — READ BEFORE FILLING section_order`,
+      `The following THREE fields must describe the SAME section order:`,
+      `  1. submission_guidelines.recommended_manuscript_structure (array)`,
+      `  2. submission_guidelines.section_order (string)`,
+      `  3. manuscript_structure.expected_section_order (array)`,
+      ``,
+      `section_order FORMAT RULES (CRITICAL — violations will cause validation errors):`,
+      `- section_order MUST be a single string: join the section names with " → ".`,
+      `  Example: "Title page → Abstract → Keywords → Introduction → Results → Discussion → Methods → References"`,
+      `- Do NOT put explanatory prose, caveats, ambiguity notes, or narrative text`,
+      `  into section_order. It is a MACHINE-READABLE field for automated verification.`,
+      `- If the journal says the structure is flexible or ambiguous, still provide`,
+      `  the BEST normalized order in all three section-order fields, and put caveats into:`,
+      `  • submission_guidelines.section_order_notes (for section-order-specific notes)`,
+      `  • manuscript_structure.notes (for general structure flexibility notes)`,
+      `- Use EXACTLY the same spelling and capitalization across all three fields.`,
+      ``,
+      `✖ INCORRECT section_order: "The journal has no strict structure, but Introduction Results Discussion Methods is suitable in many cases."`,
+      `✔ CORRECT section_order:   "Introduction → Results → Discussion → Methods"`,
+      `✔ CORRECT section_order_notes: "The journal states that there are no strict requirements for main body organization, although Introduction, Results, Discussion, Methods is described as suitable in many cases."`,
+      ``,
+      `## Section metadata rules`,
+      `  - For manuscript_structure.section_aliases: map each canonical name to heading variations`,
+      `    (e.g. "abstract": ["Abstract", "Summary"], "introduction": ["Introduction", "Intro", "Background"])`,
+      `  - For manuscript_structure.section_alias_rules: position-dependent disambiguation rules`,
+      `    (e.g. {"alias": "Conclusions", "canonical": "conclusion", "condition": "inside_or_immediately_after_discussion"})`,
+      `  - For manuscript_structure.main_text_order: canonical section names in order`,
+      `  - For manuscript_structure.front_matter_sections / back_matter_sections: classify each`,
+      `- Include ALL sources you used in the "sources" array as objects with url/title/accessed_at/retrieved_text_summary.`,
+      `- Output ONLY the filled-in JSON object. No markdown. No explanations. No code fences.`,
+      ``,
+      `The JSON template you MUST fill in (replace every <PLACEHOLDER>):`,
       ``,
       `\`\`\`json`,
       JSON.stringify(defaultProfile, null, 2),
       `\`\`\``,
       ``,
-      `Output ONLY valid JSON — no markdown, no explanations, no code fences.`,
+      `Output ONLY the completed JSON object — no markdown, no explanations, no code fences.`,
     ];
     setExtPrompt(parts.join("\n"));
+  };
+
+  // Reusable helpers for parseExternalResult
+
+  /** Build the default JournalProfile with all fields set to empty/unknown. */
+  const buildDefaultProfile = (): JournalProfile => JSON.parse(JSON.stringify({
+    journal_name: "", journal_url: "", publisher: "", article_type: "Article",
+    reference_style: {
+      style_name: "", in_text_citation: "numeric", reference_list_order: "order_of_appearance",
+      doi_required: "recommended_or_required_if_available", url_access_date_required: null,
+      journal_title_style: "abbreviated_or_full", example_reference: "",
+    },
+    submission_guidelines: {
+      word_limit: null, abstract_limit: null, figure_table_limits: null,
+      supplementary_material_policy: "", data_availability_policy: "",
+      ethics_policy: "", conflict_of_interest_policy: "", funding_statement_policy: "",
+      informed_consent_policy: "",
+      ethics_review_required: "unknown", informed_consent_required: "unknown", coi_disclosure_required: "unknown",
+      recommended_manuscript_structure: [], section_order: "", section_order_notes: "", methods_position: "",
+      abstract_structure: "", main_text_word_limit: null, title_word_limit: null,
+      keyword_limit: null, reference_limit: null, display_item_limit: null,
+      figure_legend_limit: null, line_numbers_recommended: null, footnotes_allowed: null,
+    },
+    review_policy: {
+      novelty_requirement: "", methodological_requirements: "", statistical_reporting_expectations: "",
+      reporting_guidelines: [], reviewer_guidance: "", editorial_policy_summary: "",
+      technical_soundness_oriented: "unknown", importance_significance_impact_assessed: "unknown",
+      niche_scope_allowed: "unknown", negative_results_allowed: "unknown", replication_allowed: "unknown",
+      main_review_questions: [], claims_must_be_supported_by_data: "unknown",
+      methods_analysis_interpretation_focus: "unknown",
+    },
+    publication_criteria: {
+      novelty_required: "unknown", impact_required: "unknown", significance_required: "unknown",
+      technical_soundness_focus: "unknown", methodological_rigour_focus: "unknown",
+      statistical_rigour_focus: "unknown", conclusion_supported_by_data_focus: "unknown",
+      ethical_robustness_focus: "unknown", data_availability_focus: "unknown",
+      reproducibility_transparency_focus: "unknown",
+    },
+    research_type_acceptance: {
+      accepts_incremental_research: "unknown", accepts_confirmatory_research: "unknown",
+      accepts_replication: "unknown", accepts_negative_or_null_results: "unknown",
+      accepts_niche_scope: "unknown", accepts_multidisciplinary_work: "unknown",
+    },
+    journal_position: {
+      multidisciplinary_mega_journal: "unknown", broad_scope_journal: "unknown",
+      field_specific_high_impact_journal: "unknown", clinical_high_impact_journal: "unknown",
+      society_journal: "unknown", soundness_oriented_journal: "unknown",
+      selectivity_basis: "", evaluation_axis_summary: "", journal_position_summary: "",
+    },
+    manuscript_structure: {
+      expected_section_order: [], main_text_order: [], front_matter_sections: [], back_matter_sections: [],
+      section_aliases: {}, section_alias_rules: [], requires_abstract: true,
+      allows_heading_variation: "unknown", methods_position: "",
+      allows_conclusion_section: "unknown", allows_research_highlights: "unknown",
+      allows_summary_instead_of_abstract: "unknown", notes: "",
+    },
+    metrics: {
+      impact_factor: "", impact_factor_year: "", five_year_impact_factor: "", five_year_impact_factor_year: "",
+      cite_score: "", cite_score_year: "", sjr: "", sjr_year: "", snip: "", snip_year: "",
+      quartile: "", category_rankings: "", indexing: "", acceptance_rate_if_available: "",
+    },
+    submission_strategy: {
+      suitable_novelty_strategy: "", suitable_framing_strategy: "", unsuitable_claims: "",
+      claims_to_avoid: "", reviewer_likely_concerns: "",
+      manuscript_strengths_to_emphasize: "", manuscript_weaknesses_to_control: "",
+    },
+    sources: [{
+      url: "https://...", title: "Page title",
+      accessed_at: "2026-05-20T12:00:00Z",
+      retrieved_text_summary: "What information was obtained from this page",
+    }],
+    notes: "", source: "external", source_details: "pasted JSON", updated_at: "",
+  }));
+
+  /** Recursively merge source into target (mutates target). */
+  const deepMergeProfile = (target: Record<string, unknown>, source: Record<string, unknown>) => {
+    for (const key of Object.keys(source)) {
+      const sv = source[key];
+      const tv = target[key];
+      if (sv !== null && typeof sv === "object" && !Array.isArray(sv) &&
+          tv !== null && typeof tv === "object" && !Array.isArray(tv)) {
+        deepMergeProfile(tv as Record<string, unknown>, sv as Record<string, unknown>);
+      } else if (sv !== undefined) {
+        target[key] = sv;
+      }
+    }
+  };
+
+  /** Normalize sources array: convert string[] entries to SourceEntry objects. */
+  const normalizeSources = (merged: Record<string, unknown>) => {
+    if (Array.isArray(merged.sources)) {
+      merged.sources = (merged.sources as unknown[]).map((s: unknown) => {
+        if (typeof s === "string") {
+          return { url: s, title: s, accessed_at: "", retrieved_text_summary: "" };
+        }
+        return s;
+      });
+    }
   };
 
   const copyToClipboard = async (text: string) => {
@@ -361,111 +882,130 @@ function JournalAcquisitionModal({
       setExtError("JSONを貼り付けてください。");
       return;
     }
+    // ── Fast path: try raw JSON.parse (markdown links inside strings are valid JSON) ──
+    let fastValue: Record<string, unknown> | null = null;
+    try {
+      const firstBrace = text.indexOf("{");
+      const lastBrace = text.lastIndexOf("}");
+      if (firstBrace !== -1 && lastBrace > firstBrace) {
+        const jsonBlock = text.slice(firstBrace, lastBrace + 1);
+        // Parse raw first — markdown links [text](url) inside JSON strings are valid
+        fastValue = JSON.parse(jsonBlock);
+        // Now safely normalize markdown links in the already-parsed object
+        normalizeMarkdownLinksInObject(fastValue);
+      }
+    } catch { /* fall through to loose parser */ }
+
+    if (fastValue) {
+      // Fast path succeeded — merge with defaults and validate
+      const merged = JSON.parse(JSON.stringify(buildDefaultProfile()));
+      deepMergeProfile(merged, fastValue);
+      normalizeSources(merged);
+      const profile = merged as JournalProfile;
+      // Diagnostic: log key field values before validation
+      const sg = profile.submission_guidelines;
+      console.log("[fast-path] journal_name:", profile.journal_name);
+      console.log("[fast-path] section_order:", sg?.section_order?.substring(0, 80));
+      console.log("[fast-path] methods_position:", sg?.methods_position?.substring(0, 80));
+      console.log("[fast-path] main_text_word_limit:", sg?.main_text_word_limit);
+      console.log("[fast-path] technical_soundness_oriented:", profile.review_policy?.technical_soundness_oriented);
+      console.log("[fast-path] main_text_order:", profile.manuscript_structure?.main_text_order);
+      console.log("[fast-path] section_aliases keys:", Object.keys(profile.manuscript_structure?.section_aliases || {}).length);
+      console.log("[fast-path] sources count:", (profile.sources || []).length);
+      console.log("[fast-path] sources[0] url:", (profile.sources || [])[0]?.url);
+      // Show diagnostic in the error area too (green info, not red error)
+      const diagMsg = [
+        "[FAST PATH] parse OK - keys: " + Object.keys(fastValue).length,
+        "journal_name: " + (profile.journal_name || "(empty)"),
+        "section_order: " + (sg?.section_order ? sg.section_order.substring(0, 60) + "..." : "(empty)"),
+        "methods_position: " + (sg?.methods_position ? sg.methods_position.substring(0, 60) + "..." : "(empty)"),
+        "main_text_word_limit: " + (sg?.main_text_word_limit ?? "null"),
+        "technical_soundness_oriented: " + profile.review_policy?.technical_soundness_oriented,
+        "main_text_order: [" + (profile.manuscript_structure?.main_text_order || []).join(", ") + "]",
+        "section_aliases: " + Object.keys(profile.manuscript_structure?.section_aliases || {}).length + " sections",
+        "sources: " + (profile.sources || []).length + " entries",
+      ].join(String.fromCharCode(10));
+      if (!profile.journal_name?.trim() && (!profile.sources || profile.sources.length === 0)) {
+        setExtError("JSONパース結果が空です。貼り付けたテキストにJSONが含まれているか確認してください。");
+        setExtPreview(null);
+        setExtWarnings([]);
+        return;
+      }
+      setExtPreview(profile);
+      setExtError(diagMsg);
+      setExtWarnings(validateJournalProfile(profile));
+      return;
+    }
+
+    // ── Slow path: loose JSON parser ──
     const result = parseLooseJsonObject(text);
     if (result.ok && result.value) {
-      // Deep merge with defaults
-      const defaultProfile: JournalProfile = {
-        journal_name: "",
-        journal_url: "",
-        publisher: "",
-        article_type: "Article",
-        reference_style: {
-          style_name: "",
-          in_text_citation: "numeric",
-          reference_list_order: "order_of_appearance",
-          doi_required: "recommended_or_required_if_available",
-          url_access_date_required: null,
-          journal_title_style: "abbreviated_or_full",
-          example_reference: "",
-        },
-        submission_guidelines: {
-          word_limit: null,
-          abstract_limit: null,
-          figure_table_limits: null,
-          supplementary_material_policy: "",
-          data_availability_policy: "",
-          ethics_policy: "",
-          conflict_of_interest_policy: "",
-          funding_statement_policy: "",
-        },
-        review_policy: {
-          novelty_requirement: "",
-          methodological_requirements: "",
-          statistical_reporting_expectations: "",
-          reporting_guidelines: [],
-          reviewer_guidance: "",
-          editorial_policy_summary: "",
-        },
-        publication_criteria: {
-          novelty_required: "unknown",
-          impact_required: "unknown",
-          significance_required: "unknown",
-          technical_soundness_focus: "unknown",
-          methodological_rigour_focus: "unknown",
-          statistical_rigour_focus: "unknown",
-          conclusion_supported_by_data_focus: "unknown",
-          ethical_robustness_focus: "unknown",
-          data_availability_focus: "unknown",
-          reproducibility_transparency_focus: "unknown",
-        },
-        research_type_acceptance: {
-          accepts_incremental_research: "unknown",
-          accepts_confirmatory_research: "unknown",
-          accepts_replication: "unknown",
-          accepts_negative_or_null_results: "unknown",
-          accepts_niche_scope: "unknown",
-          accepts_multidisciplinary_work: "unknown",
-        },
-        journal_position: {
-          multidisciplinary_mega_journal: "unknown",
-          broad_scope_journal: "unknown",
-          field_specific_high_impact_journal: "unknown",
-          clinical_high_impact_journal: "unknown",
-          society_journal: "unknown",
-          journal_position_summary: "",
-        },
-        metrics: {
-          impact_factor: "",
-          five_year_impact_factor: "",
-          cite_score: "",
-          sjr: "",
-          snip: "",
-          quartile: "",
-          category_rankings: "",
-          indexing: "",
-          acceptance_rate_if_available: "",
-        },
-        submission_strategy: {
-          suitable_novelty_strategy: "",
-          suitable_framing_strategy: "",
-          unsuitable_claims: "",
-          claims_to_avoid: "",
-          reviewer_likely_concerns: "",
-          manuscript_strengths_to_emphasize: "",
-          manuscript_weaknesses_to_control: "",
-        },
-        sources: [],
-        notes: "",
-        source: "external",
-        source_details: "pasted JSON",
-        updated_at: "",
-      };
-      const merged = JSON.parse(JSON.stringify(defaultProfile));
-      const deepMerge = (target: Record<string, unknown>, source: Record<string, unknown>) => {
-        for (const key of Object.keys(source)) {
-          if (source[key] !== null && typeof source[key] === "object" && !Array.isArray(source[key]) && typeof target[key] === "object" && target[key] !== null && !Array.isArray(target[key])) {
-            deepMerge(target[key] as Record<string, unknown>, source[key] as Record<string, unknown>);
-          } else if (source[key] !== undefined) {
-            target[key] = source[key];
-          }
+      // Check if result looks like a model-only fallback (parse failed, regex got irrelevant fields)
+      const valueKeys = Object.keys(result.value).filter(
+        k => result.value![k] !== undefined && result.value![k] !== ""
+      );
+      const isModelOnlyFallback =
+        result.parseError != null &&
+        valueKeys.length <= 6 &&
+        valueKeys.every(k =>
+          ["provider", "base_url", "pro_model", "flash_model", "recommended_api_key_env", "notes"].includes(k)
+        );
+
+      if (isModelOnlyFallback) {
+        // Try extracting journal profile fields instead
+        const jpFields = extractJournalProfileFields(text);
+        const jpKeys = Object.keys(jpFields).filter(k => jpFields[k] !== undefined && jpFields[k] !== "");
+        if (jpKeys.length >= 2) {
+          const merged = JSON.parse(JSON.stringify(buildDefaultProfile()));
+          deepMergeProfile(merged, jpFields);
+          normalizeSources(merged);
+          const profile = merged as JournalProfile;
+          setExtPreview(profile);
+          setExtError(
+            `⚠ JSONの完全なパースに失敗しました。基本情報のみ復元しました（${jpKeys.length}フィールド）。\n` +
+            `元の解析エラー: ${result.parseError || "不明"}\n` +
+            `入れ子フィールド（submission_guidelines, review_policy 等）は初期値のままです。\n` +
+            `AI出力が有効なJSONであることを確認してください。`
+          );
+          setExtWarnings(validateJournalProfile(profile));
+          return;
         }
-      };
-      deepMerge(merged, result.value!);
-      setExtPreview(merged as JournalProfile);
+        // Not enough fields — show clear error
+        setExtError(
+          `JSONをパースできませんでした。\n\n` +
+          `解析エラー: ${result.parseError || "不明"}\n\n` +
+          `以下をお試しください:\n` +
+          `1. JSONブロック（{ から } まで）のみをコピーして貼り付ける\n` +
+          `2. 文字化けや特殊文字が混ざっていないか確認する\n` +
+          `3. JSONLint等でJSONの構文を検証する`
+        );
+        setExtPreview(null);
+        setExtWarnings([]);
+        return;
+      }
+
+      // Normal parse succeeded — deep merge with defaults
+      const merged = JSON.parse(JSON.stringify(buildDefaultProfile()));
+      deepMergeProfile(merged, result.value!);
+      normalizeSources(merged);
+      console.debug("[parseExternalResult] merged keys:", Object.keys(merged));
+      console.debug("[parseExternalResult] submission_guidelines:", (merged as Record<string, unknown>).submission_guidelines);
+      console.debug("[parseExternalResult] sources count:", (merged.sources as Array<unknown>)?.length);
+      const profile = merged as JournalProfile;
+
+      // Safety check
+      if (!profile.journal_name?.trim() && (!profile.sources || profile.sources.length === 0)) {
+        setExtError("JSONパース結果が空です。貼り付けたテキストにJSONが含まれているか確認してください。\n\nヒント: ChatGPTの出力にJSON以外の説明文が混ざっている場合は、JSON部分（{ から } まで）だけをコピーしてお試しください。");
+        setExtPreview(null);
+        setExtWarnings([]);
+        return;
+      }
+
+      setExtPreview(profile);
       setExtError(result.warnings.length > 0 ? result.warnings.join("\n") : "");
+      setExtWarnings(validateJournalProfile(profile));
     } else {
       setExtError(result.error || "JSONパースに失敗しました。");
-      // Keep pasteText — user can edit and re-parse
     }
   };
 
@@ -473,6 +1013,7 @@ function JournalAcquisitionModal({
     setExtPasteText("");
     setExtPreview(null);
     setExtError("");
+    setExtWarnings([]);
   };
 
   // Which preview is currently relevant
@@ -682,6 +1223,16 @@ function JournalAcquisitionModal({
                   <div style={{ fontSize: 12, fontWeight: 600, color: "#107c10", marginBottom: 8 }}>
                     取り込み前プレビュー
                   </div>
+                  {extWarnings.length > 0 && (
+                    <div style={{ marginBottom: 8, padding: 6, background: "#fff8e1", borderRadius: 4, border: "1px solid #ffe082" }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: "#e65100", marginBottom: 4 }}>⚠ 検証警告 ({extWarnings.length}件)</div>
+                      {extWarnings.map((w, i) => (
+                        <div key={i} style={{ fontSize: 10, marginBottom: 2, color: w.severity === "error" ? "#c42b1c" : "#555" }}>
+                          <strong>{w.field}:</strong> {w.message}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   <JournalPreviewTable profile={extPreview} />
                 </div>
               )}
@@ -1057,15 +1608,36 @@ export default function JournalPanel({
                 ["ethics_policy", "倫理規定"],
                 ["conflict_of_interest_policy", "利益相反方針"],
                 ["funding_statement_policy", "資金提供記載方針"],
+                ["informed_consent_policy", "IC方針"],
               ] as [string, string][]).map(([key, label]) => (
                 <div className="row" key={key} style={{ marginBottom: 4 }}>
                   <span style={{ ...labelStyle, alignSelf: "flex-start" }}>{label}</span>
                   <textarea
                     style={txtStyle}
                     rows={2}
-                    value={(sg as Record<string, unknown>)[key] as string}
+                    value={(sg as Record<string, unknown>)[key] as string || ""}
                     onChange={(e) => onUpdateField(`submission_guidelines.${key}`, e.target.value)}
                   />
+                </div>
+              ))}
+              {([
+                ["ethics_review_required", "倫理審査要否"],
+                ["informed_consent_required", "IC要否"],
+                ["coi_disclosure_required", "COI開示要否"],
+              ] as [string, string][]).map(([key, label]) => (
+                <div className="row" key={key} style={{ marginBottom: 4 }}>
+                  <span style={labelStyle}>{label}</span>
+                  <select
+                    className="path-input"
+                    value={(sg as Record<string, unknown>)[key] as string || "unknown"}
+                    onChange={(e) => onUpdateField(`submission_guidelines.${key}`, e.target.value)}
+                    style={{ flex: 1 }}
+                  >
+                    <option value="required">required（必須）</option>
+                    <option value="not_required">not_required（不要）</option>
+                    <option value="varies">varies（研究種別による）</option>
+                    <option value="unknown">unknown（不明）</option>
+                  </select>
                 </div>
               ))}
             </div>

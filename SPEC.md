@@ -91,7 +91,7 @@ Tauri v2 + React TypeScript + Python CLI
 - 手入力結果の取り込み
 - 各チェック項目内マージ
 - 最終マージ
-- Markdown査読コメント生成
+- 査読コメント生成（Markdown / DOCX / TXT）
 
 ### 2.4 通信プロトコル
 
@@ -187,7 +187,22 @@ project_folder/
 
   outputs/
     structure/ / expression/ / methods_stats/
-    citation/ / originality/ / final/
+    citation/ / originality/
+    final/
+      _data/
+        final_review.md
+        comments_to_authors.md
+        confidential_comments_to_editor.md
+        recommendation.md
+        citation_report.md
+        originality_report.md
+        audit_trail.json
+      final_review.md
+      final_review.docx
+      final_review.txt
+      final_review_jp.md
+      final_review_jp.docx
+      final_review_jp.txt
 
   status/
     task_status.json
@@ -529,11 +544,16 @@ LLM01/02/03 と手入力結果を統合し、チェック項目ごとの査読�
 
 ### 8.3 最終マージ
 
-全チェック項目の統合結果、原稿要約、line_map、paragraph_sentence_map を統合し、最終査読コメントを生成する。
+全チェック項目の統合結果、原稿要約、line_map、paragraph_sentence_map を統合し、最終査読コメントを生成する。出力形式（Markdown / DOCX / TXT）と言語（英語 / 日本語）を選択可能。
 
 ```bash
-pra-cli final-merge --project <project_folder>
+pra-cli final-merge --project <project_folder> [--lang en|ja] [--format md|docx|txt|all]
 ```
+
+| オプション | デフォルト | 説明 |
+|---|---|---|
+| `--lang` | `en` | 出力言語。`en`（英語）または `ja`（日本語） |
+| `--format` | `all` | 出力形式。カンマ区切りで複数指定可能（例: `md,docx`）。`all` で全形式出力 |
 
 ---
 
@@ -543,16 +563,29 @@ pra-cli final-merge --project <project_folder>
 
 ```text
 outputs/final/
-  final_review.md                   全体版（著者向け + 編集者向け）
-  comments_to_authors.md            著者向けコメントのみ
-  confidential_comments_to_editor.md 編集者向けコメントのみ
-  recommendation.md                 推奨判定と理由
-  citation_report.md                文献チェックレポート
-  originality_report.md             先行研究比較レポート
-  audit_trail.json                  処理記録
+  _data/                             マスター形式（Markdown）と中間データ
+    final_review.md                  英語版マスター（全セクション）
+    comments_to_authors.md           著者向けコメントのみ
+    confidential_comments_to_editor.md 編集者向けコメントのみ
+    recommendation.md                推奨判定と理由
+    citation_report.md               文献チェックレポート
+    originality_report.md            先行研究比較レポート
+    audit_trail.json                 処理記録
+  final_review.md                    英語版 Markdown（_data/ のコピー）
+  final_review.docx                  英語版 Word 形式
+  final_review.txt                   英語版 テキスト形式
+  final_review_jp.md                 日本語版 Markdown
+  final_review_jp.docx               日本語版 Word 形式
+  final_review_jp.txt                日本語版 テキスト形式
 ```
 
+Markdown 形式は常に出力される（マスター形式であり、DOCX/TXT の変換元となる）。DOCX 形式と TXT 形式はオプションで選択可能。英語版・日本語版は両方同時に出力される。
+
 ### 9.2 出力形式
+
+#### 9.2.1 Markdown 形式 (.md)
+
+マスター形式。DOCX および TXT の変換元となる。
 
 ```markdown
 # Peer Review
@@ -578,6 +611,14 @@ outputs/final/
 ## 8. Recommendation
 [Accept / Minor Revision / Major Revision / Reject]
 ```
+
+#### 9.2.2 Word 形式 (.docx)
+
+Markdown から python-docx で変換。見出し、太字、箇条書き、罫線等の書式を保持する。査読コメントを Word ファイルとして提出する場合に使用。
+
+#### 9.2.3 テキスト形式 (.txt)
+
+Markdown から変換したプレーンテキスト。罫線に Unicode ボックス描画文字（━ U+2501, ┄ U+2504）を使用。見出し・コメント・重大度の視認性を確保しつつ、任意のテキストエディタで閲覧可能。
 
 ### 9.3 Location 表記
 
@@ -651,7 +692,7 @@ outputs/final/
 | JournalPanel | `panels/JournalPanel.tsx` | 投稿先ジャーナルの評価基準分析（LLMで40+フィールドの構造化プロファイルを生成）。publication_criteria（技術的健全性重視/新規性重視）、査読ポリシー、投稿規定を抽出 |
 | NoveltyCheckPanel | `panels/NoveltyCheckPanel.tsx` | 新規性チェック5フェーズパイプライン。論文概要生成→Deep Researchプロンプト（広範囲+批判的）→外部AI結果A/B貼り付け（DeepResearchModal使用）→Deep Research統合→新規性・適合性評価。ジャーナルプロファイル連携で評価軸自動調整 |
 | ReviewChecksPanel | `panels/ReviewChecksPanel.tsx` | 構成・表現・方法統計・引用文献のLLMチェック実行、チェック項目内マージ、最終出力 |
-| ResultsPanel | `panels/ResultsPanel.tsx` | 出力ファイルの選択表示（最終査読/著者向け/編集者向け/推奨判定/処理記録） |
+| ResultsPanel | `panels/ResultsPanel.tsx` | 出力フォルダ選択、フォーマット選択（Markdown常時出力/DOCX/TXT切替）、出力実行、出力ファイルテーブル表示、ファイル内容ビューアー、フォルダを開く |
 | SettingsPanel | `panels/SettingsPanel.tsx` | LLMスロット設定（Provider/Base URL/Model/ProModel/FlashModel/reasoningMode）、APIキー（直接入力/環境変数/Windows Hello）、接続テスト |
 
 ### 10.5 ボトムログペイン
@@ -846,6 +887,10 @@ outputs/final/
 | 引用文献チェック CLI | ✅ |
 | チェック項目内マージ CLI（構成/表現/方法統計） | ✅ |
 | 最終マージ CLI | ✅ |
+| フォーマット別出力（--format md/docx/txt/all、カンマ区切り複数指定） | ✅ |
+| 出力言語選択（--lang en/ja、英語・日本語同時出力） | ✅ |
+| TXT形式出力（Unicode罫線、見出し太字） | ✅ |
+| DOCX形式出力（python-docx、Markdownから変換） | ✅ |
 | **GUI全般** | |
 | 全パネル（ホーム/プロジェクト/前処理/文献確認/ジャーナル/新規性/査読チェック/結果/設定） | ✅ |
 | 全ボタン日本語ラベル | ✅ |
@@ -918,6 +963,10 @@ peer-review-assistant/
       llm/
       merge/
       output/
+        __init__.py
+        final.py
+        txt_writer.py
+        docx_writer.py
       utils/
     pyproject.toml
 

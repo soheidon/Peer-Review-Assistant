@@ -48,6 +48,10 @@ peer-review-assistant/
       llm/
       merge/
       output/
+        __init__.py
+        final.py
+        txt_writer.py
+        docx_writer.py
       utils/
     pyproject.toml
 
@@ -240,6 +244,20 @@ project_folder/
     citation/
     originality/
     final/
+      _data/
+        final_review.md
+        comments_to_authors.md
+        confidential_comments_to_editor.md
+        recommendation.md
+        citation_report.md
+        originality_report.md
+        audit_trail.json
+      final_review.md
+      final_review.docx
+      final_review.txt
+      final_review_jp.md
+      final_review_jp.docx
+      final_review_jp.txt
 
   status/
     task_status.json

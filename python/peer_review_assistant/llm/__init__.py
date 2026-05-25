@@ -64,7 +64,18 @@ def chat_completion(provider, messages, max_tokens=1024, temperature=None,
             usage (dict|null), error (str|null), latency_ms (int),
             reasoning_content (str|null)
     """
-    url = f"{provider.base_url}/chat/completions"
+    base = (provider.base_url or "").strip()
+    if not base or not base.startswith("http"):
+        return {
+            "ok": False,
+            "content": None,
+            "model": None,
+            "usage": None,
+            "error": f"Invalid base_url: {base!r}. Must be a full URL starting with http:// or https://.",
+            "latency_ms": 0,
+            "reasoning_content": None,
+        }
+    url = f"{base}/chat/completions"
     body = {
         "model": provider.model,
         "messages": messages,

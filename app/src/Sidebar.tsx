@@ -7,7 +7,7 @@ const MENU_ITEMS = [
   { key: "citations",  label: "文献確認",       icon: "📚" },
   { key: "novelty",    label: "新規性チェック", icon: "💡" },
   { key: "review",     label: "査読チェック",   icon: "✓" },
-  { key: "results",    label: "結果",           icon: "📄" },
+  { key: "results",    label: "査読結果作成",   icon: "📄" },
 ];
 
 interface SidebarProps {

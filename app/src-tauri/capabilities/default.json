@@ -14,6 +14,16 @@
           "name": "pra-cli",
           "cmd": "pra-cli",
           "args": true
+        },
+        {
+          "name": "explorer",
+          "cmd": "explorer",
+          "args": true
+        },
+        {
+          "name": "cmd",
+          "cmd": "cmd",
+          "args": true
         }
       ]
     },

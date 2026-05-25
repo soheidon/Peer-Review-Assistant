@@ -7,7 +7,7 @@
 - docx 原稿と、Word から保存した行番号付き PDF を入力します（PDF は任意）
 - 原稿の構成、表現、方法・統計、引用文献、先行研究との関係を点検します
 - 複数の LLM と文献データベース（PubMed, Semantic Scholar, Crossref, OpenAlex）を組み合わせて分析します
-- 行番号付きまたは段落・文番号付きの査読コメントを Markdown 形式で出力します
+- 行番号付きまたは段落・文番号付きの査読コメントを Markdown / テキスト / Word 形式で出力します
 
 本ツールは査読者の判断を代替しません。査読者が原稿を理解し、問題点を整理し、著者向けコメントおよび編集者向けコメントを作成するための補助ツールです。
 
@@ -28,6 +28,7 @@
   3. 外部AI結果貼り付け、4. Deep Research 統合、5. 新規性・適合性評価
 - 査読チェック実行（構成・表現・方法統計・引用文献）
 - マージパイプライン（チェック項目内マージ・最終マージ）
+- 複数形式出力（Markdown / テキスト / Word）とフォーマット選択
 - DeepSeek reasoning model（thinking enabled）対応
 - 出力ファイルの永続化・プロジェクト再開時の自動復元
 
@@ -85,7 +86,16 @@ pip install -e .
 
 ## ライセンス
 
-MIT License — 詳細は [LICENSE](LICENSE) を参照してください。
+本ソフトウェアは個人利用および非営利目的に限り使用が許可されています。
+商用利用および改変は固く禁じられています。
+これらの制限は、クリエイティブ・コモンズの **CC BY-NC-ND 4.0**（表示 — 非営利 — 改変禁止 4.0 国際）に準拠・相当します。
+
+This software is licensed for personal and non-commercial use only.
+Commercial use and any modifications of this software are strictly prohibited.
+These restrictions are equivalent to the Creative Commons **CC BY-NC-ND 4.0**
+(Attribution — NonCommercial — NoDerivatives 4.0 International) license.
+
+詳細は [LICENSE](LICENSE) を参照してください。
 
 ## 開発ドキュメント
 

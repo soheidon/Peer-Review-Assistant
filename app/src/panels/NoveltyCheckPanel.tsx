@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { slotDisplayName } from "../slotLabels";
+import { renderMarkdown } from "../utils";
 import type { JournalProfile } from "./JournalPanel";
 import DeepResearchModal, { type DeepResearchEntry } from "./DeepResearchModal";
 
@@ -55,6 +56,13 @@ interface NoveltyCheckPanelProps {
   noveltyAssessRunning: boolean;
   noveltyAssessmentContent: string;
   onNoveltyAssess: (slotName: string) => void;
+  // Combined merge + assess
+  onNoveltyMergeAndAssess: (slotName: string) => void;
+  // Translation
+  noveltyTranslation: Record<string, string>;
+  noveltyTranslationLoading: boolean;
+  noveltyTranslationError: string | null;
+  onTranslateNoveltyContent: (kind: "summary" | "merge" | "assess") => void;
   // Nav
   onNavigateToSettings: () => void;
   statusMessage: { text: string; type: "ok" | "error" | "info" } | null;
@@ -152,12 +160,12 @@ function charCount(text: string): string {
 /* ── Novelty labels ──────────────────────────────────────────────────── */
 
 const noveltyLabels: Record<string, string> = {
-  novelty_theme: "テーマ",
-  novelty_sample: "対象・サンプル",
-  novelty_methods: "方法・介入",
-  novelty_statistics: "統計解析",
-  novelty_data_rarity: "データの希少性",
-  novelty_practical_significance: "実践的・臨床的意義",
+  novelty_theme: "Theme",
+  novelty_sample: "Sample",
+  novelty_methods: "Methods",
+  novelty_statistics: "Statistics",
+  novelty_data_rarity: "Data Rarity",
+  novelty_practical_significance: "Practical Significance",
 };
 
 /* ── Journal evaluation axis summary ─────────────────────────────────── */
@@ -233,17 +241,21 @@ export default function NoveltyCheckPanel({
   noveltyAssessRunning,
   noveltyAssessmentContent,
   onNoveltyAssess,
+  onNoveltyMergeAndAssess,
+  noveltyTranslation,
+  noveltyTranslationLoading,
+  noveltyTranslationError,
+  onTranslateNoveltyContent,
   onNavigateToSettings,
   statusMessage,
 }: NoveltyCheckPanelProps) {
   const [selectedSlot, setSelectedSlot] = useState("summary");
 
   // Visibility toggles
-  const [summaryVisible, setSummaryVisible] = useState(false);
   const [promptBroadVisible, setPromptBroadVisible] = useState(false);
   const [promptCriticalVisible, setPromptCriticalVisible] = useState(false);
-  const [mergeVisible, setMergeVisible] = useState(false);
-  const [assessmentVisible, setAssessmentVisible] = useState(false);
+  const [viewerTab, setViewerTab] = useState<"summary" | "merge" | "assess">("summary");
+  const [viewerFontSize, setViewerFontSize] = useState(13); // 11 | 13 | 15
 
   // Copy feedback
   const [copyBroadFeedback, setCopyBroadFeedback] = useState(false);
@@ -267,6 +279,17 @@ export default function NoveltyCheckPanel({
     }
   }, [availableSlots, selectedSlot]);
 
+  // Auto-switch viewer tab when results arrive
+  useEffect(() => {
+    if (noveltyAssessDone) {
+      setViewerTab("assess");
+    } else if (noveltyMergeDone) {
+      setViewerTab("merge");
+    } else if (noveltySummaryDone) {
+      setViewerTab("summary");
+    }
+  }, [noveltySummaryDone, noveltyMergeDone, noveltyAssessDone]);
+
   const summaryConfigured = isSlotConfiguredForPro(summarySlot || availableSlots[0]);
   const slotDisabledReason = getProSlotDisabledReason(summarySlot || availableSlots[0]);
   const proModelName = summarySlot ? getProModelName(summarySlot) : "";
@@ -282,6 +305,13 @@ export default function NoveltyCheckPanel({
     : noveltyMergeDone ? "done" : "unrun";
   const assessStatus: OpStatus = noveltyAssessRunning ? "running"
     : noveltyAssessDone ? "done" : "unrun";
+  const assessRunningOrMergeStatus = (): OpStatus => {
+    if (noveltyMergeRunning) return "running";
+    if (noveltyAssessRunning) return "running";
+    if (noveltyAssessDone) return "done";
+    if (noveltyMergeDone) return "done";
+    return "unrun";
+  };
 
   // ── Copy helpers ───────────────────────────────────────────────────
   const copyToClipboard = async (text: string, setFeedback: (v: boolean) => void) => {
@@ -309,9 +339,138 @@ export default function NoveltyCheckPanel({
     } catch { summaryObj = null; }
   }
 
+  // ── Render summary viewer content ──────────────────────────────────
+  const renderSummaryViewer = () => {
+    if (!summaryObj) return null;
+    return (
+      <div style={{
+        padding: 12,
+        background: "#f8f8f8", border: "1px solid #e0e0e0",
+        borderRadius: 4,
+      }}>
+        <div style={{ marginBottom: 8 }}>
+          <strong>Research Topic:</strong> {String(summaryObj.research_topic || "—")}
+        </div>
+        <div style={{ marginBottom: 8 }}>
+          <strong>Objective:</strong> {String(summaryObj.objective || "—")}
+        </div>
+        <div style={{ marginBottom: 8 }}>
+          <strong>Participants / Sample:</strong> {String(summaryObj.sample_summary || "—")}
+        </div>
+        <div style={{ marginBottom: 8 }}>
+          <strong>Study Design:</strong> {String(summaryObj.design || "—")}
+        </div>
+        <div style={{ marginBottom: 8 }}>
+          <strong>Methods:</strong> {String(summaryObj.methods_summary || "—")}
+        </div>
+        <div style={{ marginBottom: 8 }}>
+          <strong>Measures:</strong> {String(summaryObj.measures || "—")}
+        </div>
+        <div style={{ marginBottom: 8 }}>
+          <strong>Statistical Analyses:</strong> {String(summaryObj.statistics || "—")}
+        </div>
+        <div style={{ marginBottom: 8 }}>
+          <strong>Main Findings:</strong> {String(summaryObj.findings || "—")}
+        </div>
+        <div style={{ marginBottom: 8 }}>
+          <strong>Claimed Contributions:</strong> {String(summaryObj.claimed_contributions || "—")}
+        </div>
+
+        <div style={{ marginTop: 12, borderTop: "1px solid #ddd", paddingTop: 8 }}>
+          <strong>Novelty Candidates:</strong>
+        </div>
+        {Object.entries(noveltyLabels).map(([key, label]) => {
+          const val = summaryObj![key];
+          if (!val || String(val).includes("No particular novelty")) return null;
+          return (
+            <div key={key} style={{ marginBottom: 4, paddingLeft: 8 }}>
+              <strong>{label}:</strong> {String(val)}
+            </div>
+          );
+        })}
+
+        {Array.isArray(summaryObj.keywords_for_search) && summaryObj.keywords_for_search.length > 0 && (
+          <div style={{ marginTop: 8 }}>
+            <strong>Search Keywords:</strong>{" "}
+            {(summaryObj.keywords_for_search as string[]).join(", ")}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // ── Render JA summary text with bold labels ─────────────────────
+  const renderSummaryJaContent = (jaText: string) => {
+    // Split by double newlines (matching the source format from Python)
+    const blocks = jaText.split(/\n\n+/);
+    return (
+      <div style={{
+        padding: 12, background: "#fffdf0", border: "1px solid #e8dcc8",
+        borderRadius: 4, fontSize: viewerFontSize, lineHeight: 1.6,
+      }}>
+        {blocks.map((block, i) => {
+          const trimmed = block.trim();
+          if (!trimmed) return null;
+          // Find the first colon (English : or Japanese ：)
+          const colonMatch = trimmed.match(/^(.+?)(:|：)\s*/);
+          if (colonMatch) {
+            const label = colonMatch[1];
+            const value = trimmed.slice(colonMatch[0].length);
+            return (
+              <div key={i} style={{ marginBottom: 8 }}>
+                <strong>{label}{colonMatch[2]}</strong>{" "}
+                <span style={{ whiteSpace: "pre-wrap" }}>{value}</span>
+              </div>
+            );
+          }
+          // No colon found — render as plain paragraph
+          return (
+            <div key={i} style={{ marginBottom: 8, whiteSpace: "pre-wrap" }}>{trimmed}</div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  // ── Viewer 2-column layout helper ─────────────────────────────────
+  const viewerContentCols = (enNode: React.ReactNode, jaNode: React.ReactNode | null, jaMarkdown = true) => {
+    const enFontSize = viewerFontSize + 1; // EN slightly larger to match visual weight
+    const enBlock = (
+      <div style={{ flex: jaNode ? 1 : undefined, minWidth: 0 }}>
+        <div style={{ fontSize: 10, color: "#888", marginBottom: 4 }}>EN</div>
+        <div className="novelty-md" style={{ fontSize: enFontSize, lineHeight: 1.6 }}>{enNode}</div>
+      </div>
+    );
+    if (!jaNode) return enBlock;
+
+    const jaContent = jaMarkdown ? (
+      <div
+        className="novelty-md"
+        style={{
+          padding: 12, background: "#fffdf0", border: "1px solid #e8dcc8",
+          borderRadius: 4, fontSize: viewerFontSize, lineHeight: 1.6,
+        }}
+        dangerouslySetInnerHTML={{ __html: renderMarkdown(jaNode as string) }}
+      />
+    ) : (
+      jaNode  // Already a ReactNode (e.g., from renderSummaryJaContent)
+    );
+
+    return (
+      <div style={{ display: "flex", gap: 8 }}>
+        {enBlock}
+        <div style={{ width: 1, background: "#e0e0e0", flexShrink: 0, alignSelf: "stretch" }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 10, color: "#888", marginBottom: 4 }}>日本語</div>
+          {jaContent}
+        </div>
+      </div>
+    );
+  };
+
   // ── Rendering ──────────────────────────────────────────────────────
   return (
-    <div>
+    <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 100px)", overflow: "hidden" }}>
       {statusMessage && (
         <div className={`status-banner ${statusMessage.type}`}>
           {statusMessage.text}
@@ -319,11 +478,10 @@ export default function NoveltyCheckPanel({
       )}
 
       <section className="panel">
-        <h2>新規性チェック</h2>
-        <p style={{ fontSize: 12, color: "#888", marginTop: 0 }}>
-          投稿予定論文の新規性を多角的に評価し、投稿予定雑誌との適合性を確認します。
-          Deep Research は外部で実行し、結果を貼り付けてください。
-        </p>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 4 }}>
+          <h2 style={{ margin: 0 }}>新規性チェック</h2>
+          <span style={{ fontSize: 12, color: "#888" }}>投稿予定論文の新規性を多角的に評価し、投稿予定雑誌との適合性を確認します。Deep Research は外部で実行し、結果を貼り付けてください。</span>
+        </div>
 
         {/* ── Journal info bar ── */}
         <div style={{
@@ -365,10 +523,18 @@ export default function NoveltyCheckPanel({
       </section>
 
       {/* ════════════════════════════════════════════════════════════════
-          Phase 1: Paper Summary
+          2-Column Layout: Phases 1-4 (left) | Phase 5 viewer (right)
           ════════════════════════════════════════════════════════════════ */}
-      <section className="panel">
-        <h3>1. 論文概要の生成</h3>
+      <div style={{ display: "flex", gap: 0, flex: 1, minHeight: 0 }}>
+
+        {/* ── Left column: Phases 1-4 ── */}
+        <div style={{ flex: "0 0 420px", overflowY: "auto", paddingRight: 4 }}>
+
+        {/* ════════════════════════════════════════════════════════════════
+            Phase 1: Paper Summary
+            ════════════════════════════════════════════════════════════════ */}
+        <section className="panel">
+          <h3 style={{ fontSize: 14, marginTop: 0, marginBottom: 4 }}>1. 論文概要の生成</h3>
         <p style={{ fontSize: 11, color: "#888", marginTop: 0 }}>
           論文本文から、研究テーマ・目的・方法・結果・新規性候補をAIが抽出します。
         </p>
@@ -415,81 +581,16 @@ export default function NoveltyCheckPanel({
           <div className="disabled-reason">{slotDisabledReason}</div>
         )}
 
-        {noveltySummaryDone && summaryObj && (
-          <div style={{ marginTop: 12 }}>
-            <button
-              className="clear-btn"
-              style={{ fontSize: 11 }}
-              onClick={() => setSummaryVisible(!summaryVisible)}
-            >
-              {summaryVisible ? "▲ 概要を隠す" : "▼ 概要を表示"}
-            </button>
-            {summaryVisible && (
-              <div style={{
-                marginTop: 8, padding: 12,
-                background: "#f8f8f8", border: "1px solid #e0e0e0",
-                borderRadius: 4, fontSize: 12, maxHeight: 400, overflowY: "auto",
-              }}>
-                <div style={{ marginBottom: 8 }}>
-                  <strong>研究テーマ:</strong> {String(summaryObj.research_topic || "—")}
-                </div>
-                <div style={{ marginBottom: 8 }}>
-                  <strong>研究目的:</strong> {String(summaryObj.objective || "—")}
-                </div>
-                <div style={{ marginBottom: 8 }}>
-                  <strong>対象・サンプル:</strong> {String(summaryObj.sample_summary || "—")}
-                </div>
-                <div style={{ marginBottom: 8 }}>
-                  <strong>研究デザイン:</strong> {String(summaryObj.design || "—")}
-                </div>
-                <div style={{ marginBottom: 8 }}>
-                  <strong>方法:</strong> {String(summaryObj.methods_summary || "—")}
-                </div>
-                <div style={{ marginBottom: 8 }}>
-                  <strong>使用尺度:</strong> {String(summaryObj.measures || "—")}
-                </div>
-                <div style={{ marginBottom: 8 }}>
-                  <strong>統計解析:</strong> {String(summaryObj.statistics || "—")}
-                </div>
-                <div style={{ marginBottom: 8 }}>
-                  <strong>主な結果:</strong> {String(summaryObj.findings || "—")}
-                </div>
-                <div style={{ marginBottom: 8 }}>
-                  <strong>著者が主張する貢献:</strong> {String(summaryObj.claimed_contributions || "—")}
-                </div>
-
-                <div style={{ marginTop: 12, borderTop: "1px solid #ddd", paddingTop: 8 }}>
-                  <strong>新規性候補:</strong>
-                </div>
-                {Object.entries(noveltyLabels).map(([key, label]) => {
-                  const val = summaryObj![key];
-                  if (!val || String(val).includes("特段の新規性は認められない")) return null;
-                  return (
-                    <div key={key} style={{ marginBottom: 4, paddingLeft: 8 }}>
-                      <strong>{label}:</strong> {String(val)}
-                    </div>
-                  );
-                })}
-
-                {Array.isArray(summaryObj.keywords_for_search) && summaryObj.keywords_for_search.length > 0 && (
-                  <div style={{ marginTop: 8 }}>
-                    <strong>検索キーワード:</strong>{" "}
-                    {(summaryObj.keywords_for_search as string[]).join(", ")}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
       </section>
 
       {/* ════════════════════════════════════════════════════════════════
-          Phase 2: Deep Research Prompts (Broad + Critical)
+          Phase 2: Deep Research — prompts + external results
           ════════════════════════════════════════════════════════════════ */}
-      <section className="panel">
-        <h3>2. Deep Research プロンプト</h3>
+      <section className="panel" style={{ marginTop: 8 }}>
+        <h3 style={{ fontSize: 14, marginTop: 0, marginBottom: 4 }}>2. Deep Research</h3>
         <p style={{ fontSize: 11, color: "#888", marginTop: 0 }}>
-          2種類のプロンプト（広範囲探索用 + 批判的検証用）を生成します。それぞれ別のAIで実行することを推奨します。
+          プロンプトを生成 → 外部AIで実行 → 結果を貼り付け、の流れです。
+          広範囲探索用・批判的検証用の2系統をそれぞれ別のAIで実行することを推奨します。
         </p>
 
         <div className="row">
@@ -498,7 +599,7 @@ export default function NoveltyCheckPanel({
             onClick={onNoveltyDeepResearchPrompt}
             disabled={!noveltySummaryDone}
           >
-            Deep Researchプロンプトを生成
+            プロンプトを生成
           </button>
           <StatusChip status={promptStatus} />
         </div>
@@ -507,21 +608,24 @@ export default function NoveltyCheckPanel({
         )}
 
         {noveltyPromptDone && (
-          <div style={{ marginTop: 12 }}>
-            {/* Broad prompt */}
-            <div style={{ marginBottom: 12 }}>
-              <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 4 }}>
+          <div style={{ marginTop: 10 }}>
+            {/* ── Broad prompt + Result A ── */}
+            <div style={{
+              marginBottom: 10, padding: "6px 8px",
+              border: "1px solid #e0e0e0", borderRadius: 4, background: "#fafafa",
+            }}>
+              <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 3 }}>
                 <button
                   className="clear-btn"
                   style={{ fontSize: 11 }}
                   onClick={() => setPromptBroadVisible(!promptBroadVisible)}
                 >
-                  {promptBroadVisible ? "▲" : "▼"} 広範囲探索用プロンプト
+                  {promptBroadVisible ? "▲" : "▼"} 広範囲探索用
                 </button>
                 <button
                   className="citation-advanced-btn"
                   onClick={() => copyToClipboard(noveltyPromptBroad, setCopyBroadFeedback)}
-                  style={{ fontSize: 11 }}
+                  style={{ fontSize: 10, height: 22, padding: "1px 6px" }}
                 >
                   {copyBroadFeedback ? "コピーしました!" : "コピー"}
                 </button>
@@ -535,27 +639,65 @@ export default function NoveltyCheckPanel({
                   className="text-input"
                   value={noveltyPromptBroad}
                   style={{
-                    width: "100%", height: 200, fontSize: 11,
+                    width: "100%", height: 160, fontSize: 10,
                     fontFamily: "monospace", resize: "vertical",
+                    marginBottom: 6,
                   }}
                 />
               )}
+              {/* Result A inline */}
+              <div style={{
+                display: "flex", alignItems: "center", gap: 6,
+                paddingTop: 4, borderTop: "1px solid #e8e8ec",
+              }}>
+                <span style={{ fontSize: 10, fontWeight: 600, color: "#555", whiteSpace: "nowrap" }}>
+                  結果A
+                </span>
+                <span style={{
+                  fontSize: 10, fontWeight: 600,
+                  color: noveltyDrA.text.trim() ? "#107c10" : "#888",
+                  whiteSpace: "nowrap",
+                }}>
+                  {noveltyDrA.text.trim() ? "入力済み" : "未入力"}
+                </span>
+                {noveltyDrA.source_name && (
+                  <span style={{ fontSize: 10, color: "#555", whiteSpace: "nowrap" }}>
+                    {noveltyDrA.source_name}
+                  </span>
+                )}
+                {noveltyDrA.text.trim() && (
+                  <span style={{ fontSize: 10, color: "#888", whiteSpace: "nowrap" }}>
+                    {charCount(noveltyDrA.text)} 字
+                  </span>
+                )}
+                <div style={{ flex: 1 }} />
+                <button
+                  className="citation-advanced-btn"
+                  style={{ fontSize: 10, height: 22, padding: "1px 6px", whiteSpace: "nowrap" }}
+                  onClick={() => setModalSlot("A")}
+                >
+                  貼り付け・編集
+                </button>
+              </div>
             </div>
 
-            {/* Critical prompt */}
-            <div>
-              <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 4 }}>
+            {/* ── Critical prompt + Result B ── */}
+            <div style={{
+              padding: "6px 8px",
+              border: "1px solid #e0e0e0", borderRadius: 4, background: "#fafafa",
+            }}>
+              <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 3 }}>
                 <button
                   className="clear-btn"
                   style={{ fontSize: 11 }}
                   onClick={() => setPromptCriticalVisible(!promptCriticalVisible)}
                 >
-                  {promptCriticalVisible ? "▲" : "▼"} 批判的検証用プロンプト
+                  {promptCriticalVisible ? "▲" : "▼"} 批判的検証用
                 </button>
                 <button
                   className="citation-advanced-btn"
                   onClick={() => copyToClipboard(noveltyPromptCritical, setCopyCriticalFeedback)}
-                  style={{ fontSize: 11 }}
+                  style={{ fontSize: 10, height: 22, padding: "1px 6px" }}
                 >
                   {copyCriticalFeedback ? "コピーしました!" : "コピー"}
                 </button>
@@ -569,95 +711,52 @@ export default function NoveltyCheckPanel({
                   className="text-input"
                   value={noveltyPromptCritical}
                   style={{
-                    width: "100%", height: 200, fontSize: 11,
+                    width: "100%", height: 160, fontSize: 10,
                     fontFamily: "monospace", resize: "vertical",
+                    marginBottom: 6,
                   }}
                 />
               )}
+              {/* Result B inline */}
+              <div style={{
+                display: "flex", alignItems: "center", gap: 6,
+                paddingTop: 4, borderTop: "1px solid #e8e8ec",
+              }}>
+                <span style={{ fontSize: 10, fontWeight: 600, color: "#555", whiteSpace: "nowrap" }}>
+                  結果B
+                </span>
+                <span style={{
+                  fontSize: 10, fontWeight: 600,
+                  color: noveltyDrB.text.trim() ? "#107c10" : "#888",
+                  whiteSpace: "nowrap",
+                }}>
+                  {noveltyDrB.text.trim() ? "入力済み" : "未入力"}
+                </span>
+                {noveltyDrB.source_name && (
+                  <span style={{ fontSize: 10, color: "#555", whiteSpace: "nowrap" }}>
+                    {noveltyDrB.source_name}
+                  </span>
+                )}
+                {noveltyDrB.text.trim() && (
+                  <span style={{ fontSize: 10, color: "#888", whiteSpace: "nowrap" }}>
+                    {charCount(noveltyDrB.text)} 字
+                  </span>
+                )}
+                <div style={{ flex: 1 }} />
+                <button
+                  className="citation-advanced-btn"
+                  style={{ fontSize: 10, height: 22, padding: "1px 6px", whiteSpace: "nowrap" }}
+                  onClick={() => setModalSlot("B")}
+                >
+                  貼り付け・編集
+                </button>
+              </div>
             </div>
+
+            {noveltyDrSaved && (
+              <span className="status-chip ok" style={{ marginTop: 8, display: "inline-block" }}>保存済</span>
+            )}
           </div>
-        )}
-      </section>
-
-      {/* ════════════════════════════════════════════════════════════════
-          Phase 3: Deep Research Results (A/B) + Modal
-          ════════════════════════════════════════════════════════════════ */}
-      <section className="panel">
-        <h3>3. Deep Research 結果</h3>
-        <p style={{ fontSize: 11, color: "#888", marginTop: 0 }}>
-          それぞれのプロンプトを外部AIで実行し、結果を貼り付けてください。
-        </p>
-
-        {/* Result A */}
-        <div style={{
-          padding: 10, border: "1px solid #e0e0e0", borderRadius: 4,
-          marginBottom: 8, background: "#fafafa",
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-            <strong style={{ fontSize: 13 }}>結果A（広範囲探索）</strong>
-            <span style={{
-              fontSize: 11, fontWeight: 600,
-              color: noveltyDrA.text.trim() ? "#107c10" : "#888",
-            }}>
-              {noveltyDrA.text.trim() ? "入力済み" : "未入力"}
-            </span>
-            {noveltyDrA.source_name && (
-              <span style={{ fontSize: 11, color: "#555" }}>
-                外部AI: {noveltyDrA.source_name}
-              </span>
-            )}
-            {noveltyDrA.text.trim() && (
-              <span style={{ fontSize: 10, color: "#888" }}>
-                {charCount(noveltyDrA.text)} 字
-              </span>
-            )}
-            <div style={{ flex: 1 }} />
-            <button
-              className="citation-advanced-btn"
-              style={{ fontSize: 11 }}
-              onClick={() => setModalSlot("A")}
-            >
-              結果Aを貼り付け・編集
-            </button>
-          </div>
-        </div>
-
-        {/* Result B */}
-        <div style={{
-          padding: 10, border: "1px solid #e0e0e0", borderRadius: 4,
-          background: "#fafafa",
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-            <strong style={{ fontSize: 13 }}>結果B（批判的検証）</strong>
-            <span style={{
-              fontSize: 11, fontWeight: 600,
-              color: noveltyDrB.text.trim() ? "#107c10" : "#888",
-            }}>
-              {noveltyDrB.text.trim() ? "入力済み" : "未入力"}
-            </span>
-            {noveltyDrB.source_name && (
-              <span style={{ fontSize: 11, color: "#555" }}>
-                外部AI: {noveltyDrB.source_name}
-              </span>
-            )}
-            {noveltyDrB.text.trim() && (
-              <span style={{ fontSize: 10, color: "#888" }}>
-                {charCount(noveltyDrB.text)} 字
-              </span>
-            )}
-            <div style={{ flex: 1 }} />
-            <button
-              className="citation-advanced-btn"
-              style={{ fontSize: 11 }}
-              onClick={() => setModalSlot("B")}
-            >
-              結果Bを貼り付け・編集
-            </button>
-          </div>
-        </div>
-
-        {noveltyDrSaved && (
-          <span className="status-chip ok" style={{ marginTop: 8, display: "inline-block" }}>保存済</span>
         )}
 
         {/* Modal */}
@@ -675,12 +774,12 @@ export default function NoveltyCheckPanel({
       </section>
 
       {/* ════════════════════════════════════════════════════════════════
-          Phase 4: Deep Research Merge
+          Phase 3: Merge + Assess (combined)
           ════════════════════════════════════════════════════════════════ */}
-      <section className="panel">
-        <h3>4. Deep Research 統合</h3>
+      <section className="panel" style={{ marginTop: 8 }}>
+        <h3 style={{ fontSize: 14, marginTop: 0, marginBottom: 4 }}>3. Deep Research 統合・評価</h3>
         <p style={{ fontSize: 11, color: "#888", marginTop: 0 }}>
-          2つの外部調査結果をAIが比較・統合し、一致点・相違点・要確認情報・新規性判断に使える根拠を整理します。
+          外部調査結果を統合し、新規性とジャーナル適合性を評価します。結果は右のビューアーに表示されます。
         </p>
 
         <div className="row">
@@ -689,7 +788,7 @@ export default function NoveltyCheckPanel({
               className="citation-ai-select"
               value={selectedSlot}
               onChange={(e) => setSelectedSlot(e.target.value)}
-              disabled={noveltyMergeRunning}
+              disabled={noveltyMergeRunning || noveltyAssessRunning}
             >
               {availableSlots.map((s) => (
                 <option key={s.name} value={s.name}>{slotDisplayName(s.name)}</option>
@@ -698,131 +797,184 @@ export default function NoveltyCheckPanel({
           )}
           <button
             className="citation-primary-btn"
-            onClick={() => onNoveltyMerge(selectedSlot)}
-            disabled={!noveltyDrSaved || noveltyMergeRunning || !summaryConfigured}
+            onClick={() => onNoveltyMergeAndAssess(selectedSlot)}
+            disabled={!noveltyDrSaved || noveltyMergeRunning || noveltyAssessRunning || !summaryConfigured}
           >
-            {noveltyMergeRunning ? "統合中..." : "2つの結果を統合・比較する"}
+            {noveltyMergeRunning ? "統合中..." : noveltyAssessRunning ? "評価中..." : "統合・評価"}
           </button>
-          <StatusChip status={mergeStatus} />
+          <StatusChip status={assessRunningOrMergeStatus()} />
         </div>
 
-        {!noveltyDrSaved && !noveltyMergeRunning && (
+        {!noveltyDrSaved && !noveltyMergeRunning && !noveltyAssessRunning && (
           <div className="disabled-reason">先にDeep Research結果AとBを保存してください</div>
         )}
-        {noveltyDrSaved && !summaryConfigured && !noveltyMergeRunning && slotDisabledReason && (
+        {noveltyDrSaved && !summaryConfigured && !noveltyMergeRunning && !noveltyAssessRunning && slotDisabledReason && (
           <div className="disabled-reason">{slotDisabledReason}</div>
         )}
-        {noveltyDrSaved && drCount === 1 && (
+        {noveltyDrSaved && drCount === 1 && !noveltyMergeRunning && (
           <div style={{ fontSize: 11, color: "#e67e22", marginTop: 4 }}>
             1つの外部調査結果に基づく暫定統合です。可能であれば別のAIでもう1本実行してください。
           </div>
         )}
 
-        {noveltyMergeDone && noveltyMergeContent && (
-          <div style={{ marginTop: 12 }}>
-            <button
-              className="clear-btn"
-              style={{ fontSize: 11 }}
-              onClick={() => setMergeVisible(!mergeVisible)}
-            >
-              {mergeVisible ? "▲ 統合結果を隠す" : "▼ 統合結果を表示"}
-            </button>
-            {mergeVisible && (
-              <div style={{
-                marginTop: 8, padding: 12,
-                background: "#f8f8f8", border: "1px solid #e0e0e0",
-                borderRadius: 4, fontSize: 12, maxHeight: 500, overflowY: "auto",
-                whiteSpace: "pre-wrap", fontFamily: "system-ui, sans-serif", lineHeight: 1.6,
-              }}>
-                {noveltyMergeContent}
-              </div>
-            )}
-          </div>
-        )}
       </section>
 
-      {/* ════════════════════════════════════════════════════════════════
-          Phase 5: Novelty Assessment (Journal-aware)
-          ════════════════════════════════════════════════════════════════ */}
-      <section className="panel">
-        <h3>5. 新規性・適合性評価</h3>
-        <p style={{ fontSize: 11, color: "#888", marginTop: 0 }}>
-          統合された外部調査結果とジャーナル特性に基づき、AIが新規性と雑誌適合性を評価します。
-        </p>
+          {/* Next step guidance */}
+          <div className="next-step">
+            {!sectionsDone && "次: 「前処理」メニューからセクション分割までを実行してください"}
+            {sectionsDone && !noveltySummaryDone && "次: 論文概要を生成してください"}
+            {noveltySummaryDone && !noveltyPromptDone && "次: Deep Researchプロンプトを生成し、外部で実行してください"}
+            {noveltyPromptDone && !noveltyDrSaved && "次: Deep Research結果A・Bを貼り付けて保存してください"}
+            {noveltyDrSaved && !noveltyMergeDone && !noveltyAssessDone && "次: 「統合・評価」を実行してください"}
+            {noveltyAssessDone && "新規性チェック完了。統合結果を「査読チェック」で参照してください。"}
+          </div>
 
-        <div className="row">
-          {availableSlots.length > 1 && (
-            <select
-              className="citation-ai-select"
-              value={selectedSlot}
-              onChange={(e) => setSelectedSlot(e.target.value)}
-              disabled={noveltyAssessRunning}
-            >
-              {availableSlots.map((s) => (
-                <option key={s.name} value={s.name}>{slotDisplayName(s.name)}</option>
-              ))}
-            </select>
+        </div>{/* end left column */}
+
+        {/* ── Right column: result viewer ── */}
+        <div style={{
+          flex: 1, minWidth: 0, padding: "8px 12px",
+          borderLeft: "1px solid #ccc",
+          display: "flex", flexDirection: "column", overflow: "hidden",
+        }}>
+          {/* Header with tabs */}
+          <div style={{ flexShrink: 0 }}>
+            <div style={{
+              display: "flex", gap: 0, marginBottom: 0,
+              borderBottom: "2px solid #e0e0e0",
+            }}>
+              {(["summary", "merge", "assess"] as const).map((tab, i, arr) => {
+                const labels: Record<string, string> = { summary: "概要", merge: "統合結果", assess: "評価結果" };
+                const active = viewerTab === tab;
+                const isLast = i === arr.length - 1;
+                return (
+                  <button
+                    key={tab}
+                    onClick={() => setViewerTab(tab)}
+                    style={{
+                      fontSize: 12, padding: "6px 16px",
+                      border: "none",
+                      borderBottom: active ? "2px solid #4a90d9" : "2px solid transparent",
+                      borderRight: isLast ? "none" : "1px solid #e0e0e0",
+                      background: "transparent",
+                      color: active ? "#1a56db" : "#888",
+                      cursor: "pointer",
+                      fontWeight: active ? 600 : 400,
+                      marginBottom: -2,
+                      transition: "color 0.15s, border-color 0.15s",
+                    }}
+                  >
+                    {labels[tab]}
+                  </button>
+                );
+              })}
+              <div style={{ flex: 1 }} />
+              {/* Font size toggle */}
+              <div style={{ display: "flex", gap: 2, border: "1px solid #ccc", borderRadius: 4, overflow: "hidden", marginBottom: 2, alignSelf: "center" }}>
+                {([11, 13, 15] as const).map(size => (
+                  <button
+                    key={size}
+                    onClick={() => setViewerFontSize(size)}
+                    style={{
+                      fontSize: 10, height: 20, padding: "0 6px",
+                      border: "none", borderRadius: 0,
+                      background: viewerFontSize === size ? "#1b5e20" : "#f5f5f5",
+                      color: viewerFontSize === size ? "#fff" : "#555",
+                      cursor: "pointer", fontWeight: viewerFontSize === size ? 600 : 400,
+                    }}
+                  >
+                    {size === 11 ? "小" : size === 13 ? "中" : "大"}
+                  </button>
+                ))}
+              </div>
+              {/* Translate button */}
+              {!noveltyTranslation[viewerTab] && (
+                <button
+                  onClick={() => onTranslateNoveltyContent(viewerTab)}
+                  disabled={noveltyTranslationLoading}
+                  style={{ fontSize: 11, height: 22, padding: "0 10px", marginLeft: 6, alignSelf: "center" }}
+                >
+                  {noveltyTranslationLoading ? "翻訳中..." : "翻訳する"}
+                </button>
+              )}
+              {noveltyTranslation[viewerTab] && (
+                <div style={{ display: "flex", gap: 4, alignItems: "center", marginLeft: 6, alignSelf: "center" }}>
+                  <span className="status-chip ok" style={{ fontSize: 9, padding: "0 4px", lineHeight: "16px" }}>翻訳済</span>
+                  <button
+                    onClick={() => onTranslateNoveltyContent(viewerTab)}
+                    disabled={noveltyTranslationLoading}
+                    style={{ fontSize: 10, height: 20, padding: "0 6px" }}
+                  >
+                    {noveltyTranslationLoading ? "翻訳中..." : "再翻訳"}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {noveltyTranslationError && (
+            <div className="status-banner err" style={{ margin: "6px 0", fontSize: 11 }}>{noveltyTranslationError}</div>
           )}
-          <button
-            className="citation-primary-btn"
-            onClick={() => onNoveltyAssess(selectedSlot)}
-            disabled={!noveltyMergeDone || noveltyAssessRunning || !summaryConfigured}
-          >
-            {noveltyAssessRunning ? "評価中..." : "新規性を評価する"}
-          </button>
-          <StatusChip status={assessStatus} />
-        </div>
 
-        {!noveltyMergeDone && !noveltyAssessRunning && (
-          <div className="disabled-reason">先にDeep Research統合を実行してください</div>
-        )}
-        {noveltyMergeDone && !summaryConfigured && !noveltyAssessRunning && slotDisabledReason && (
-          <div className="disabled-reason">{slotDisabledReason}</div>
-        )}
-        {!journalLoaded && noveltyMergeDone && !noveltyAssessRunning && (
-          <div style={{ fontSize: 11, color: "#e67e22", marginTop: 4 }}>
-            ジャーナル情報が未取得です。ジャーナル適合性評価は暫定になります。
-          </div>
-        )}
-        {drCount === 0 && noveltyMergeDone && (
-          <div style={{ fontSize: 11, color: "#e67e22", marginTop: 4 }}>
-            外部調査結果なしの暫定評価として実行します。
-          </div>
-        )}
-
-        {noveltyAssessDone && noveltyAssessmentContent && (
-          <div style={{ marginTop: 12 }}>
-            <button
-              className="clear-btn"
-              style={{ fontSize: 11 }}
-              onClick={() => setAssessmentVisible(!assessmentVisible)}
-            >
-              {assessmentVisible ? "▲ 評価を隠す" : "▼ 評価を表示"}
-            </button>
-            {assessmentVisible && (
-              <div style={{
-                marginTop: 8, padding: 12,
-                background: "#f8f8f8", border: "1px solid #e0e0e0",
-                borderRadius: 4, fontSize: 12, maxHeight: 500, overflowY: "auto",
-                whiteSpace: "pre-wrap", fontFamily: "system-ui, sans-serif", lineHeight: 1.6,
-              }}>
-                {noveltyAssessmentContent}
-              </div>
+          {/* Viewer content (scrollable) */}
+          <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+            {viewerTab === "summary" && (
+              noveltySummaryDone && summaryObj ? (
+                viewerContentCols(
+                  renderSummaryViewer(),
+                  noveltyTranslation.summary
+                    ? renderSummaryJaContent(noveltyTranslation.summary)
+                    : null,
+                  false,
+                )
+              ) : (
+                <div style={{ color: "#aaa", padding: 20, textAlign: "center", fontSize: 13 }}>
+                  左の「論文概要を生成」を実行すると、概要がここに表示されます
+                </div>
+              )
+            )}
+            {viewerTab === "merge" && (
+              noveltyMergeDone && noveltyMergeContent ? (
+                viewerContentCols(
+                  <div
+                    className="novelty-md"
+                    style={{
+                      padding: 12, background: "#f8f8f8", border: "1px solid #e0e0e0",
+                      borderRadius: 4,
+                    }}
+                    dangerouslySetInnerHTML={{ __html: renderMarkdown(noveltyMergeContent) }}
+                  />,
+                  noveltyTranslation.merge || null,
+                )
+              ) : (
+                <div style={{ color: "#aaa", padding: 20, textAlign: "center", fontSize: 13 }}>
+                  左の「統合・評価」ボタンを実行すると、統合結果がここに表示されます
+                </div>
+              )
+            )}
+            {viewerTab === "assess" && (
+              noveltyAssessDone && noveltyAssessmentContent ? (
+                viewerContentCols(
+                  <div
+                    className="novelty-md"
+                    style={{
+                      padding: 12, background: "#f8f8f8", border: "1px solid #e0e0e0",
+                      borderRadius: 4,
+                    }}
+                    dangerouslySetInnerHTML={{ __html: renderMarkdown(noveltyAssessmentContent) }}
+                  />,
+                  noveltyTranslation.assess || null,
+                )
+              ) : (
+                <div style={{ color: "#aaa", padding: 20, textAlign: "center", fontSize: 13 }}>
+                  左の「統合・評価」ボタンを実行すると、評価結果がここに表示されます
+                </div>
+              )
             )}
           </div>
-        )}
-      </section>
+        </div>{/* end right column */}
 
-      {/* Next step guidance */}
-      <div className="next-step">
-        {!sectionsDone && "次: 「前処理」メニューからセクション分割までを実行してください"}
-        {sectionsDone && !noveltySummaryDone && "次: 論文概要を生成してください"}
-        {noveltySummaryDone && !noveltyPromptDone && "次: Deep Researchプロンプトを生成し、外部で実行してください"}
-        {noveltyPromptDone && !noveltyDrSaved && "次: Deep Research結果A・Bを貼り付けて保存してください"}
-        {noveltyDrSaved && !noveltyMergeDone && "次: Deep Research統合を実行してください"}
-        {noveltyMergeDone && !noveltyAssessDone && "次: （任意）新規性・適合性評価を実行してください"}
-        {noveltyAssessDone && "新規性チェック完了。Deep Research統合結果を「査読チェック」で参照してください。"}
-      </div>
+      </div>{/* end 2-column area */}
     </div>
   );
 }

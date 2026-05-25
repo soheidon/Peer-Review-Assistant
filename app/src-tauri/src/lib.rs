@@ -17,7 +17,15 @@ fn read_text_file(path: String) -> Result<String, String> {
 
 #[tauri::command]
 fn write_text_file(path: String, content: String) -> Result<(), String> {
+    if let Some(parent) = std::path::Path::new(&path).parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
     fs::write(&path, &content).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn remove_file(path: String) -> Result<(), String> {
+    fs::remove_file(&path).map_err(|e| e.to_string())
 }
 
 // ── Windows Hello / DPAPI commands ──────────────────────────────────────
@@ -344,6 +352,7 @@ pub fn run() {
             get_release_path,
             read_text_file,
             write_text_file,
+            remove_file,
             windows_hello_available,
             windows_hello_verify,
             windows_hello_protect,

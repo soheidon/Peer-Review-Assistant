@@ -35,6 +35,7 @@ interface SettingsPanelProps {
   onTestSlot: (slotName: string, modelVariant: "pro" | "flash") => void;
   onCheckLlmEnv: (slotName: string) => void;
   onTestAll: () => void;
+  testAllProgress: string;
   onSaveAppSettings: () => void;
   // Google Books
   googleBooksApiKey: string;
@@ -78,6 +79,8 @@ interface SettingsPanelProps {
   // CiNii Research
   ciniiAppid: string;
   onCiniiAppidChange: (appid: string) => void;
+  ciniiEnabled: boolean;
+  onCiniiEnabledChange: (v: boolean) => void;
 }
 
 /* ── Tiny helpers ─────────────────────────────────────────────────── */
@@ -769,7 +772,7 @@ export default function SettingsPanel(props: SettingsPanelProps) {
     llmSlots, llmProTestResults, llmFlashTestResults, llmEnvCheckResults,
     llmProReasoningResults, llmTestErrorMessages,
     windowsHelloAvailable, windowsHelloStatus, windowsHelloDecrypted,
-    onUpdateSlot, onTestSlot, onCheckLlmEnv, onTestAll, onSaveAppSettings,
+    onUpdateSlot, onTestSlot, onCheckLlmEnv, onTestAll, testAllProgress, onSaveAppSettings,
     onLockSecrets,
     onWindowsHelloSave, onWindowsHelloDecrypt, onWindowsHelloDelete,
     googleBooksApiKey, onGoogleBooksApiKeyChange,
@@ -791,6 +794,7 @@ export default function SettingsPanel(props: SettingsPanelProps) {
     pubmedConnectionTestResult, onTestPubmedConnection,
     pubmedEnabled, onPubmedEnabledChange,
     ciniiAppid, onCiniiAppidChange,
+    ciniiEnabled, onCiniiEnabledChange,
   } = props;
 
   // Tab keys: each LLM slot name + "db"
@@ -827,7 +831,7 @@ export default function SettingsPanel(props: SettingsPanelProps) {
 
   // Collapsible state for DB API cards
   const [dbExpanded, setDbExpanded] = React.useState<Record<string, boolean>>({
-    pubmed: false, googleBooks: false, semanticScholar: false,
+    pubmed: false, googleBooks: false, semanticScholar: false, cinii: false,
   });
   const toggleDb = (key: string) =>
     setDbExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -948,13 +952,18 @@ export default function SettingsPanel(props: SettingsPanelProps) {
                 onWindowsHelloDecrypt={onWindowsHelloDecrypt}
                 onWindowsHelloDelete={onWindowsHelloDelete}
               />
-              <button
-                onClick={onTestAll}
-                disabled={enabledSlots.length === 0 || !allConfigured}
-                style={{ fontSize: 11 }}
-              >
-                すべて接続確認
-              </button>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <button
+                  onClick={onTestAll}
+                  disabled={enabledSlots.length === 0 || !allConfigured}
+                  style={{ fontSize: 11 }}
+                >
+                  すべて接続確認
+                </button>
+                {testAllProgress && (
+                  <span style={{ fontSize: 10, color: "#0078d4", whiteSpace: "nowrap" }}>{testAllProgress}</span>
+                )}
+              </div>
             </div>
           );
         })()}
@@ -1067,28 +1076,48 @@ export default function SettingsPanel(props: SettingsPanelProps) {
             })()}
 
             {/* CiNii Research (Japanese papers) */}
-            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: "#f7f7f7", border: "1px solid #e0e0e0", borderRadius: 6, marginBottom: 6 }}>
-              <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>CiNii Research API</span>
-              <span className={`status-chip ${ciniiAppid.trim() ? "ok" : "unrun"}`}>
-                {ciniiAppid.trim() ? "設定済み" : "未設定"}
-              </span>
-            </div>
-            <div style={{ padding: "10px 12px", border: "1px solid #e0e0e0", borderRadius: 6, marginBottom: 12, background: "#fff" }}>
-              <p style={{ fontSize: 12, color: "#888", margin: "0 0 8px 0" }}>
-                日本の学術論文の照合に使用します。CiNii Research APIのappidを入力してください。
-                <a href="https://support.nii.ac.jp/ja/cinii/api/developer" target="_blank" rel="noopener noreferrer" style={{ marginLeft: 4 }}>デベロッパー登録</a>
-              </p>
-              <div>
-                <label style={{ fontSize: 12, fontWeight: 600, display: "block", marginBottom: 4 }}>AppID</label>
-                <input
-                  type="text"
-                  className="llm-input llm-input-wide"
-                  placeholder="CiNii Research API application ID"
-                  value={ciniiAppid}
-                  onChange={(e) => onCiniiAppidChange(e.target.value.trim())}
-                />
-              </div>
-            </div>
+            {(() => {
+              const key = "cinii"; const isExp = dbExpanded[key];
+              const ciniiCheckResult = ciniiAppid.trim() ? "set" : "not_set";
+              return (
+                <div>
+                  <div style={{ ...dbCardHeaderBase, borderRadius: isExp ? "6px 6px 0 0" : 6, marginBottom: isExp ? 0 : 6 }}
+                    onClick={() => toggleDb(key)}>
+                    <input type="checkbox" checked={ciniiEnabled}
+                      onChange={(e) => { e.stopPropagation(); onCiniiEnabledChange(e.target.checked); }}
+                      onClick={(e) => e.stopPropagation()} style={{ margin: 0 }} />
+                    <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>CiNii Research API</span>
+                    {dbChip(ciniiEnabled, ""/*no test*/, ciniiCheckResult)}
+                    <span style={{ fontSize: 11, color: "#888" }}>{isExp ? "▼ 折りたたむ" : "▶ 展開"}</span>
+                  </div>
+                  {isExp && (
+                    <div style={dbCardBodyStyle} onClick={(e) => e.stopPropagation()}>
+                      {!ciniiEnabled ? (
+                        <p style={{ fontSize: 12, color: "#888", margin: 0 }}>CiNii Research APIは未使用です。使用する場合はチェックを入れてください。</p>
+                      ) : (
+                        <div>
+                          <p style={{ fontSize: 11, color: "#888", margin: "0 0 10px 0" }}>
+                            日本の学術論文の照合に使用します。CiNii Research APIのappidを入力してください。
+                            <a href="https://support.nii.ac.jp/ja/cinii/api/developer" target="_blank" rel="noopener noreferrer" style={{ marginLeft: 4 }}>デベロッパー登録</a>
+                          </p>
+                          <div className="api-key-mode-row">
+                            <label className="api-key-mode-label">AppID</label>
+                          </div>
+                          <input
+                            type="text"
+                            className="llm-input llm-input-wide"
+                            style={{ marginTop: 8 }}
+                            placeholder="CiNii Research API application ID"
+                            value={ciniiAppid}
+                            onChange={(e) => onCiniiAppidChange(e.target.value.trim())}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Semantic Scholar */}
             {(() => {

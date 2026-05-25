@@ -498,7 +498,7 @@ Tauri v2 では、実行可能なコマンドを capabilities で明示的に許
 | `pra-cli run-methods-stats-check` | 方法・統計チェック（研究デザイン・統計手法・倫理） |
 | `pra-cli run-citation-check` | 引用文献チェック（文献実在性・引用妥当性） |
 | `pra-cli merge-check-section` | チェック項目内マージ（構成/表現/方法統計） |
-| `pra-cli final-merge` | 最終マージ・査読コメント出力 |
+| `pra-cli final-merge` | 最終マージ・査読コメント出力（`--format md,docx,txt,all` `--lang en,ja`） |
 
 ### 11.2 今後実装予定
 
@@ -507,6 +507,45 @@ Tauri v2 では、実行可能なコマンドを capabilities で明示的に許
 | `pra-cli make-manual-prompt` | 手動入力用プロンプト生成 |
 | `pra-cli import-manual-result` | 手動入力結果のインポート |
 | `pra-cli auto-pipeline` | 全自動解析モード（ワンクリック全パイプライン実行） |
+
+### 11.3 final-merge 詳細
+
+```
+pra-cli final-merge --project <project_folder> [--lang en|ja] [--format md,docx,txt,all]
+```
+
+最終査読コメント文書を生成する。全チェック項目のマージ結果、ユーザー選択状態、全体所感、採否判定を統合して出力する。
+
+**パラメータ**:
+
+| オプション | 必須 | 既定値 | 説明 |
+|---|---|---|---|
+| `--project` | はい | — | 作業フォルダのパス |
+| `--lang` | いいえ | `en` | 出力言語（`en`=英語、`ja`=日本語） |
+| `--format` | いいえ | `all` | 出力形式（カンマ区切り可）。`md`/`docx`/`txt`/`all` |
+
+**出力ファイル**:
+
+| パス | 説明 |
+|---|---|
+| `outputs/final/final_review.md` | 全体版 Markdown（英語） |
+| `outputs/final/final_review_jp.md` | 全体版 Markdown（日本語） |
+| `outputs/final/final_review.docx` | Word 形式（英語、`--format docx` 時） |
+| `outputs/final/final_review_jp.docx` | Word 形式（日本語、`--format docx` 時） |
+| `outputs/final/final_review.txt` | テキスト形式（英語、`--format txt` 時） |
+| `outputs/final/final_review_jp.txt` | テキスト形式（日本語、`--format txt` 時） |
+| `outputs/final/_data/comments_to_authors.md` | 著者向けコメント（英日バイリンガル） |
+| `outputs/final/_data/confidential_comments_to_editor.md` | 編集者向けコメント |
+| `outputs/final/_data/recommendation.md` | 推奨判定と理由 |
+| `outputs/final/_data/audit_trail.json` | 処理記録 |
+
+**出力形式の詳細**:
+
+- **Markdown**（常に出力）: H2/H3 見出し、`**Label**:` 形式の太字ラベル。マスター形式。
+- **テキスト**（`txt_writer.py`）: H2 → `━━━ Title ━━━`、H3 → `┄┄ Title ┄┄`、太字ラベル → `[Label] text`。Unicode 罫線文字使用。
+- **Word**（`docx_writer.py`、python-docx）: A4 判、Times New Roman / Yu Mincho フォント。H2=14pt、H3=12pt の太字見出し。
+
+**日本語訳保存**: `comments_to_authors.md` が英日バイリンガル形式（`# 査読コメント\n...\n\n---\n\n# Comments to Authors\n...`）の場合、再実行時に日本語部が保存される。
 
 ---
 

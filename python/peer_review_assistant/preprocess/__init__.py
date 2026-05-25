@@ -4,9 +4,64 @@ import re
 
 from docx import Document
 
+# OOXML namespace for math elements (equations)
+MATH_NS = "http://schemas.openxmlformats.org/officeDocument/2006/math"
+
+
+def _extract_math_text(para_element):
+    """Extract text from OOXML math (equation) elements in a paragraph.
+
+    Traverses m:oMath and m:oMathPara elements, collecting text from
+    m:t (math text) children. Returns a list of math text strings found.
+    """
+    math_texts = []
+    for omath in para_element.iter(f"{{{MATH_NS}}}oMath"):
+        for mt in omath.iter(f"{{{MATH_NS}}}t"):
+            if mt.text:
+                math_texts.append(mt.text)
+    for omath_para in para_element.iter(f"{{{MATH_NS}}}oMathPara"):
+        for mt in omath_para.iter(f"{{{MATH_NS}}}t"):
+            if mt.text:
+                math_texts.append(mt.text)
+    return math_texts
+
+
+def _extract_paragraph_text_with_equations(para):
+    """Extract paragraph text including equation content.
+
+    python-docx's para.text skips OOXML equation (m:oMath) elements.
+    This function walks the paragraph XML in document order, collecting
+    text from both regular runs (w:r → w:t) and math runs (m:r → m:t).
+
+    Returns the full paragraph text with equation symbols included.
+    """
+    para_elem = para._element
+    parts = []
+    # Walk all descendants in document order
+    for elem in para_elem.iter():
+        # Regular text run
+        if elem.tag.endswith("}t") and "math" not in elem.tag:
+            tag_ns = elem.tag.split("}")[0].lstrip("{")
+            if tag_ns == "http://schemas.openxmlformats.org/wordprocessingml/2006/main":
+                if elem.text:
+                    parts.append(elem.text)
+        # Math text run
+        elif elem.tag.endswith("}t"):
+            tag_ns = elem.tag.split("}")[0].lstrip("{")
+            if tag_ns == MATH_NS:
+                if elem.text:
+                    parts.append(elem.text)
+    if parts:
+        return "".join(parts)
+    # Fallback to para.text if XML parsing yields nothing
+    return para.text
+
 
 def extract_docx_text(docx_path):
     """Extract full text and paragraph structure from a .docx file.
+
+    Handles inline equations (OOXML m:oMath) that python-docx's
+    para.text normally skips.
 
     Returns:
         dict with keys:
@@ -19,7 +74,7 @@ def extract_docx_text(docx_path):
     char_count = 0
 
     for i, para in enumerate(doc.paragraphs):
-        text = para.text
+        text = _extract_paragraph_text_with_equations(para)
         char_count += len(text)
         paragraphs.append({
             "index": i,
@@ -86,30 +141,42 @@ def number_paragraphs_and_sentences(paragraphs):
 
 
 SECTION_KEYWORDS = {
-    "abstract": ["abstract", "概要", "要旨"],
-    "introduction": ["introduction", "intro", "はじめに", "序論", "緒言"],
-    "aim_objective": ["aim", "objective", "purpose", "目的", "目標"],
+    "abstract": ["abstract", "summary", "概要", "要旨"],
+    "introduction": ["introduction", "intro", "background",
+                     "はじめに", "序論", "緒言", "背景"],
+    "aim_objective": ["aim", "objective", "purpose",
+                      "目的", "目標"],
     "methods": ["method", "methods", "materials and methods",
-                 "experimental", "方法", "実験", "手法"],
-    "results": ["results", "result", "結果"],
+                "participants and methods", "statistical analyses",
+                "experimental", "方法", "実験", "手法"],
+    "results": ["results", "result", "findings", "結果"],
     "discussion": ["discussion", "考察", "議論"],
-    "conclusion": ["conclusion", "conclusions", "summary",
-                   "結論", "まとめ", "総括"],
+    "conclusion": ["conclusion", "conclusions", "concluding remarks",
+                   "結論", "総括"],
     "references": ["references", "bibliography",
                    "参考文献", "引用文献", "文献"],
+    "acknowledgements": ["acknowledgements", "acknowledgments",
+                         "謝辞"],
+    "competing_interests": ["competing interests", "conflict of interest",
+                            "利益相反", "競合利益"],
+    "data_availability": ["data availability", "data and code availability",
+                          "データ利用可能性"],
     "tables": [],
     "figure_captions": [],
 }
 
 
 def _classify_section(heading_text):
-    """Map heading text to a standard section name."""
+    """Map heading text to a standard section name using longest-keyword match."""
     lower = heading_text.lower().strip()
+    best_match = None
+    best_len = 0
     for name, keywords in SECTION_KEYWORDS.items():
         for kw in keywords:
-            if kw in lower:
-                return name
-    return None
+            if kw and kw in lower and len(kw) > best_len:
+                best_match = name
+                best_len = len(kw)
+    return best_match
 
 
 def _heading_level(style):

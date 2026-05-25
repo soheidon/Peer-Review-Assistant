@@ -78,7 +78,12 @@ def merge_section(check_name, project_dir):
 
     # Build combined summary
     summaries = [r.get("summary", "") for r in raw_results if r.get("summary")]
-    combined_summary = " ".join(summaries) if summaries else "No summary available."
+    # Strip [Part A]/[Part B] labels (leftover from split expression check old caches)
+    cleaned = []
+    for s in summaries:
+        s = re.sub(r'^\s*\[Part [AB]\]\s*', '', s, flags=re.MULTILINE)
+        cleaned.append(s)
+    combined_summary = "\n\n".join(cleaned) if cleaned else "No summary available."
 
     merged = {
         "check_name": check_name,

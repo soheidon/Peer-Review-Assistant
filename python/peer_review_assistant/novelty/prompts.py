@@ -9,212 +9,212 @@ import json
 # ── A: Broad search prompt ──────────────────────────────────────────────
 
 NOVELTY_DEEP_RESEARCH_PROMPT_BROAD = """\
-あなたは医学・心理学・社会科学領域の文献調査に詳しい研究支援者です。
-以下に示す投稿予定論文について、先行研究との比較に基づき、新規性、独自性、限界、投稿予定雑誌との適合性を評価してください。
+You are a research assistant specializing in literature surveys in medicine, psychology, and social sciences.
+Based on the manuscript summary below, evaluate its novelty, originality, limitations, and fit with the target journal by comparing it against prior studies.
 
-目的は、単に「似た論文があるか」を調べることではありません。
-この論文が、既存研究と比べてどの点で新しいのか、あるいは新しくないのかを、多面的に判断することです。
+The goal is NOT simply to check "whether similar papers exist."
+The goal is to make a multi-faceted judgment about what is truly new (or not new) about this manuscript relative to the existing literature.
 
-【投稿予定論文の概要】
-以下の情報をもとに調査してください。
+【Manuscript Summary】
+Use the following information for your investigation.
 
-- 研究テーマ：
+- Research Topic:
 {research_topic}
 
-- 研究目的：
+- Objective:
 {objective}
 
-- 対象者・サンプル：
+- Participants / Sample:
 {sample_summary}
 
-- 研究デザイン：
+- Study Design:
 {design}
 
-- 介入・調査・観察の内容：
+- Intervention / Survey / Observation Details:
 {methods_summary}
 
-- 使用した尺度・アウトカム：
+- Measures / Outcomes Used:
 {measures}
 
-- 統計解析：
+- Statistical Analyses:
 {statistics}
 
-- 主な結果：
+- Main Findings:
 {findings}
 
-- 著者が主張している貢献：
+- Contributions Claimed by Authors:
 {claimed_contributions}
 
-- 投稿予定雑誌：
+- Target Journal:
 {target_journal}
 
 ---
 
-以下の観点から、可能な限り具体的な文献名を挙げて調査してください。
+Investigate the following perspectives, citing specific references wherever possible.
 
-1. 同じ研究テーマを扱った主要な先行研究
-   - 代表的な論文を挙げてください。
-   - それぞれの研究目的、対象者、サンプルサイズ、国・地域、研究デザイン、主要アウトカム、主な結果を整理してください。
+1. Key prior studies on the same research topic
+   - List representative papers.
+   - For each, summarize the objective, participants, sample size, country/region, study design, primary outcomes, and main findings.
 
-2. 類似した対象者・サンプルを扱った研究
-   - 年齢層、疾患・症状、臨床群、施設、地域、文化的背景などが近い研究を探してください。
-   - 今回の論文と比べて、対象者のどこが似ていて、どこが異なるかを示してください。
+2. Studies with similar participants / samples
+   - Search for studies with similar age groups, diseases/symptoms, clinical populations, settings, regions, or cultural backgrounds.
+   - Indicate where the participants overlap with and differ from the current manuscript.
 
-3. 類似した方法・介入・調査デザインを用いた研究
-   - 同様の介入、観察、調査、実践、評価方法を用いた研究を探してください。
-   - 今回の論文の方法が既存研究と比べて標準的なのか、工夫があるのか、珍しいのかを判断してください。
+3. Studies using similar methods / interventions / survey designs
+   - Search for studies employing similar interventions, observations, surveys, practices, or evaluation methods.
+   - Judge whether the manuscript's methods are standard, innovative, or unusual compared to prior work.
 
-4. 類似したアウトカム・尺度を用いた研究
-   - 今回の論文で使用されている尺度やアウトカムと近いものを用いた研究を探してください。
-   - 既存研究ではどのようなアウトカムが重視されていたかを整理してください。
+4. Studies using similar outcomes / measures
+   - Search for studies using measures or outcomes similar to those in the current manuscript.
+   - Summarize which outcomes were emphasized in prior research.
 
-5. 類似した統計解析を行った研究
-   - 小標本解析、縦断解析、混合モデル、GEE、ベイズ分析、効果量、感度分析など、今回の論文と近い分析を用いた研究を確認してください。
-   - 今回の統計解析が、分野の標準的水準と比べて十分か、工夫があるか、不足があるかを評価してください。
+5. Studies using similar statistical analyses
+   - Check for studies using similar approaches (small-sample analysis, longitudinal analysis, mixed models, GEE, Bayesian analysis, effect sizes, sensitivity analyses, etc.).
+   - Evaluate whether the manuscript's statistical analyses are sufficient, innovative, or deficient relative to field standards.
 
-6. 新規性の評価
-   以下の観点ごとに、今回の論文の新規性を評価してください。
+6. Novelty Assessment
+   Evaluate the manuscript's novelty from each of the following angles:
 
-   - テーマの新規性
-   - 対象者・サンプルの新規性
-   - 方法・介入・調査手法の新規性
-   - アウトカム・尺度の新規性
-   - 統計解析の新規性
-   - データの希少性
-   - 臨床的・実践的・社会的意義
-   - 理論的貢献
-   - 国際的文脈での意義
-   - 日本または特定地域のデータとしての意義
+   - Novelty of theme
+   - Novelty of participants / sample
+   - Novelty of methods / intervention / survey approach
+   - Novelty of outcomes / measures
+   - Novelty of statistical analyses
+   - Rarity of the data
+   - Clinical / practical / societal significance
+   - Theoretical contribution
+   - International significance
+   - Significance as data from Japan or a specific region
 
-7. 重複性・弱点の評価
-   - 既存研究ですでに十分に示されている点は何か。
-   - 今回の論文が新規性を主張しにくい点は何か。
-   - サンプルサイズ、研究デザイン、統計解析、追跡期間、比較群の有無などの観点から、弱点を具体的に指摘してください。
+7. Overlap and Weakness Assessment
+   - What has already been well-established in prior studies?
+   - What aspects make it difficult for this manuscript to claim novelty?
+   - Identify specific weaknesses regarding sample size, study design, statistical analysis, follow-up period, presence/absence of comparison groups, etc.
 
-8. 投稿予定雑誌との適合性
-   - 投稿予定雑誌のスコープ、読者層、掲載論文の傾向を確認してください。
-   - 可能であれば、インパクトファクター、CiteScore、Scimago Journal Rank、Quartile、分野内ランキングなどの情報も確認してください。
-   - 今回の論文の新規性、方法論的強さ、臨床的・社会的意義が、その雑誌の水準に合っているかを評価してください。
-   - 「十分に適合」「やや適合」「やや不足」「かなり不足」などの判断を示してください。
-   - 不足がある場合、どの点を補強すれば投稿可能性が高まるかを提案してください。
+8. Fit with Target Journal
+   - Check the target journal's scope, readership, and the profile of its published articles.
+   - Where possible, check the impact factor, CiteScore, Scimago Journal Rank, quartile, and field rankings.
+   - Assess whether the manuscript's novelty, methodological strength, and clinical/societal significance meet the journal's standards.
+   - Indicate: "Strong fit" / "Moderate fit" / "Somewhat insufficient" / "Clearly insufficient."
+   - If insufficient, suggest what could be strengthened to improve publishability.
 
-9. 代替投稿先の候補
-   - 今回の論文により適している可能性がある雑誌があれば、候補を挙げてください。
-   - 各候補について、スコープ、想定される読者、雑誌ランクの目安、今回の論文との相性を簡潔に説明してください。
+9. Alternative Journal Candidates
+   - If there are journals that might be a better fit, list candidates.
+   - For each, briefly describe the scope, expected readership, approximate journal rank, and compatibility with the current manuscript.
 
-10. 最終評価
-   以下の形式でまとめてください。
+10. Final Assessment
+    Summarize using the following format:
 
-   - この論文の最も強い新規性：
-   - この論文の補助的な新規性：
-   - 新規性を主張しにくい点：
-   - 投稿予定雑誌との適合性：
-   - 投稿前に補強すべき点：
-   - アブストラクトやカバーレターで強調すべき点：
-   - 総合判定：
+    - Strongest novelty of this manuscript:
+    - Supporting novelty of this manuscript:
+    - Aspects where novelty is difficult to claim:
+    - Fit with target journal:
+    - Points to strengthen before submission:
+    - Points to emphasize in the abstract or cover letter:
+    - Overall judgment:
 
-出力では、可能な限り具体的な文献情報を示してください。
-文献を挙げる場合は、著者名、年、タイトル、雑誌名、巻号、ページ、DOIまたはURLが分かる範囲で含めてください。
-根拠が不確かな場合は、不確かであることを明記してください。
+Provide as much specific reference information as possible in your output.
+When citing references, include author names, year, title, journal name, volume, issue, pages, and DOI or URL to the extent available.
+If evidence is uncertain, clearly state that it is uncertain.
 """
 
 
 # ── B: Critical verification prompt ─────────────────────────────────────
 
 NOVELTY_DEEP_RESEARCH_PROMPT_CRITICAL = """\
-あなたは医学・心理学・社会科学領域の文献調査に詳しい研究支援者です。
-以下に示す投稿予定論文について、**批判的な立場から**新規性の主張が本当に成立するかを厳しめに検証してください。
+You are a research assistant specializing in literature surveys in medicine, psychology, and social sciences.
+From a **critical standpoint**, rigorously verify whether the novelty claims of the manuscript below actually hold up.
 
-目的は、この論文の新規性主張を鵜呑みにせず、「本当に新しいと言えるのか」を批判的に検討することです。
+The goal is not to take the manuscript's novelty claims at face value, but to critically examine "whether this can truly be called new."
 
-【投稿予定論文の概要】
-以下の情報をもとに調査してください。
+【Manuscript Summary】
+Use the following information for your investigation.
 
-- 研究テーマ：
+- Research Topic:
 {research_topic}
 
-- 研究目的：
+- Objective:
 {objective}
 
-- 対象者・サンプル：
+- Participants / Sample:
 {sample_summary}
 
-- 研究デザイン：
+- Study Design:
 {design}
 
-- 介入・調査・観察の内容：
+- Intervention / Survey / Observation Details:
 {methods_summary}
 
-- 使用した尺度・アウトカム：
+- Measures / Outcomes Used:
 {measures}
 
-- 統計解析：
+- Statistical Analyses:
 {statistics}
 
-- 主な結果：
+- Main Findings:
 {findings}
 
-- 著者が主張している貢献：
+- Contributions Claimed by Authors:
 {claimed_contributions}
 
-- 投稿予定雑誌：
+- Target Journal:
 {target_journal}
 
 ---
 
-以下の観点から、可能な限り具体的な文献名を挙げて調査してください。
+Investigate the following perspectives, citing specific references wherever possible.
 
-1. すでに同じことを示した研究はないか
-   - 今回の論文の主要な結果と実質的に同じ結果を報告している研究を探してください。
-   - 特に、著者が「新しい」と主張している点について、先行研究がないか厳しく確認してください。
+1. Are there studies that have already shown the same thing?
+   - Search for studies reporting substantially the same results as this manuscript's main findings.
+   - Pay particular attention to points the authors claim as "new" — check rigorously whether prior studies exist.
 
-2. 対象や方法がほぼ同じ研究はないか
-   - 年齢層、疾患・症状、サンプルサイズ、研究デザイン、介入内容、評価尺度が近い研究を探してください。
-   - 今回の論文と実質的に同じと言える研究があれば、具体的に指摘してください。
+2. Are there studies with nearly identical participants or methods?
+   - Search for studies with similar age groups, diseases/symptoms, sample sizes, study designs, interventions, and assessment measures.
+   - If there are studies that are substantially equivalent to this manuscript, point them out specifically.
 
-3. 新規性として主張しにくい点
-   - テーマ、対象、方法、尺度、統計解析のそれぞれについて、「これは既存研究ですでに十分に示されている」と思われる点を挙げてください。
-   - 著者が「新しい」と主張しているが、実際には先行研究の追試・確認に近い点を指摘してください。
+3. Aspects difficult to claim as novel
+   - For each of theme, participants, methods, measures, and statistical analyses, identify points that "have already been sufficiently demonstrated in prior research."
+   - Identify points the authors claim as "new" but which in reality are close to replication/confirmation of prior work.
 
-4. 既存研究との重複
-   - 今回の論文と重複している既存研究を具体的に挙げてください。
-   - 重複の程度（ほぼ同一／部分的に重複／類似しているが異なる点もある）を評価してください。
+4. Overlap with existing research
+   - List specific prior studies that overlap with this manuscript.
+   - Assess the degree of overlap (nearly identical / partially overlapping / similar but with some differences).
 
-5. サンプルサイズやデザイン上の弱点
-   - サンプルサイズが小さすぎないか。
-   - 研究デザインに根本的な弱点はないか（比較群の欠如、ランダム化の不備、追跡期間の短さ、交絡の未調整など）。
+5. Weaknesses in sample size or study design
+   - Is the sample size too small?
+   - Are there fundamental weaknesses in the study design (lack of comparison group, inadequate randomization, short follow-up, unadjusted confounders, etc.)?
 
-6. 統計解析上の弱点
-   - 使用されている統計手法はデータ構造に対して適切か。
-   - 多重比較の調整は行われているか。
-   - 結果の解釈に無理がないか（例：相関を因果と解釈していないか、有意でない結果を軽視していないか）。
+6. Weaknesses in statistical analyses
+   - Are the statistical methods appropriate for the data structure?
+   - Have corrections for multiple comparisons been applied?
+   - Are there issues with interpretation of results (e.g., interpreting correlation as causation, downplaying non-significant results)?
 
-7. 投稿予定雑誌の基準と比べた不足点
-   - 投稿予定雑誌の通常の掲載論文と比べて、サンプルサイズ、研究デザインの厳密さ、新規性の水準は十分か。
-   - この雑誌の査読者が指摘しそうな問題点を予測してください。
+7. Deficiencies relative to target journal standards
+   - Compared to the target journal's typical published articles, are the sample size, study design rigor, and novelty level sufficient?
+   - Predict issues that this journal's reviewers are likely to raise.
 
-8. 過剰主張になりやすい点
-   - 著者がAbstractやDiscussionで過剰に主張しがちな点を予測してください。
-   - 例：「世界で初めて」「有意に改善」「画期的な方法」などの表現が妥当かを検討してください。
+8. Points at risk of overclaiming
+   - Predict points the authors may overclaim in the abstract or discussion.
+   - Evaluate whether expressions like "first in the world," "significantly improved," or "groundbreaking method" would be justified.
 
-9. 査読で突かれそうな点
-   - 査読者が真っ先に指摘しそうな問題点をリストアップしてください。
-   - 特に novelty-related comments で否定されそうな点を中心に。
+9. Points likely to be targeted in peer review
+   - List the problems reviewers would likely point out first.
+   - Focus especially on points likely to be rejected in novelty-related comments.
 
-10. 最終評価
-   以下の形式でまとめてください。
+10. Final Assessment
+    Summarize using the following format:
 
-   - 新規性として最も疑わしい点：
-   - 先行研究と明確に重複している点：
-   - この論文の最大の方法論的弱点：
-   - 投稿予定雑誌とのミスマッチの有無：
-   - 査読でリジェクトされるリスク（低・中・高）：
-   - リジェクトを避けるために最低限補強すべき点：
+    - Most questionable novelty claim:
+    - Points clearly overlapping with prior research:
+    - This manuscript's greatest methodological weakness:
+    - Presence/absence of mismatch with target journal:
+    - Risk of rejection in peer review (Low / Medium / High):
+    - Minimum points to strengthen to avoid rejection:
 
-出力では、可能な限り具体的な文献情報を示してください。
-文献を挙げる場合は、著者名、年、タイトル、雑誌名、巻号、ページ、DOIまたはURLが分かる範囲で含めてください。
-「これがなければリジェクト」という決定的な問題があれば、明示してください。
-根拠が不確かな場合は、不確かであることを明記してください。
+Provide as much specific reference information as possible in your output.
+When citing references, include author names, year, title, journal name, volume, issue, pages, and DOI or URL to the extent available.
+If there is any decisive problem that "would lead to rejection without this," state it clearly.
+If evidence is uncertain, clearly state that it is uncertain.
 """
 
 
@@ -235,38 +235,38 @@ def build_novelty_summary_messages(
     identification.
     """
     system_prompt = """\
-あなたは学術論文の査読を支援する専門家です。
-与えられた論文原稿を読み、以下の観点から論文を要約・分析してください。
+You are an expert assistant supporting peer review of academic manuscripts.
+Read the manuscript provided and summarize/analyze it from the perspectives below.
 
-重要な指示：
-- すべての回答は日本語で行ってください。
-- 論文に記載されていない情報は「記載なし」としてください。
-- 新規性の評価では、テーマの新規性だけでなく、対象者、方法、統計解析、データの希少性、実践的意義など、複数の角度から検討してください。
-- 各項目について、具体的な根拠を論文本文から引用してください。
-- 著者が主張している貢献と、あなたが客観的に見て新規性があると思われる点は区別してください。
-- 新規性が特段認められない角度については「特段の新規性は認められない」と明記してください。
-- 文献検索に役立つキーワードを5〜10個、英語で列挙してください。
+Important instructions:
+- All responses must be in English.
+- If information is not stated in the manuscript, mark it as "Not stated."
+- When evaluating novelty, consider not only thematic novelty but also multiple angles: participants, methods, statistical analyses, data rarity, practical significance, etc.
+- For each item, provide specific evidence by quoting from the manuscript text.
+- Distinguish between contributions claimed by the authors and points you objectively find to be novel.
+- For angles where no particular novelty is recognized, clearly state "No particular novelty is recognized."
+- List 5–10 keywords useful for literature searching, in English.
 
-以下のJSON形式で出力してください。JSON以外のテキストは一切出力しないでください。
+Output in the following JSON format. Do NOT output any text other than JSON.
 
 ```json
 {
-  "research_topic": "研究テーマ（1〜2文）",
-  "objective": "研究目的（1〜2文）",
-  "sample_summary": "対象者・サンプルの概要（年齢、性別、疾患、施設、地域、サンプルサイズを含む）",
-  "design": "研究デザイン（RCT、横断、縦断、質的、混合など）",
-  "methods_summary": "介入・調査・観察の方法の概要",
-  "measures": "使用した尺度・アウトカム指標の一覧",
-  "statistics": "使用した統計解析手法",
-  "findings": "主な結果（主要アウトカムと副次的アウトカム）",
-  "claimed_contributions": "著者が主張している貢献",
-  "novelty_theme": "テーマの新規性評価と根拠",
-  "novelty_sample": "対象者・サンプルの新規性評価と根拠",
-  "novelty_methods": "方法・介入の新規性評価と根拠",
-  "novelty_statistics": "統計解析の新規性評価と根拠",
-  "novelty_data_rarity": "データの希少性評価と根拠",
-  "novelty_practical_significance": "実践的・臨床的・社会的意義の評価と根拠",
-  "target_journal_fit": "投稿予定雑誌との適合性の暫定評価（雑誌名が指定されている場合のみ）",
+  "research_topic": "Research topic (1–2 sentences)",
+  "objective": "Research objective (1–2 sentences)",
+  "sample_summary": "Summary of participants/sample (including age, sex, disease, setting, region, sample size)",
+  "design": "Study design (RCT, cross-sectional, longitudinal, qualitative, mixed methods, etc.)",
+  "methods_summary": "Summary of intervention/survey/observation methods",
+  "measures": "List of measures/outcome indicators used",
+  "statistics": "Statistical analysis methods used",
+  "findings": "Main results (primary and secondary outcomes)",
+  "claimed_contributions": "Contributions claimed by the authors",
+  "novelty_theme": "Novelty assessment of theme with evidence",
+  "novelty_sample": "Novelty assessment of participants/sample with evidence",
+  "novelty_methods": "Novelty assessment of methods/intervention with evidence",
+  "novelty_statistics": "Novelty assessment of statistical analyses with evidence",
+  "novelty_data_rarity": "Assessment of data rarity with evidence",
+  "novelty_practical_significance": "Assessment of practical/clinical/societal significance with evidence",
+  "target_journal_fit": "Preliminary assessment of fit with target journal (only if journal name is specified)",
   "keywords_for_search": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"]
 }
 ```"""
@@ -354,7 +354,7 @@ def build_novelty_assessment_messages(
         stat_rigour = pc.get("statistical_rigour_focus", "unknown")
         conclusion_focus = pc.get("conclusion_supported_by_data_focus", "unknown")
 
-        journal_name = jp.get("journal_name", "不明")
+        journal_name = jp.get("journal_name", "Unknown")
 
         # Determine journal type for guidance
         is_soundness_oriented = (
@@ -364,126 +364,130 @@ def build_novelty_assessment_messages(
         is_high_impact = novelty_req == "high" or impact_req == "high"
 
         journal_axis_desc = f"""
-## 対象ジャーナルの評価軸
+## Target Journal's Evaluation Axis
 
-- ジャーナル名: {journal_name}
-- Novelty重視度: {novelty_req}
-- Impact重視度: {impact_req}
-- Technical soundness重視: {soundness}
-- Methodological rigour重視: {method_rigour}
-- Statistical rigour重視: {stat_rigour}
-- Conclusion supported by data重視: {conclusion_focus}
+- Journal name: {journal_name}
+- Novelty emphasis: {novelty_req}
+- Impact emphasis: {impact_req}
+- Technical soundness emphasis: {soundness}
+- Methodological rigour emphasis: {method_rigour}
+- Statistical rigour emphasis: {stat_rigour}
+- Conclusion-supported-by-data emphasis: {conclusion_focus}
 """
 
         if is_soundness_oriented:
             journal_axis_desc += """
-**評価方針**: このジャーナルは technical soundness-oriented journal です。
-テーマの大きな新規性や主観的インパクトよりも、以下の点を重視して評価してください：
-- original research であること
-- 方法が科学的に妥当であること
-- 統計解析がデータ構造・サンプルサイズに対して適切であること
-- 結論がデータから支持されていること
-- 過剰な因果主張や一般化をしていないこと
-- 対象、文脈、データ、方法、解析、実践的意義のいずれかに付加価値があること
+**Assessment approach**: This journal is a technical soundness-oriented journal.
+Rather than major thematic novelty or subjective impact, emphasize evaluating the following:
+- It is original research
+- The methods are scientifically valid
+- Statistical analyses are appropriate for the data structure and sample size
+- Conclusions are supported by the data
+- No excessive causal claims or overgeneralization
+- There is added value in one or more of: participants, context, data, methods, analysis, or practical significance
 
-避けるべき表現: highly novel, major conceptual advance, field-changing, groundbreaking, transformative
-使いやすい表現: scientifically valid, methodologically sound, technically rigorous, statistically appropriate, conclusions supported by data, adds empirical evidence, examines underrepresented sample/context, contributes incremental but meaningful evidence
+Expressions to avoid: highly novel, major conceptual advance, field-changing, groundbreaking, transformative
+Preferred expressions: scientifically valid, methodologically sound, technically rigorous, statistically appropriate, conclusions supported by data, adds empirical evidence, examines underrepresented sample/context, contributes incremental but meaningful evidence
 """
         elif is_high_impact:
             journal_axis_desc += """
-**評価方針**: このジャーナルは high-impact selective journal です。
-以下の点を重視して評価してください：
-- テーマ的新規性
-- 理論的貢献
-- 臨床的・社会的インパクト
-- 国際的読者への関心
-- 方法論的強さ
-- 既存研究との明確な差分
-- 分野を前進させる意義
+**Assessment approach**: This journal is a high-impact selective journal.
+Emphasize evaluating the following:
+- Thematic novelty
+- Theoretical contribution
+- Clinical / societal impact
+- Interest to international readership
+- Methodological strength
+- Clear differentiation from existing research
+- Significance in advancing the field
 
-避けるべき表現: merely adds data, incremental only, niche relevance only, limited local interest
-使いやすい表現: advances the field, provides novel evidence, addresses an important gap, has broad implications
+Expressions to avoid: merely adds data, incremental only, niche relevance only, limited local interest
+Preferred expressions: advances the field, provides novel evidence, addresses an important gap, has broad implications
 """
         else:
             journal_axis_desc += """
-**評価方針**: ジャーナルの評価軸が明確に判定できませんでした。
-一般的な新規性評価と、このジャーナルで評価されやすい貢献の両方の観点から評価してください。
+**Assessment approach**: The journal's evaluation axis could not be clearly determined.
+Evaluate from both a general novelty assessment perspective and what contributions this journal would likely value.
 """
 
     dr_note = ""
     if deep_research_count == 0:
-        dr_note = "\n**注意**: 外部調査結果なしの暫定評価です。\n"
+        dr_note = "\n**Note**: This is a preliminary assessment without external research results.\n"
     elif deep_research_count == 1:
-        dr_note = "\n**注意**: 1つの外部調査結果に基づく暫定評価です。\n"
+        dr_note = "\n**Note**: This is a preliminary assessment based on one external research result.\n"
     else:
-        dr_note = "\n**注意**: 2つの外部調査結果を統合した評価です。\n"
+        dr_note = "\n**Note**: This is an assessment integrating two external research results.\n"
 
     system_prompt = f"""\
-あなたは学術論文の査読者です。
-論文の概要、外部で実施された文献調査（Deep Research）の結果、および
-投稿予定ジャーナルの特性情報をもとに、新規性とジャーナル適合性を評価してください。
+You are a peer reviewer for an academic manuscript.
+Based on the manuscript summary, the results of an external literature survey (Deep Research),
+and the target journal profile information, evaluate the novelty and journal fit.
 {dr_note}
+CRITICAL LANGUAGE RULE:
+- The literature survey input may be in English or Japanese (or a mix).
+- Regardless of the input language, you MUST write ALL your response in English.
+- Section headings, analysis, evaluation content, recommended expressions — everything must be in English.
+- Never output Japanese text under any circumstances.
 
-重要な指示：
-- すべての回答は日本語で行ってください。
-- 文献調査結果に具体的な文献が挙げられている場合は、それらを明示的に参照してください。
-- 新規性を過大評価しないでください。
-- ジャーナルの評価軸に合わせて、何を強調し何を避けるべきかを具体的に指示してください。
-- 査読者が新規性に関するコメントを書く際に役立つ視点を提供してください。
+Other instructions:
+- If specific references are cited in the literature survey results, refer to them explicitly.
+- Do not overstate novelty.
+- Adapt what to emphasize and what to avoid according to the journal's evaluation axis.
+- Provide perspectives useful for reviewers when writing novelty-related comments.
 
-以下のMarkdown形式で出力してください。
+Output in the following Markdown format.
 
-# 新規性・ジャーナル適合性評価
+# Novelty & Journal Fit Assessment
 
-## 1. 対象ジャーナルの評価軸
-[journalProfileに基づいて、このジャーナルが何を評価するかを簡潔に要約]
+## 1. Target Journal's Evaluation Axis
+[Based on journalProfile, briefly summarize what this journal evaluates]
 
-## 2. 論文の概要
-[研究テーマ、対象、方法、解析、主な結果、著者が主張する貢献を簡潔に]
+## 2. Manuscript Summary
+[Briefly summarize the research topic, participants, methods, analyses, main findings, and contributions claimed by the authors]
 
-## 3. 一般的な意味での新規性
+## 3. Novelty in a General Sense
 
-### 3.1 テーマの新規性
-[具体的な先行研究を参照しながら評価]
+### 3.1 Novelty of Theme
+[Evaluate with reference to specific prior studies]
 
-### 3.2 対象・サンプルの新規性
+### 3.2 Novelty of Participants / Sample
 
-### 3.3 方法・介入の新規性
+### 3.3 Novelty of Methods / Intervention
 
-### 3.4 尺度・アウトカムの新規性
+### 3.4 Novelty of Measures / Outcomes
 
-### 3.5 統計解析の工夫
+### 3.5 Innovation in Statistical Analyses
 
-### 3.6 データの希少性
+### 3.6 Rarity of Data
 
-### 3.7 実践的・臨床的・社会的意義
+### 3.7 Practical / Clinical / Societal Significance
 
-### 3.8 理論的貢献
+### 3.8 Theoretical Contribution
 
-## 4. このジャーナルにおいて評価されやすい貢献
-[journalProfileの評価軸に基づいて、このジャーナルで特に評価される点を評価]
-- technical soundness-oriented journalの場合：科学的妥当性、方法論的妥当性、統計解析の適切性、結論とデータの整合性、underrepresented sample/context、incremental but meaningful evidence
-- high-impact selective journalの場合：テーマ的新規性、理論的貢献、臨床的・社会的インパクト、国際的読者への重要性、分野への明確な貢献
+## 4. Contributions Likely Valued by This Journal
+[Based on the journal's evaluation axis, evaluate what this journal would particularly value]
+- For technical soundness-oriented journals: scientific validity, methodological adequacy, appropriate statistical analyses, conclusions supported by data, underrepresented sample/context, incremental but meaningful evidence
+- For high-impact selective journals: thematic novelty, theoretical contribution, clinical/societal impact, importance to international readership, clear contribution to the field
 
-## 5. 強く主張できる点
-[根拠付きで列挙]
+## 5. Points That Can Be Strongly Claimed
+[List with supporting evidence]
 
-## 6. 慎重に述べるべき点
-[過剰主張になりやすい点、デザインやサンプルサイズ上の制約、解析上の制約、一般化に注意すべき点]
+## 6. Points to State Cautiously
+[Points at risk of overclaiming, limitations in design or sample size, analytical constraints, caveats regarding generalizability]
 
-## 7. 既存研究との重複
-[既存研究と重なる点。どの文献とどのように重複しているか具体的に]
+## 7. Overlap with Existing Research
+[Points that overlap with existing studies. Specify which references and how they overlap]
 
-## 8. 既存研究との明確な差分
-[既存研究にはない、この論文固有の貢献]
+## 8. Clear Differentiation from Existing Research
+[Unique contributions of this manuscript not found in existing research]
 
-## 9. 投稿予定ジャーナルとの適合性
+## 9. Fit with Target Journal
 
-総合判定: [十分に適合 / やや適合 / やや不足 / かなり不足]
+Overall Judgment: [Strong fit / Moderate fit / Somewhat insufficient / Clearly insufficient]
 
-[判定の根拠を説明]
+[Explain the basis for this judgment]
 
-## 10. 投稿前に補強すべき点
+## 10. Points to Strengthen Before Submission
 - Introduction:
 - Methods:
 - Results:
@@ -494,16 +498,15 @@ def build_novelty_assessment_messages(
 - Data availability:
 - Statistical reporting:
 
-## 11. 査読コメントで使える方向性
-- 強調すべき表現
-- 避けるべき表現
-- 日本語での推奨表現
-- 英語での推奨表現"""
+## 11. Directions Usable in Review Comments
+- Expressions to emphasize
+- Expressions to avoid
+- Recommended expressions in English"""
 
     summary_json = json.dumps(novelty_summary, ensure_ascii=False, indent=2)
 
     user_parts = [
-        "# 論文概要\n",
+        "# Manuscript Summary\n",
         "```json",
         summary_json,
         "```\n",
@@ -513,9 +516,9 @@ def build_novelty_assessment_messages(
         user_parts.append(journal_axis_desc)
 
     if target_journal and target_journal.strip():
-        user_parts.append(f"\n## 投稿予定雑誌\n{target_journal.strip()}\n")
+        user_parts.append(f"\n## Target Journal\n{target_journal.strip()}\n")
 
-    user_parts.append("\n# 文献調査結果 (Deep Research統合)\n")
+    user_parts.append("\n# Literature Survey Results (Deep Research Integrated)\n")
     user_parts.append(deep_research_text)
 
     user_message = "\n".join(user_parts)
@@ -523,20 +526,638 @@ def build_novelty_assessment_messages(
     # Truncate if needed
     if len(user_message) > 120_000:
         cutoff = 120_000
-        dr_start = user_message.find("# 文献調査結果")
+        dr_start = user_message.find("# Literature Survey Results")
         if dr_start > 0:
             summary_part = user_message[:dr_start]
             dr_part = user_message[dr_start:]
             available = cutoff - len(summary_part)
             if available > 5000:
                 user_message = summary_part + dr_part[:available]
-                user_message += "\n\n[文献調査結果は長すぎるため途中で切り捨てられました]"
+                user_message += "\n\n[Literature survey results truncated due to length]"
             else:
                 user_message = user_message[:cutoff]
-                user_message += "\n\n[内容が長すぎるため途中で切り捨てられました]"
+                user_message += "\n\n[Content truncated due to length]"
         else:
             user_message = user_message[:cutoff]
-            user_message += "\n\n[内容が長すぎるため途中で切り捨てられました]"
+            user_message += "\n\n[Content truncated due to length]"
+
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_message},
+    ]
+
+
+# =============================================================================
+# Review checks panel: Novelty review section prompts
+# =============================================================================
+
+def build_novelty_review_journal_fit_messages(
+    novelty_summary: dict,
+    novelty_assessment: str,
+    journal_profile: dict | None = None,
+) -> list[dict]:
+    """Build messages for the novelty-review-journal-fit command.
+
+    Used by the ReviewChecksPanel's 新規性 tab (journal fit sub-tab).
+    Takes the existing novelty assessment and produces a focused journal
+    suitability evaluation with a top-level judgment block.
+    """
+    # Determine journal type
+    journal_name = "Unknown"
+    is_soundness_oriented = False
+    is_high_impact = False
+
+    if journal_profile:
+        pc = journal_profile.get("publication_criteria", {})
+        journal_name = journal_profile.get("journal_name", "Unknown")
+        novelty_req = pc.get("novelty_required", "unknown")
+        impact_req = pc.get("impact_required", "unknown")
+        soundness = pc.get("technical_soundness_focus", "unknown")
+        is_soundness_oriented = (
+            soundness == "true"
+            and novelty_req in ("low", "not_explicitly_required", "unknown")
+        )
+        is_high_impact = novelty_req == "high" or impact_req == "high"
+
+    # Build journal context
+    journal_context = ""
+    if is_soundness_oriented:
+        journal_context = (
+            f"{journal_name} is a technical-soundness-oriented journal that does "
+            f"not require major thematic novelty. Evaluation should emphasize "
+            f"scientific validity and methodological adequacy rather than conceptual "
+            f"breakthroughs. The Overall Judgment should note that the journal's "
+            f"acceptance criteria are met as long as the research is technically sound."
+        )
+    elif is_high_impact:
+        journal_context = (
+            f"{journal_name} is a high-impact selective journal. Evaluation should "
+            f"apply a strict standard for thematic novelty, theoretical contribution, "
+            f"and significance to the field."
+        )
+    else:
+        journal_context = (
+            f"{journal_name}'s evaluation axis could not be clearly determined. "
+            f"Evaluate from a general journal-fit perspective."
+        )
+
+    system_prompt = f"""\
+You are a peer reviewer evaluating whether a manuscript is a good fit for its target journal.
+Based on the manuscript summary, novelty assessment, and journal profile, produce a focused
+journal-fit evaluation.
+
+CRITICAL LANGUAGE RULE:
+- All input may be in English or Japanese (or a mix).
+- Regardless of the input language, you MUST write ALL your response in English.
+- Never output Japanese text under any circumstances.
+
+SCOPE:
+- Evaluate ONLY thematic novelty and journal fit.
+- Do NOT evaluate methods, statistics, logic/argumentation, figures, or ethics.
+- Those dimensions are covered by separate review sections.
+
+JOURNAL CONTEXT:
+{journal_context}
+
+Start with a clear Overall Journal Fit at the very top. Then provide detailed
+rationale for each evaluation dimension below.
+
+Output in the following Markdown format:
+
+# A. ジャーナル適合評価
+
+## Overall Journal Fit
+[Strong / Moderate / Borderline / Weak]
+[One-paragraph rationale explaining why this judgment was made]
+
+## Fit with Journal Scope
+- [Evaluate whether the research theme aligns with the journal's target areas,
+  interdisciplinarity, specialist domains, and intended readership]
+- [Note if the theme is too broad or too narrow for this journal]
+
+## Fit with Journal Evaluation Criteria
+- [Assess against what this journal explicitly values: novelty, importance,
+  methodological rigor, technical validity, clinical significance, etc.]
+- [For soundness-oriented journals like Scientific Reports, assess fit with
+  soundness criteria rather than impact]
+
+## Journal-Specific Strengths
+- [Strengths that are specifically advantageous FOR THIS JOURNAL — not generic
+  strengths, but points that make the manuscript a good match]
+- [Examples: interdisciplinary scope, rare sample, proof-of-concept, niche but
+  data-driven study]
+
+## Journal-Specific Weaknesses or Risks
+- [Weaknesses or concerns that are specific to THIS JOURNAL's expectations]
+- [Focus on thematic/scope gaps and audience distance, not over-claiming
+  or manuscript writing issues]
+
+## Overall Fit Rationale
+- [Final summary explaining WHY the manuscript is judged to fit or not fit
+  this journal — a synthesis of the above dimensions, not a resubmission strategy]"""
+
+    summary_json = json.dumps(novelty_summary, ensure_ascii=False, indent=2)
+
+    journal_profile_json = ""
+    if journal_profile:
+        journal_profile_json = "\n## Journal Profile\n```json\n" + \
+            json.dumps(journal_profile, ensure_ascii=False, indent=2) + \
+            "\n```\n"
+
+    user_parts = [
+        "# Manuscript Summary\n",
+        "```json",
+        summary_json,
+        "```\n",
+        journal_profile_json,
+        "# Novelty Assessment\n",
+        novelty_assessment,
+    ]
+
+    user_message = "\n".join(user_parts)
+
+    # Truncate if needed (prioritize keeping summary + journal profile)
+    if len(user_message) > 120_000:
+        cutoff = 120_000
+        assessment_start = user_message.find("# Novelty Assessment")
+        if assessment_start > 0:
+            preamble = user_message[:assessment_start]
+            assessment_part = user_message[assessment_start:]
+            available = cutoff - len(preamble)
+            if available > 5000:
+                user_message = preamble + assessment_part[:available]
+                user_message += "\n\n[Novelty assessment truncated due to length]"
+            else:
+                user_message = user_message[:cutoff]
+                user_message += "\n\n[Content truncated due to length]"
+        else:
+            user_message = user_message[:cutoff]
+            user_message += "\n\n[Content truncated due to length]"
+
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_message},
+    ]
+
+
+def build_novelty_review_universal_messages(
+    novelty_summary: dict,
+    novelty_assessment: str,
+) -> list[dict]:
+    """Build messages for the novelty-review-universal command.
+
+    Used by the ReviewChecksPanel's 新規性 tab (テーマ新規性評価 sub-tab).
+    Produces a journal-agnostic thematic novelty evaluation.
+    Journal tier estimation is handled by a separate evaluation.
+    """
+    system_prompt = """\
+You are a peer reviewer performing a journal-agnostic evaluation of a manuscript's
+thematic novelty. Your goal is to assess how novel the research theme and findings
+are, independent of any specific target journal.
+
+CRITICAL LANGUAGE RULE:
+- All input may be in English or Japanese (or a mix).
+- Regardless of the input language, you MUST write ALL your response in English.
+- Never output Japanese text under any circumstances.
+
+SCOPE (STRICT):
+- Evaluate ONLY the thematic novelty of what the paper claims.
+- Do NOT evaluate whether the theme was properly studied (methods, statistics).
+- Do NOT evaluate the logical structure or strength of arguments.
+- Do NOT evaluate figures, tables, ethics, or data availability.
+- Those dimensions are covered by separate review sections.
+- If methods/stats/logic concerns are mentioned in the source material,
+  explicitly state that they are outside the scope of this assessment.
+
+Output in the following Markdown format:
+
+# B. テーマ新規性評価
+
+## Overall Thematic Novelty
+[High / Moderate / Limited / Low]
+[One-paragraph summary of where the novelty lies]
+
+## Central Theme
+- [What is studied, in what population, using what theoretical framework or method]
+
+## Prior Literature Landscape
+- [Major research streams relevant to this theme and what is already established]
+- [Examples: risk factor studies, theoretical work, meta-analyses, specific population studies]
+
+## Closest Prior Work
+- [The most similar prior studies or research groups and what they showed]
+- [How the present study's theme differs from those]
+
+## What Is New
+- [The central point of novelty — not individual elements but their combination,
+  population, theoretical framework, data, or methodological approach]
+- [Clearly identify where the novelty is concentrated]
+
+## What Is Not New
+- [Elements already established in the literature — prevent over-claiming novelty]
+- [Examples: individual risk factors, existing theories, established models]
+
+## Type of Novelty
+- [Categorize the type: theoretical integration, empirical application, rare sample,
+  methodological novelty, cross-disciplinary synthesis, replication value, etc.]
+- [Note whether this is discovery-type or synthesis-type novelty]
+
+## Thematic Strengths
+- [Strengths of the research theme itself — attractiveness as a topic, not empirical success]
+- [Examples: rarity, cross-disciplinarity, theoretical organization, hypothesis-generation potential]
+
+## Thematic Limitations
+- [Limitations of the theme itself — NOT statistical or writing issues]
+- [Examples: individual elements are known, theoretical framework is interpretive,
+  generalizability is inherently limited]
+
+## Contribution If Empirically Supported
+- [If the empirical work succeeds, what academic contribution does the theme enable]
+- [Theoretical contributions, cross-field bridging, data contributions, future research enablement]
+- [Do NOT evaluate whether the empirical work actually succeeded]
+
+## Novelty Judgment
+- [Final summary: what is new, what is known, and the overall degree of contribution]
+
+Note: Methods, statistics, and logical argumentation are evaluated in separate
+review sections and are outside the scope of this thematic novelty assessment.
+Journal tier estimation is provided in a separate "適正雑誌" evaluation."""
+
+    summary_json = json.dumps(novelty_summary, ensure_ascii=False, indent=2)
+
+    user_parts = [
+        "# Manuscript Summary\n",
+        "```json",
+        summary_json,
+        "```\n",
+        "# Novelty Assessment\n",
+        novelty_assessment,
+    ]
+
+    user_message = "\n".join(user_parts)
+
+    # Truncate if needed
+    if len(user_message) > 120_000:
+        cutoff = 120_000
+        assessment_start = user_message.find("# Novelty Assessment")
+        if assessment_start > 0:
+            preamble = user_message[:assessment_start]
+            assessment_part = user_message[assessment_start:]
+            available = cutoff - len(preamble)
+            if available > 5000:
+                user_message = preamble + assessment_part[:available]
+                user_message += "\n\n[Novelty assessment truncated due to length]"
+            else:
+                user_message = user_message[:cutoff]
+                user_message += "\n\n[Content truncated due to length]"
+        else:
+            user_message = user_message[:cutoff]
+            user_message += "\n\n[Content truncated due to length]"
+
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_message},
+    ]
+
+
+def build_novelty_review_journal_tier_messages(
+    novelty_summary: dict,
+    novelty_assessment: str,
+) -> list[dict]:
+    """Build messages for the novelty-review-journal-tier command.
+
+    Used by the ReviewChecksPanel's 新規性 tab (適正雑誌 sub-tab).
+    Produces a journal-tier estimation based solely on thematic novelty,
+    independent of any specific target journal.
+    """
+    system_prompt = """\
+You are a peer reviewer estimating the appropriate journal tier for a manuscript,
+based solely on its thematic novelty. Your role is to place the manuscript in the
+right impact-factor band, independent of any specific target journal.
+
+CRITICAL LANGUAGE RULE:
+- All input may be in English or Japanese (or a mix).
+- Regardless of the input language, you MUST write ALL your response in English.
+- Never output Japanese text under any circumstances.
+
+SCOPE (STRICT):
+- Evaluate ONLY the thematic novelty of what the paper claims.
+- Do NOT evaluate methods, statistics, logical structure, figures, tables, or ethics.
+- Those dimensions are covered by separate review sections.
+
+Output in the following Markdown format:
+
+# C. 適正雑誌
+
+## Estimated Journal Tier
+[Top-tier (IF~10+) / High-tier (IF~5-10) / Mid-tier (IF~2-5) / Lower-tier (IF<2)]
+
+- [Rationale: why this tier, based on novelty magnitude, rare samples, theoretical
+  integration, and difference from existing work]
+- [Why NOT a higher tier: specific limitations of the thematic novelty]
+- [Why NOT a lower tier: specific strengths that justify this level]
+- [Provide a balanced estimate — neither over-nor under-shooting the contribution]"""
+
+    summary_json = json.dumps(novelty_summary, ensure_ascii=False, indent=2)
+
+    user_parts = [
+        "# Manuscript Summary\n",
+        "```json",
+        summary_json,
+        "```\n",
+        "# Novelty Assessment\n",
+        novelty_assessment,
+    ]
+
+    user_message = "\n".join(user_parts)
+
+    # Truncate if needed
+    if len(user_message) > 120_000:
+        cutoff = 120_000
+        assessment_start = user_message.find("# Novelty Assessment")
+        if assessment_start > 0:
+            preamble = user_message[:assessment_start]
+            assessment_part = user_message[assessment_start:]
+            available = cutoff - len(preamble)
+            if available > 5000:
+                user_message = preamble + assessment_part[:available]
+                user_message += "\n\n[Novelty assessment truncated due to length]"
+            else:
+                user_message = user_message[:cutoff]
+                user_message += "\n\n[Content truncated due to length]"
+        else:
+            user_message = user_message[:cutoff]
+            user_message += "\n\n[Content truncated due to length]"
+
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_message},
+    ]
+
+
+# =============================================================================
+# Journal Find: internal LLM direct search (single-call)
+# =============================================================================
+
+def build_novelty_find_journals_messages(
+    novelty_summary: dict,
+    tier_estimation: str,
+) -> list[dict]:
+    """Build messages for a single LLM call to find suitable journals directly.
+
+    Used by the novelty-find-journals CLI command.
+    The LLM receives the paper summary + tier estimation and returns
+    a JSON array + Markdown table of candidate journals.
+    This is the "internal method" — no external AI needed.
+    """
+    system_prompt = """\
+You are a peer reviewer tasked with finding real, existing academic journals
+that would be suitable submission targets for a manuscript, based on its
+thematic novelty and estimated journal tier.
+
+CRITICAL LANGUAGE RULE:
+- All input may be in English or Japanese (or a mix).
+- Regardless of the input language, you MUST write ALL your response in English.
+- Never output Japanese text under any circumstances.
+
+TASK:
+1. Read the manuscript summary and the Journal Tier Estimation carefully.
+2. Based on the paper's field, topic, novelty level, and estimated tier,
+   identify 5–10 REAL, existing academic journals that would be good fits.
+3. For each journal, provide ALL of the following fields:
+   - journal_name: Full official journal name
+   - publisher: Publisher name
+   - impact_factor: The journal's impact factor (e.g. "5.2") or "N/A" if unknown
+   - submission_fee: Typical article processing charge or submission fee
+     (e.g. "$2,000", "Free", "$1,500–$3,000")
+   - match_rate: Your estimated match percentage (e.g. "85%") reflecting how
+     well the paper's topic, novelty level, and scope fit this journal
+   - reason: A concise reason (1–2 sentences) why this journal is a good fit
+
+4. Rank by match quality (best fit first). Select the top 10.
+5. Ensure the journals span a realistic range within the estimated tier.
+   Do NOT suggest journals far above or below the estimated tier band.
+
+OUTPUT FORMAT — You MUST output exactly these two sections:
+
+First, a JSON code fence containing the ranked array:
+```json
+[
+  {
+    "journal_name": "...",
+    "publisher": "...",
+    "impact_factor": "...",
+    "submission_fee": "...",
+    "match_rate": "...",
+    "reason": "..."
+  }
+]
+```
+
+Then, a Markdown table summarizing the results:
+
+| # | Journal Name | Publisher | IF | Submission Fee | Match | Reason |
+|---|-------------|-----------|-----|---------------|-------|--------|
+| 1 | ... | ... | ... | ... | ... | ... |
+
+The table must have these exact columns in this order.
+Number the journals from 1 to N in the first column."""
+
+    summary_json = json.dumps(novelty_summary, ensure_ascii=False, indent=2)
+
+    user_parts = [
+        "# Manuscript Summary\n",
+        "```json",
+        summary_json,
+        "```\n",
+        "# Journal Tier Estimation\n",
+        tier_estimation,
+    ]
+
+    user_message = "\n".join(user_parts)
+
+    # Truncate if needed (~120k chars)
+    if len(user_message) > 120_000:
+        user_message = user_message[:120_000]
+        user_message += "\n\n[Content truncated due to length]"
+
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_message},
+    ]
+
+
+# =============================================================================
+# Journal Search: external AI prompt + parse (copy-paste flow, A/B merge)
+# =============================================================================
+
+JOURNAL_SEARCH_PROMPT_TEMPLATE = """\
+You are a research assistant helping to find suitable academic journals for a manuscript.
+
+## Manuscript Information
+- Research Topic: {research_topic}
+- Objective: {objective}
+- Sample: {sample_summary}
+- Design: {design}
+- Methods: {methods_summary}
+- Findings: {findings}
+
+## Journal Tier Estimation
+{tier_estimation}
+
+## Task
+Based on the manuscript's topic, novelty level, and estimated journal tier above,
+search for 5-10 REAL academic journals that would be good submission targets.
+For each journal, provide:
+
+1. **Journal Name** — full official name
+2. **Publisher**
+3. **Impact Factor** — current IF (e.g. "5.2") or "N/A" if not available
+4. **Submission Fee** — typical APC or submission fee (e.g. "$2,000", "Free")
+5. **Match Rate** — estimated fit percentage (e.g. "85%")
+6. **Reason** — 1-2 sentences why this journal fits
+
+Please format as a numbered list or table.
+Use your web search capability to find current, accurate information.
+"""
+
+
+def build_journal_search_parse_messages(
+    novelty_summary: dict,
+    tier_estimation: str,
+    external_results_a: str,
+    external_results_b: str = "",
+) -> list[dict]:
+    """Build messages for parsing/merging external AI journal search results.
+
+    Used by the novelty-journal-search-parse CLI command.
+    The coordinator LLM receives results from up to two external AIs (A and B),
+    deduplicates, ranks by fit, and produces a structured JSON array + Markdown table.
+
+    If external_results_b is empty, only slot A results are processed.
+    """
+    has_b = bool(external_results_b.strip())
+
+    if has_b:
+        merge_instruction = """\
+4. Merge the two lists: identify duplicates (same journal in both A and B),
+   keep the more detailed metadata, and combine reasons.
+5. Exclude clearly unsuitable journals (wrong field, predatory publishers).
+6. Rank by match quality (best fit first). Select the top 10."""
+    else:
+        merge_instruction = """\
+4. Exclude clearly unsuitable journals (wrong field, predatory publishers).
+5. Rank by match quality (best fit first). Select the top 10."""
+
+    system_prompt = f"""\
+You are a coordinating peer reviewer. Your task is to parse and merge academic
+journal recommendations from external AI search results into a clean, ranked list.
+
+CRITICAL LANGUAGE RULE:
+- The input may contain English or Japanese content.
+- You MUST output ALL journal metadata in English.
+- Journal names, publisher names — all in English.
+
+TASK:
+1. Read the manuscript summary and tier estimation for context.
+2. Read the external AI results carefully.
+3. Extract every journal candidate found in the results.
+4. For each journal, fill in ALL of these fields:
+   - journal_name: Full official journal name (English)
+   - publisher: Publisher name (English)
+   - impact_factor: Impact factor (e.g. "5.2") or "N/A" if not found
+   - submission_fee: APC or submission fee (e.g. "$2,000", "Free") or "N/A"
+   - match_rate: Your estimated match percentage (e.g. "85%")
+   - reason: 1-2 sentences why this journal fits the manuscript
+
+{merge_instruction}
+
+OUTPUT FORMAT — You MUST output exactly these two sections:
+
+First, a JSON code fence containing the ranked array:
+```json
+[
+  {{
+    "journal_name": "...",
+    "publisher": "...",
+    "impact_factor": "...",
+    "submission_fee": "...",
+    "match_rate": "...",
+    "reason": "..."
+  }}
+]
+```
+
+Then, a Markdown table summarizing the results:
+
+| # | Journal Name | Publisher | IF | Submission Fee | Match | Reason |
+|---|-------------|-----------|-----|---------------|-------|--------|
+| 1 | ... | ... | ... | ... | ... | ... |
+
+The table must have these exact columns in this order.
+Number the journals from 1 to N in the first column."""
+
+    summary_json = json.dumps(novelty_summary, ensure_ascii=False, indent=2)
+
+    user_parts = [
+        "# Manuscript Summary\n",
+        "```json",
+        summary_json,
+        "```\n",
+        "# Journal Tier Estimation\n",
+        tier_estimation,
+        "\n# External AI A — Search Results\n",
+        external_results_a,
+    ]
+
+    if has_b:
+        user_parts.extend([
+            "\n# External AI B — Search Results\n",
+            external_results_b,
+        ])
+
+    user_message = "\n".join(user_parts)
+
+    # Truncate if needed (~200k chars for dual-AI input)
+    max_chars = 200_000 if has_b else 160_000
+    if len(user_message) > max_chars:
+        user_message = user_message[:max_chars]
+        user_message += "\n\n[Content truncated due to length]"
+
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_message},
+    ]
+
+
+# =============================================================================
+# Journal table translation (Reason column → Japanese)
+# =============================================================================
+
+def build_journal_search_translate_messages(
+    en_table: str,
+) -> list[dict]:
+    """Build messages for translating the journal candidates table Reason column to Japanese.
+
+    The LLM receives the full Markdown table and translates only the Reason column,
+    preserving the table structure and all other columns in English.
+    """
+    system_prompt = """\
+You are a translation assistant. You will receive a Markdown table of journal candidates.
+
+TASK:
+- Translate ONLY the "Reason" column (the last column of the table) to Japanese.
+- Keep ALL other columns (Journal Name, Publisher, IF, Submission Fee, Match) exactly as they are in English.
+- Preserve the exact Markdown table format — pipe characters, alignment row, everything.
+- Do NOT add any explanation, notes, or extra text before or after the table.
+- Output ONLY the translated Markdown table."""
+
+    user_message = f"# Journal Candidates Table (English)\n\n{en_table}"
+
+    # Truncate if needed
+    if len(user_message) > 80_000:
+        user_message = user_message[:80_000]
+        user_message += "\n\n[Content truncated due to length]"
 
     return [
         {"role": "system", "content": system_prompt},
@@ -559,50 +1180,50 @@ def build_novelty_review_comment_messages(
     comments (NOT a cover letter). Output in both Japanese and English.
     """
     system_prompt = """\
-あなたは学術論文の査読者です。
-論文の概要と新規性評価の結果をもとに、**最終査読コメント**の「新規性と既存研究との重複」セクションを作成してください。
+You are a peer reviewer for an academic manuscript.
+Based on the manuscript summary and novelty assessment results, write the "Novelty and Overlap with Existing Literature" section for the **final review comments**.
 
-これはカバーレターではなく、査読者が査読レポートに記載するための文章です。
+This is NOT a cover letter — it is text to be included in the reviewer's report.
 
-重要な指示：
-- 査読者としての客観的な立場で書いてください。
-- 「強く主張できる新規性」と「慎重に述べるべき点」を区別してください。
-- 新規性を過大評価しないでください。
-- 既存研究との重複がある場合は、正直に指摘してください。
-- 日本語と英語の両方で出力してください（国際誌投稿を想定）。
-- 各言語3〜5段落程度で、学術的な査読レポートにふさわしい文体で書いてください。
+Important instructions:
+- Write from an objective reviewer's standpoint.
+- Distinguish between "novelty that can be strongly claimed" and "points that should be stated cautiously."
+- Do not overstate novelty.
+- If there is overlap with existing research, point it out honestly.
+- Output in both English and Japanese (for international journal submission).
+- Approximately 3–5 paragraphs per language, in a style appropriate for an academic peer review report.
 
-以下の形式で出力してください。
+Output in the following format.
 
-# 新規性と既存研究との重複 (Novelty and Overlap with Existing Literature)
-
-## 日本語
-
-[3〜5段落の日本語査読コメント]
+# Novelty and Overlap with Existing Literature (新規性と既存研究との重複)
 
 ## English
 
-[3〜5 paragraphs of English review comments]"""
+[3–5 paragraphs of English review comments]
+
+## 日本語
+
+[3〜5段落の日本語査読コメント]"""
 
     summary_json = json.dumps(novelty_summary, ensure_ascii=False, indent=2)
 
     user_parts = [
-        "# 論文概要\n",
+        "# Manuscript Summary\n",
         "```json",
         summary_json,
         "```\n",
-        "# 新規性評価\n",
+        "# Novelty Assessment\n",
         novelty_assessment,
     ]
 
     if target_journal and target_journal.strip():
-        user_parts.append(f"\n## 投稿予定雑誌\n{target_journal.strip()}\n")
+        user_parts.append(f"\n## Target Journal\n{target_journal.strip()}\n")
 
     user_message = "\n".join(user_parts)
 
     if len(user_message) > 80_000:
         user_message = user_message[:80_000]
-        user_message += "\n\n[内容が長すぎるため途中で切り捨てられました]"
+        user_message += "\n\n[Content truncated due to length]"
 
     return [
         {"role": "system", "content": system_prompt},
@@ -627,43 +1248,48 @@ def build_novelty_merge_messages(
     compare, integrate, and structure the findings.
     """
     system_prompt = """\
-あなたは学術文献調査の専門家です。
-2つの異なるAIで実施されたDeep Research（文献調査）の結果を比較・統合してください。
+You are an expert in academic literature surveys.
+Compare and integrate the results of Deep Research (literature surveys) conducted by two different AIs.
 
-重要な指示：
-- すべての回答は日本語で行ってください。
-- 単純にAとBを連結するのではなく、内容を比較・整理してください。
-- AとBで情報が矛盾する場合は、どちらかに決め打ちせず「要確認」としてください。
-- 文献情報は可能な限り構造化してください（著者、年、タイトル、雑誌名、DOIなど）。
-- 新規性判断・ジャーナル適合性判断に役立つ整理を心がけてください。
+CRITICAL LANGUAGE RULE:
+- The Deep Research input may be in English or Japanese (or a mix).
+- Regardless of the input language, you MUST write ALL your response in English.
+- Section headings, analysis, reference information — everything must be in English.
+- Never output Japanese text under any circumstances.
 
-出力は以下のMarkdown形式で行ってください。Markdownの後に、統合された文献情報をJSONでも出力してください。
+Other instructions:
+- Do NOT simply concatenate A and B — compare and organize the content.
+- If information from A and B is contradictory, mark it as "Needs verification" rather than arbitrarily choosing one side.
+- Structure reference information as much as possible (authors, year, title, journal name, DOI, etc.).
+- Organize the information to facilitate novelty judgment and journal fit assessment.
 
-# Deep Research 統合結果
+Output in the following Markdown format. After the Markdown, also output the integrated reference information in JSON.
 
-## 1. AとBで一致している情報
+# Deep Research Integration Results
 
-## 2. Aにのみ出てくる情報
+## 1. Information consistent between A and B
 
-## 3. Bにのみ出てくる情報
+## 2. Information appearing only in A
 
-## 4. 文献情報の食い違い・要確認
+## 3. Information appearing only in B
 
-## 5. 信頼できそうな情報
+## 4. Discrepancies in reference information / Needs verification
 
-## 6. 要確認の情報
+## 5. Likely reliable information
 
-## 7. 新規性判断に使える情報
+## 6. Information requiring verification
 
-## 8. 新規性判断には使いにくい情報
+## 7. Information useful for novelty assessment
 
-## 9. 既存研究との重複を示す根拠
+## 8. Information less useful for novelty assessment
 
-## 10. 新規性または付加価値を示す根拠
+## 9. Evidence indicating overlap with existing research
 
-## 11. 投稿予定ジャーナルとの適合性判断に使える情報
+## 10. Evidence indicating novelty or added value
 
-## 12. 査読で突かれそうな点
+## 11. Information useful for target journal fit assessment
+
+## 12. Points likely to be targeted in peer review
 
 ```json
 {
@@ -696,7 +1322,7 @@ def build_novelty_merge_messages(
 
     meta_info = ""
     if deep_research_meta:
-        meta_info = "\n## 調査メタデータ\n```json\n" + \
+        meta_info = "\n## Deep Research Metadata\n```json\n" + \
                     json.dumps(deep_research_meta, ensure_ascii=False, indent=2) + \
                     "\n```\n"
 
@@ -704,22 +1330,22 @@ def build_novelty_merge_messages(
     if journal_profile:
         jp = journal_profile
         pc = jp.get("publication_criteria", {})
-        journal_info = f"""\n## 投稿予定ジャーナル情報
-- ジャーナル名: {jp.get('journal_name', '不明')}
-- Novelty重視度: {pc.get('novelty_required', 'unknown')}
-- Technical soundness重視: {pc.get('technical_soundness_focus', 'unknown')}
+        journal_info = f"""\n## Target Journal Information
+- Journal name: {jp.get('journal_name', 'Unknown')}
+- Novelty emphasis: {pc.get('novelty_required', 'unknown')}
+- Technical soundness focus: {pc.get('technical_soundness_focus', 'unknown')}
 """
 
     user_parts = [
-        "# 論文概要\n",
+        "# Manuscript Summary\n",
         "```json",
         summary_json,
         "```\n",
         meta_info,
         journal_info,
-        "# Deep Research 結果 A\n",
+        "# Deep Research Result A\n",
         deep_research_a_text,
-        "\n# Deep Research 結果 B\n",
+        "\n# Deep Research Result B\n",
         deep_research_b_text,
     ]
 
@@ -727,17 +1353,17 @@ def build_novelty_merge_messages(
 
     # Truncate if needed (keep A and B roughly balanced)
     if len(user_message) > 120_000:
-        a_start = user_message.find("# Deep Research 結果 A")
-        b_start = user_message.find("# Deep Research 結果 B")
+        a_start = user_message.find("# Deep Research Result A")
+        b_start = user_message.find("# Deep Research Result B")
         if a_start > 0 and b_start > a_start:
             preamble = user_message[:a_start]
             a_text = user_message[a_start:b_start]
             b_text = user_message[b_start:]
             available = 120_000 - len(preamble)
             half = available // 2
-            user_message = preamble + a_text[:half] + "\n\n[Aの続きは省略]\n\n" + b_text[:half] + "\n\n[Bの続きは省略]"
+            user_message = preamble + a_text[:half] + "\n\n[Remainder of A omitted]\n\n" + b_text[:half] + "\n\n[Remainder of B omitted]"
         else:
-            user_message = user_message[:120_000] + "\n\n[内容が長すぎるため省略]"
+            user_message = user_message[:120_000] + "\n\n[Content truncated due to length]"
 
     return [
         {"role": "system", "content": system_prompt},
@@ -760,22 +1386,21 @@ def build_novelty_comment_candidates_messages(
     ratings, and recommendation levels. User selects which to include.
     """
     system_prompt = """\
-あなたは学術論文の査読者です。
-論文の概要と新規性評価の結果をもとに、最終査読コメントの「新規性と既存研究との重複」
-セクションの候補文章を、項目別に生成してください。
+You are a peer reviewer for an academic manuscript.
+Based on the manuscript summary and novelty assessment results, generate per-item candidate text for the "Novelty and Overlap with Existing Literature" section of the final review comments.
 
-これはカバーレターではなく、査読レポートに記載する文章の候補です。
+This is NOT a cover letter — these are candidate texts to be included in the reviewer's report.
 
-重要な指示：
-- すべての回答は日本語で行ってください（英語候補も含めること）。
-- 各項目について、日本語候補と英語候補の両方を生成してください。
-- 主張の強さ（strong / moderate / cautious / not_recommended）を付けてください。
-- 採用推奨度（high / medium / low）を付けてください。
-- ジャーナルの評価軸に合わせて表現を調整してください。
-- 過剰主張になる項目は cautious または not_recommended としてください。
-- 各候補は3〜5文程度で、学術的な査読レポートにふさわしい文体で書いてください。
+Important instructions:
+- Generate candidates with English as the primary text and Japanese as the translation.
+- For each item, provide both English and Japanese candidates.
+- Assign a strength rating (strong / moderate / cautious / not_recommended).
+- Assign a recommendation level (high / medium / low).
+- Adapt the wording to the journal's evaluation axis.
+- Mark overclaiming items as cautious or not_recommended.
+- Each candidate should be approximately 3–5 sentences in a style appropriate for an academic peer review report.
 
-以下のJSON形式で出力してください。JSON以外のテキストは一切出力しないでください。
+Output in the following JSON format. Do NOT output any text other than JSON.
 
 ```json
 {
@@ -784,11 +1409,11 @@ def build_novelty_comment_candidates_messages(
       "id": "theme",
       "label_ja": "テーマの新規性",
       "label_en": "Novelty of Theme",
-      "text_ja": "日本語候補（3〜5文）",
+      "text_ja": "Japanese candidate (3–5 sentences)",
       "text_en": "English candidate (3-5 sentences)",
       "strength": "strong | moderate | cautious | not_recommended",
       "recommendation": "high | medium | low",
-      "comment": "この候補についての補足コメント"
+      "comment": "Supplementary comment about this candidate"
     },
     {
       "id": "sample",
@@ -807,26 +1432,26 @@ def build_novelty_comment_candidates_messages(
         jp = journal_profile
         pc = jp.get("publication_criteria", {})
         journal_context = f"""
-## 投稿予定ジャーナルの評価軸
-- ジャーナル名: {jp.get('journal_name', '不明')}
-- Novelty重視度: {pc.get('novelty_required', 'unknown')}
-- Impact重視度: {pc.get('impact_required', 'unknown')}
-- Technical soundness重視: {pc.get('technical_soundness_focus', 'unknown')}
-- Methodological rigour重視: {pc.get('methodological_rigour_focus', 'unknown')}
-- Statistical rigour重視: {pc.get('statistical_rigour_focus', 'unknown')}
+## Target Journal Evaluation Axis
+- Journal name: {jp.get('journal_name', 'Unknown')}
+- Novelty emphasis: {pc.get('novelty_required', 'unknown')}
+- Impact emphasis: {pc.get('impact_required', 'unknown')}
+- Technical soundness emphasis: {pc.get('technical_soundness_focus', 'unknown')}
+- Methodological rigour emphasis: {pc.get('methodological_rigour_focus', 'unknown')}
+- Statistical rigour emphasis: {pc.get('statistical_rigour_focus', 'unknown')}
 
-候補文章は、このジャーナルの評価軸に合わせてください。
+Adapt candidate text to this journal's evaluation axis.
 """
 
     summary_json = json.dumps(novelty_summary, ensure_ascii=False, indent=2)
 
     user_parts = [
-        "# 論文概要\n",
+        "# Manuscript Summary\n",
         "```json",
         summary_json,
         "```\n",
         journal_context,
-        "# 新規性評価\n",
+        "# Novelty Assessment\n",
         novelty_assessment,
     ]
 
@@ -857,43 +1482,42 @@ def build_novelty_comment_compose_messages(
     cohesive review comment section in the requested language(s).
     """
     lang_instr = {
-        "ja": "日本語のみで出力してください。",
-        "en": "英語のみで出力してください。",
-        "both": "日本語と英語の両方で出力してください。",
-    }.get(language, "日本語と英語の両方で出力してください。")
+        "ja": "Output in Japanese only.",
+        "en": "Output in English only.",
+        "both": "Output in both English and Japanese.",
+    }.get(language, "Output in both English and Japanese.")
 
     system_prompt = f"""\
-あなたは学術論文の査読者です。
-選択された候補文章をもとに、最終査読コメントの「新規性と既存研究との重複」
-セクションを統合して作成してください。
+You are a peer reviewer for an academic manuscript.
+Based on the selected candidate texts, compose a cohesive "Novelty and Overlap with Existing Literature" section for the final review comments.
 
-重要な指示：
+Important instructions:
 - {lang_instr}
-- 選択された候補だけを使い、選ばれなかった内容は含めないでください。
-- 重複を除き、自然な流れの文章に統合してください。
-- 過剰主張を避け、学術的な査読レポートにふさわしい文体で書いてください。
-- 各言語3〜5段落程度でまとめてください。
-- これはカバーレターではありません。査読レポートに記載する文章です。
+- Use only the selected candidates; do not include content that was not selected.
+- Remove redundancies and integrate into a naturally flowing text.
+- Avoid overclaiming; write in a style appropriate for an academic peer review report.
+- Aim for approximately 3–5 paragraphs per language.
+- This is NOT a cover letter — it is text to be included in the reviewer's report.
 
-以下のMarkdown形式で出力してください。
+Output in the following Markdown format.
 
-# 新規性と既存研究との重複 (Novelty and Overlap with Existing Literature)
-
-## 日本語
-
-[3〜5段落の日本語査読コメント]
+# Novelty and Overlap with Existing Literature (新規性と既存研究との重複)
 
 ## English
 
-[3-5 paragraphs of English review comments]"""
+[3-5 paragraphs of English review comments]
+
+## 日本語
+
+[3〜5段落の日本語査読コメント]"""
 
     journal_note = ""
     if journal_profile:
         jp = journal_profile
-        journal_note = f"\n投稿予定ジャーナル: {jp.get('journal_name', '不明')}\n"
+        journal_note = f"\nTarget Journal: {jp.get('journal_name', 'Unknown')}\n"
 
     user_parts = [
-        "# 選択された候補文章\n",
+        "# Selected Candidate Texts\n",
         journal_note,
         candidates_json,
     ]
@@ -902,6 +1526,208 @@ def build_novelty_comment_compose_messages(
 
     if len(user_message) > 60_000:
         user_message = user_message[:60_000]
+
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_message},
+    ]
+
+
+# =============================================================================
+# Novelty Achievement Evaluation
+# =============================================================================
+
+def build_novelty_achievement_messages(
+    novelty_summary: dict,
+    novelty_assessment: str,
+    check_findings: list[dict],
+    top_journal: dict | None = None,
+    abstract: str | None = None,
+) -> list[dict]:
+    """Build messages to evaluate whether the manuscript's claimed novelty
+    is actually achieved, using check findings as evidence.
+
+    Produces a 5-section evaluation:
+    1. Assurance of Novelty
+    2. Achieved Points
+    3. Unachieved Points / Problems
+    4. General Impressions
+    5. Publication Prospects for the top-ranked journal
+
+    Args:
+        novelty_summary: dict from novelty_summary.json
+        novelty_assessment: str from novelty_assessment.md
+        check_findings: list of dicts, each from a merged.section.json check
+            with keys: check_name, label_ja, findings (list of {comment_id,
+            issue, section, category, confidence})
+        top_journal: dict or None with {journal_name, impact_factor, rationale}
+            from the #1 entry in novelty_find_journals_merged.json
+        abstract: str or None — manuscript abstract
+
+    Returns:
+        list of {"role": str, "content": str} messages
+    """
+    system_prompt = """\
+You are a peer reviewer evaluating whether a manuscript actually achieves the
+novelty it claims. The novelty claims were assessed in a separate thematic
+novelty evaluation (provided below). Your task is to cross-reference those
+claims with concrete problems found in the manuscript's expression, methods,
+statistics, logic, and argumentation.
+
+IMPORTANT: Output in ENGLISH only. Do NOT output Japanese.
+
+You will produce a structured evaluation with FIVE sections:
+
+## 1. Assurance of Novelty
+A concise overall judgment: does the manuscript convincingly demonstrate the
+novelty it claims, or do the identified problems undermine that novelty?
+Consider whether the claimed novelty is:
+- Fully assured (problems do not affect the core novelty claims)
+- Partially assured (some novelty claims are weakened but not invalidated)
+- Not assured (fundamental problems undermine key novelty claims)
+Explain your reasoning in 2-4 sentences.
+
+## 2. Achieved Points
+List specific aspects where the manuscript successfully achieves what it
+claims. These are areas where:
+- The check findings show no major problems, OR
+- The problems found do not affect the novelty claims
+Write as bullet points (2-5 items). Each bullet should reference the specific
+novelty claim and explain why it remains valid.
+
+## 3. Unachieved Points / Problems
+List specific areas where problems identified in the review checks
+(expression, methods, statistics, logic, argumentation) undermine or
+invalidate the manuscript's novelty claims. For each point:
+- State the problem clearly
+- Reference the source check and finding ID
+- Explain how this problem affects a specific novelty claim
+Write as bullet points (at least 3 items if problems exist).
+
+## 4. General Impressions
+A 2-3 paragraph synthesis of sections 1-3. This should read as a coherent
+assessment of whether the manuscript's novelty stands up to scrutiny.
+Consider the balance of achieved vs. unachieved points and the severity
+of the problems.
+
+## 5. Publication Prospects for [Journal Name] (IF=[X.X])
+Evaluate the likelihood that this manuscript would be accepted at the
+top-ranked journal from the journal search. Consider:
+- The journal's standards and prestige level
+- The severity of the identified problems relative to the journal's bar
+- Whether the novelty (even if partially achieved) meets the journal's threshold
+End with a clear verdict on one line:
+**Verdict: [Accept / Minor Revision / Major Revision / Reject]**
+
+CRITICAL — Tone:
+- Use constructive, collegial reviewer language
+- Be honest but fair about problems
+- Do NOT suggest solutions — this is assessment, not prescription
+- Frame negative points as "the manuscript does not yet demonstrate..."
+  rather than "the authors failed to..."
+- Base all judgments on the evidence provided in the check findings"""
+
+    user_parts = []
+
+    # ── Abstract ──
+    if abstract and abstract.strip():
+        ab = abstract.strip()
+        if len(ab) > 1500:
+            ab = ab[:1500] + "\n...(truncated)"
+        user_parts.append("## Manuscript Abstract")
+        user_parts.append("")
+        user_parts.append(ab)
+        user_parts.append("")
+
+    # ── Novelty summary ──
+    user_parts.append("## Claimed Novelty (from novelty_summary.json)")
+    user_parts.append("")
+    user_parts.append("```json")
+    user_parts.append(json.dumps(novelty_summary, ensure_ascii=False, indent=2))
+    user_parts.append("```")
+    user_parts.append("")
+
+    # ── Novelty assessment ──
+    user_parts.append("## Thematic Novelty Assessment (from novelty_assessment.md)")
+    user_parts.append("")
+    na = novelty_assessment.strip()
+    if len(na) > 4000:
+        na = na[:4000] + "\n...(truncated)"
+    user_parts.append(na)
+    user_parts.append("")
+
+    # ── Check findings (problems from review checks) ──
+    user_parts.append("## Problems Identified in Review Checks")
+    user_parts.append("")
+    user_parts.append(
+        "The following are major-severity findings from the expression, "
+        "methods/statistics, and logic/argument review checks. Use these as "
+        "evidence to evaluate whether the manuscript's novelty claims are "
+        "actually achieved."
+    )
+    user_parts.append("")
+
+    has_findings = False
+    for cf in check_findings:
+        findings = cf.get("findings", [])
+        if not findings:
+            continue
+        has_findings = True
+        user_parts.append(f"### {cf['label_ja']} ({cf['check_name']})")
+        user_parts.append("")
+        for f in findings:
+            cid = f.get("comment_id", "?")
+            section = f.get("section", "N/A")
+            category = f.get("category", "")
+            issue = f.get("issue", "")
+            prefix = f"[{category}] " if category else ""
+            user_parts.append(f"- **{cid}** ({section}): {prefix}{issue}")
+        user_parts.append("")
+
+    if not has_findings:
+        user_parts.append(
+            "No major findings were identified in the review checks. "
+            "This suggests the manuscript is methodologically and logically sound."
+        )
+        user_parts.append("")
+
+    # ── Top journal ──
+    if top_journal:
+        user_parts.append("## Top-Ranked Journal from Journal Search")
+        user_parts.append("")
+        user_parts.append(f"- **Journal**: {top_journal.get('journal_name', 'Unknown')}")
+        jif = top_journal.get("impact_factor", "N/A")
+        user_parts.append(f"- **Impact Factor**: {jif}")
+        rationale = top_journal.get("rationale", "")
+        if rationale:
+            if len(rationale) > 600:
+                rationale = rationale[:600] + "..."
+            user_parts.append(f"- **Match Rationale**: {rationale}")
+        user_parts.append("")
+    else:
+        user_parts.append("## Top-Ranked Journal")
+        user_parts.append("")
+        user_parts.append(
+            "No journal search results available. Skip Section 5 "
+            "(Publication Prospects) or mark it as 'N/A — no journal data'."
+        )
+        user_parts.append("")
+
+    # ── Instructions ──
+    user_parts.append("## Instructions")
+    user_parts.append("")
+    user_parts.append(
+        "Generate the 5-section evaluation following the format described "
+        "in the system prompt. Use ONLY the evidence provided above. "
+        "Write in English. Output as Markdown with the section headings "
+        "exactly as specified."
+    )
+
+    user_message = "\n".join(user_parts)
+
+    if len(user_message) > 80_000:
+        user_message = user_message[:80_000]
+        user_message += "\n\n[Content truncated due to length]"
 
     return [
         {"role": "system", "content": system_prompt},

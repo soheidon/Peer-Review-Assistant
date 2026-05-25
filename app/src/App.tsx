@@ -1,15 +1,37 @@
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { slotDisplayName } from "./slotLabels";
 import { sanitizeSingleLine, sanitizeUrl } from "./utils";
+
+// ── CommentCard types ──
+export type CardKey = string;
+export type CardSource = "verdict" | "general_impressions" | "novelty_journal_fit"
+  | "novelty_achievement" | "check_structure" | "check_expression"
+  | "check_methods_stats" | "check_logic" | "check_figure_table" | "check_ethics";
+
+export interface CommentCard {
+  key: CardKey;
+  groupLabel: string;
+  cardLabel: string;
+  cardSubtitle: string;
+  source: CardSource;
+  contentEn: string;
+  contentJa: string;
+  severity?: string;
+  confidence?: string;
+  location?: { section?: string; text_excerpt?: string; paragraph_start?: number; paragraph_end?: number };
+  suggestedAuthorComment?: string;
+  isMeta?: boolean;
+}
 
 import Sidebar from "./Sidebar";
 import ProgressBar from "./ProgressBar";
 import ProjectPanel from "./panels/ProjectPanel";
 import PreprocessPanel from "./panels/PreprocessPanel";
 import CitationReviewPanel from "./panels/CitationReviewPanel";
-import ReviewChecksPanel from "./panels/ReviewChecksPanel";
-import ResultsPanel from "./panels/ResultsPanel";
+import ReviewChecksPanel, { ReviewChecksPanelHandle } from "./panels/ReviewChecksPanel";
+import ResultsPanel, { parseVerdictSections, parseResultContent, VERDICT_SECTION_DEFS } from "./panels/ResultsPanel";
+import type { VerdictSection } from "./panels/ResultsPanel";
 import SettingsPanel from "./panels/SettingsPanel";
 import SectionViewerPanel from "./panels/SectionViewerPanel";
 import JournalPanel, { JournalProfile } from "./panels/JournalPanel";
@@ -91,6 +113,7 @@ function App() {
   const [pubmedEnabled, setPubmedEnabled] = useState(true);
   const [googleBooksEnabled, setGoogleBooksEnabled] = useState(false);
   const [semanticScholarEnabled, setSemanticScholarEnabled] = useState(false);
+  const [ciniiEnabled, setCiniiEnabled] = useState(true);
 
   const [structureCheckResults, setStructureCheckResults] = useState<Record<string, string>>({});
   const [structureMergeDone, setStructureMergeDone] = useState(false);
@@ -99,10 +122,40 @@ function App() {
   const [methodsStatsCheckResults, setMethodsStatsCheckResults] = useState<Record<string, string>>({});
   const [methodsStatsMergeDone, setMethodsStatsMergeDone] = useState(false);
   const [methodsStatsMergeRunning, setMethodsStatsMergeRunning] = useState(false);
+  const [logicArgumentCheckResults, setLogicArgumentCheckResults] = useState<Record<string, string>>({});
+  const [logicArgumentMergeDone, setLogicArgumentMergeDone] = useState(false);
+  const [logicArgumentMergeRunning, setLogicArgumentMergeRunning] = useState(false);
+  const [figureTableCheckResults, setFigureTableCheckResults] = useState<Record<string, string>>({});
+  const [figureTableMergeDone, setFigureTableMergeDone] = useState(false);
+  const [figureTableMergeRunning, setFigureTableMergeRunning] = useState(false);
+  const [ethicsCheckResults, setEthicsCheckResults] = useState<Record<string, string>>({});
+  const [ethicsMergeDone, setEthicsMergeDone] = useState(false);
+  const [ethicsMergeRunning, setEthicsMergeRunning] = useState(false);
   const [expressionMergeDone, setExpressionMergeDone] = useState(false);
   const [expressionMergeRunning, setExpressionMergeRunning] = useState(false);
   const [finalMergeDone, setFinalMergeDone] = useState(false);
   const [finalMergeRunning, setFinalMergeRunning] = useState(false);
+  const [assessmentCandidatesRunning, setAssessmentCandidatesRunning] = useState(false);
+  const [assessmentComposeRunning, setAssessmentComposeRunning] = useState(false);
+  const [assessmentCandidatesData, setAssessmentCandidatesData] = useState<{
+    sections: Record<string, { label_ja: string; label_en: string; candidates: Array<{
+      id: string; text_ja: string; text_en: string;
+      strength: string; recommendation: string;
+      source_check?: string; source_comment_id?: string;
+    }> }>;
+    generated_at?: string;
+    model?: string;
+  } | null>(null);
+  const [assessmentSelectedIds, setAssessmentSelectedIds] = useState<string[]>([]);
+  const [assessmentFreeText, setAssessmentFreeText] = useState("");
+
+  // Batch check execution state
+  const [batchRunning, setBatchRunning] = useState<Record<string, boolean>>({});
+  const [reevaluationRunning, setReevaluationRunning] = useState<Record<string, boolean>>({});
+  const [solutionRunning, setSolutionRunning] = useState<Record<string, Record<string, boolean>>>({});
+
+  // Supplemental files for figure/table check
+  const [supplementalFiles, setSupplementalFiles] = useState<Array<{stored_path: string; filename: string; size_bytes: number}>>([]);
 
   // Translation state
   const [translateJaRunning, setTranslateJaRunning] = useState(false);
@@ -116,9 +169,22 @@ function App() {
   const [translationReloadKey, setTranslationReloadKey] = useState(0);
   // Font size for section viewer text panes (saved to app_settings.json)
   const [sectionViewerFontSize, setSectionViewerFontSize] = useState<"small" | "normal" | "large" | "xlarge">("normal");
-  const [selectedResultFile, setSelectedResultFile] = useState("final_review.md");
+  const [selectedResultFile, setSelectedResultFile] = useState("Review_comments.md");
   const [resultFileContent, setResultFileContent] = useState("");
   const [resultFileLoading, setResultFileLoading] = useState(false);
+  const [resultFileTranslateLoading, setResultFileTranslateLoading] = useState(false);
+  const [editInstruction, setEditInstruction] = useState("");
+  const [editReflectRunning, setEditReflectRunning] = useState(false);
+  const [verdictGenerating, setVerdictGenerating] = useState(false);
+  const [verdictDetailGenerating, setVerdictDetailGenerating] = useState(false);
+  const [assessmentComposed, setAssessmentComposed] = useState(false);
+  const [verdictEditInstruction, setVerdictEditInstruction] = useState("");
+  const [verdictEditRunning, setVerdictEditRunning] = useState(false);
+  const [commentCards, setCommentCards] = useState<CommentCard[]>([]);
+  const [commentCardChecked, setCommentCardChecked] = useState<Record<string, boolean>>({});
+  const checkedStateRestored = useRef(false);
+  const [viewerFontSize, setViewerFontSize] = useState(13);
+  const [checkTranslateVersion, setCheckTranslateVersion] = useState(0);
 
   // Running states for individual operations
   const [validateRunning, setValidateRunning] = useState(false);
@@ -139,7 +205,7 @@ function App() {
   const [preprocessResults, setPreprocessResults] = useState<Record<string, string>>({});
   const [crossrefSummary, setCrossrefSummary] = useState("");
   const [logExpanded, setLogExpanded] = useState(true);
-  const [logHeight, setLogHeight] = useState<"small"|"medium"|"large">("small");
+  const [logHeight, setLogHeight] = useState(150);
 
   // Phase A: settings configured state
   const [settingsConfigured, setSettingsConfigured] = useState(false);
@@ -194,6 +260,18 @@ function App() {
       ethics_policy: "",
       conflict_of_interest_policy: "",
       funding_statement_policy: "",
+      recommended_manuscript_structure: [],
+      section_order: "",
+      methods_position: "",
+      abstract_structure: "",
+      main_text_word_limit: null,
+      title_word_limit: null,
+      keyword_limit: null,
+      reference_limit: null,
+      display_item_limit: null,
+      figure_legend_limit: null,
+      line_numbers_recommended: null,
+      footnotes_allowed: null,
     },
     review_policy: {
       novelty_requirement: "",
@@ -202,6 +280,14 @@ function App() {
       reporting_guidelines: [],
       reviewer_guidance: "",
       editorial_policy_summary: "",
+      technical_soundness_oriented: "unknown",
+      importance_significance_impact_assessed: "unknown",
+      niche_scope_allowed: "unknown",
+      negative_results_allowed: "unknown",
+      replication_allowed: "unknown",
+      main_review_questions: [],
+      claims_must_be_supported_by_data: "unknown",
+      methods_analysis_interpretation_focus: "unknown",
     },
     publication_criteria: {
       novelty_required: "unknown",
@@ -229,14 +315,22 @@ function App() {
       field_specific_high_impact_journal: "unknown",
       clinical_high_impact_journal: "unknown",
       society_journal: "unknown",
+      soundness_oriented_journal: "unknown",
+      selectivity_basis: "",
+      evaluation_axis_summary: "",
       journal_position_summary: "",
     },
     metrics: {
       impact_factor: "",
+      impact_factor_year: "",
       five_year_impact_factor: "",
+      five_year_impact_factor_year: "",
       cite_score: "",
+      cite_score_year: "",
       sjr: "",
+      sjr_year: "",
       snip: "",
+      snip_year: "",
       quartile: "",
       category_rankings: "",
       indexing: "",
@@ -250,6 +344,21 @@ function App() {
       reviewer_likely_concerns: "",
       manuscript_strengths_to_emphasize: "",
       manuscript_weaknesses_to_control: "",
+    },
+    manuscript_structure: {
+      expected_section_order: [],
+      main_text_order: [],
+      front_matter_sections: [],
+      back_matter_sections: [],
+      section_aliases: {},
+      section_alias_rules: [],
+      requires_abstract: true,
+      allows_heading_variation: "unknown",
+      methods_position: "",
+      allows_conclusion_section: "unknown",
+      allows_research_highlights: "unknown",
+      allows_summary_instead_of_abstract: "unknown",
+      notes: "",
     },
     sources: [],
     notes: "",
@@ -286,6 +395,74 @@ function App() {
   const [windowsHelloStatus, setWindowsHelloStatus] = useState<Record<string, "not_saved" | "saved">>({});
   const [windowsHelloDecrypted, setWindowsHelloDecrypted] = useState<Set<string>>(new Set());
 
+  // Auto-save settings debounce
+  const autoSaveTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const settingsVersion = React.useRef(0);
+  const runningCommands = React.useRef<Record<string, { kill: () => Promise<void> }>>({});
+  const reviewChecksRef = useRef<ReviewChecksPanelHandle>(null);
+
+  // Auto-save settings on any settings change (debounced 2 seconds)
+  useEffect(() => {
+    if (!projectPath.trim()) return;
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    const version = ++settingsVersion.current;
+    autoSaveTimer.current = setTimeout(async () => {
+      // Only save the latest version
+      if (version !== settingsVersion.current) return;
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const settingsPath = `${projectPath.replace(/\\/g, "/")}/app_settings.json`;
+        const payload = {
+          section_viewer_font_size: sectionViewerFontSize,
+          llm_slots: Object.fromEntries(
+            llmSlots.map((s) => [s.name, {
+              enabled: s.enabled,
+              provider: s.provider?.trim() || "",
+              base_url: s.baseUrl?.trim() || "",
+              reasoning_mode: s.reasoningMode,
+              pro_model: s.proModel?.trim() || "",
+              flash_model: s.flashModel?.trim() || "",
+              api_key_mode: s.apiKeyMode,
+              api_key_env_name: s.apiKeyEnvName?.trim() || "",
+              api_key_storage: s.apiKeyStorage || "",
+            }])
+          ),
+          literature_databases: {
+            pubmed: {
+              enabled: pubmedEnabled,
+              api_key_mode: pubmedApiKeyMode,
+              api_key_env_name: pubmedApiKeyEnvName,
+            },
+            google_books: {
+              enabled: googleBooksEnabled,
+              api_key_mode: googleBooksApiKeyMode,
+              api_key_env_name: googleBooksApiKeyEnvName,
+            },
+            semantic_scholar: {
+              enabled: semanticScholarEnabled,
+              api_key_mode: semanticScholarApiKeyMode,
+              api_key_env_name: semanticScholarApiKeyEnvName,
+            },
+            cinii: {
+              appid: ciniiAppid,
+            },
+          },
+        };
+        await invoke("write_text_file", { path: settingsPath, content: JSON.stringify(payload, null, 2) });
+        // Silently save (no log event to avoid noise on auto-save)
+      } catch { /* ignore auto-save errors */ }
+    }, 2000);
+    return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
+  }, [
+    projectPath,
+    sectionViewerFontSize,
+    llmSlots,
+    pubmedEnabled, pubmedApiKeyMode, pubmedApiKeyEnvName,
+    googleBooksEnabled, googleBooksApiKeyMode, googleBooksApiKeyEnvName,
+    semanticScholarEnabled, semanticScholarApiKeyMode, semanticScholarApiKeyEnvName,
+    ciniiAppid,
+  ]);
+
   const addLog = (entry: LogEntry) => {
     setLogs((prev) => [...prev, entry]);
   };
@@ -302,13 +479,31 @@ function App() {
     }
   };
 
-  const cycleLogHeight = () => {
-    setLogHeight((prev) =>
-      prev === "small" ? "medium" : prev === "medium" ? "large" : "small"
-    );
-  };
+  const logDragRef = useRef<{ startY: number; startH: number } | null>(null);
 
-  const logHeightPx = { small: 150, medium: 300, large: 500 }[logHeight];
+  const onLogDragStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    logDragRef.current = { startY: e.clientY, startH: logHeight };
+    const onMove = (ev: MouseEvent) => {
+      if (!logDragRef.current) return;
+      const delta = logDragRef.current.startY - ev.clientY;
+      const newH = Math.max(60, Math.min(800, logDragRef.current.startH + delta));
+      setLogHeight(newH);
+    };
+    const onUp = () => {
+      logDragRef.current = null;
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+    document.body.style.cursor = "ns-resize";
+    document.body.style.userSelect = "none";
+  }, [logHeight]);
+
+  const logHeightPx = logHeight;
 
   const parseOutput = (stdout: string) => {
     const lines = stdout.trim().split("\n");
@@ -462,14 +657,22 @@ function App() {
           setValidationOk(true);
           setSourceAttached(true);
         }
+        // Restore supplemental files
+        if (proj.source.supplemental_files) {
+          setSupplementalFiles(proj.source.supplemental_files);
+        }
       }
 
       // Restore preprocess state
       if (proj.preprocess) {
         if (proj.preprocess.status === "done") setPreprocessDone(true);
+        // Restore individual sub-step statuses from project.json
+        if (proj.preprocess.numbering_status === "done") setNumberingDone(true);
+        if (proj.preprocess.sections_status === "done") setSectionsDone(true);
+        if (proj.preprocess.citation_extraction_status === "done") setCitationExtractionDone(true);
       }
 
-      // Restore pipeline state from generated files
+      // Restore pipeline state from generated files (fallback if project.json status missing)
       try {
         const files: string[] = [];
         try { files.push(await invoke<string>("read_text_file", { path: `${base}/manuscript_full.json` })); } catch {}
@@ -482,10 +685,11 @@ function App() {
           try { await invoke<string>("read_text_file", { path: `${base}/${p}` }); return true; } catch { return false; }
         };
 
-        if (await checkFile("lines/paragraph_sentence_map.json")) setNumberingDone(true);
+        // File-existence fallback (in case project.json status is missing)
+        if (!proj.preprocess?.numbering_status && await checkFile("lines/paragraph_sentence_map.json")) setNumberingDone(true);
         const hasSections = await checkFile("sections/introduction.txt");
-        if (hasSections) setSectionsDone(true);
-        if (await checkFile("citations/references_split.json")) setCitationExtractionDone(true);
+        if (!proj.preprocess?.sections_status && hasSections) setSectionsDone(true);
+        if (!proj.preprocess?.citation_extraction_status && await checkFile("citations/references_split.json")) setCitationExtractionDone(true);
         if (await checkFile("citations/db_verified_references.json")) setCrossrefDone(true);
         if (await checkFile("citations/citation_viewer_data.json")) setViewerDataReady(true);
         if (await checkFile("citations/references_repaired_llm.json")) setLlmRepairDone(true);
@@ -573,6 +777,83 @@ function App() {
             setNoveltyAssessDone(true);
           }
         } catch { /* not found */ }
+        try {
+          // Novelty review: journal fit
+          if (await checkFile(`${noveltyDir}/novelty_review_journal_fit.md`)) {
+            const raw = await invoke<string>("read_text_file", { path: `${base}/${noveltyDir}/novelty_review_journal_fit.md` });
+            setNoveltyReviewJournalFitContent(raw);
+            setNoveltyReviewJournalFitDone(true);
+          }
+        } catch { /* not found */ }
+        try {
+          // Novelty review: universal
+          if (await checkFile(`${noveltyDir}/novelty_review_universal.md`)) {
+            const raw = await invoke<string>("read_text_file", { path: `${base}/${noveltyDir}/novelty_review_universal.md` });
+            setNoveltyReviewUniversalContent(raw);
+            setNoveltyReviewUniversalDone(true);
+          }
+        } catch { /* not found */ }
+        try {
+          // Novelty review: journal tier
+          if (await checkFile(`${noveltyDir}/novelty_review_journal_tier.md`)) {
+            const raw = await invoke<string>("read_text_file", { path: `${base}/${noveltyDir}/novelty_review_journal_tier.md` });
+            setNoveltyReviewJournalTierContent(raw);
+            setNoveltyReviewJournalTierDone(true);
+          }
+        } catch { /* not found */ }
+        try {
+          // Novelty review translations (Japanese)
+          if (await checkFile(`${noveltyDir}/novelty_review_journal_fit_ja.md`)) {
+            const raw = await invoke<string>("read_text_file", { path: `${base}/${noveltyDir}/novelty_review_journal_fit_ja.md` });
+            setNoveltyReviewJaContent(prev => ({ ...prev, journal_fit: raw }));
+          }
+        } catch { /* not found */ }
+        try {
+          if (await checkFile(`${noveltyDir}/novelty_review_universal_ja.md`)) {
+            const raw = await invoke<string>("read_text_file", { path: `${base}/${noveltyDir}/novelty_review_universal_ja.md` });
+            setNoveltyReviewJaContent(prev => ({ ...prev, universal: raw }));
+          }
+        } catch { /* not found */ }
+        try {
+          if (await checkFile(`${noveltyDir}/novelty_review_journal_tier_ja.md`)) {
+            const raw = await invoke<string>("read_text_file", { path: `${base}/${noveltyDir}/novelty_review_journal_tier_ja.md` });
+            setNoveltyReviewJaContent(prev => ({ ...prev, journal_tier: raw }));
+          }
+        } catch { /* not found */ }
+        try {
+          // Novelty achievement
+          if (await checkFile(`${noveltyDir}/novelty_achievement.md`)) {
+            const raw = await invoke<string>("read_text_file", { path: `${base}/${noveltyDir}/novelty_achievement.md` });
+            setNoveltyAchievementContent(raw);
+            setNoveltyAchievementDone(true);
+          }
+        } catch { /* not found */ }
+        try {
+          if (await checkFile(`${noveltyDir}/novelty_achievement_ja.md`)) {
+            const raw = await invoke<string>("read_text_file", { path: `${base}/${noveltyDir}/novelty_achievement_ja.md` });
+            setNoveltyReviewJaContent(prev => ({ ...prev, achievement: raw }));
+          }
+        } catch { /* not found */ }
+        // Restore journal search results (internal + external methods)
+        try {
+          if (await checkFile(`${noveltyDir}/novelty_journal_search_prompt.md`)) {
+            const raw = await invoke<string>("read_text_file", { path: `${base}/${noveltyDir}/novelty_journal_search_prompt.md` });
+            setJournalSearchPromptContent(raw);
+            setJournalSearchPromptDone(true);
+          }
+        } catch { /* not found */ }
+        try {
+          if (await checkFile(`${noveltyDir}/novelty_find_journals_merged.md`)) {
+            const raw = await invoke<string>("read_text_file", { path: `${base}/${noveltyDir}/novelty_find_journals_merged.md` });
+            setJournalFindMergedContent(raw);
+            setJournalFindMergeDone(true);
+            setJournalFindDone(true);
+          }
+          if (await checkFile(`${noveltyDir}/novelty_find_journals_merged_ja.md`)) {
+            const raw = await invoke<string>("read_text_file", { path: `${base}/${noveltyDir}/novelty_find_journals_merged_ja.md` });
+            setJournalFindMergedContentJa(raw);
+          }
+        } catch { /* not found */ }
 
         // Restore app settings (LLM slot config, DB API config — no API keys)
         // Pass explicit path since React state hasn't updated yet
@@ -582,7 +863,72 @@ function App() {
         if (await checkFile("outputs/structure/merged.section.json")) setStructureMergeDone(true);
         if (await checkFile("outputs/expression/merged.section.json")) setExpressionMergeDone(true);
         if (await checkFile("outputs/methods_stats/merged.section.json")) setMethodsStatsMergeDone(true);
-        if (await checkFile("outputs/final/final_review.md")) setFinalMergeDone(true);
+        if (await checkFile("outputs/logic_argument/merged.section.json")) setLogicArgumentMergeDone(true);
+        if (await checkFile("outputs/figure_table/merged.section.json")) setFigureTableMergeDone(true);
+        if (await checkFile("outputs/ethics/merged.section.json")) setEthicsMergeDone(true);
+        if (await checkFile("outputs/final/_data/Review_comments.md")) setFinalMergeDone(true);
+        if (await checkFile("outputs/final/_data/overall_assessment.md")) setAssessmentComposed(true);
+        // Detect existing assessment candidates
+        if (await checkFile("outputs/final/_data/overall_assessment_candidates.json")) {
+          try {
+            const candidatesPath = `${base}/outputs/final/_data/overall_assessment_candidates.json`;
+            const raw = await invoke<string>("read_text_file", { path: candidatesPath });
+            const data = JSON.parse(raw);
+            setAssessmentCandidatesData(data);
+            // Load selection too
+            try {
+              const selPath = `${base}/outputs/final/_data/overall_assessment_selection.json`;
+              const selRaw = await invoke<string>("read_text_file", { path: selPath });
+              const sel = JSON.parse(selRaw);
+              setAssessmentSelectedIds(sel.selected_ids || []);
+            } catch {
+              // Use defaults (all high)
+              const highIds: string[] = [];
+              if (data.sections) {
+                for (const sk of Object.keys(data.sections)) {
+                  for (const c of data.sections[sk].candidates || []) {
+                    if (c.recommendation === "high") highIds.push(c.id);
+                  }
+                }
+              }
+              setAssessmentSelectedIds(highIds);
+            }
+          } catch { /* ignore parse errors */ }
+        }
+        // Detect existing free text
+        if (await checkFile("outputs/final/_data/free_text.md")) {
+          try {
+            const freeTextPath = `${base}/outputs/final/_data/free_text.md`;
+            const raw = await invoke<string>("read_text_file", { path: freeTextPath });
+            setAssessmentFreeText(raw);
+          } catch { /* ignore */ }
+        }
+
+        // Restore check results from persisted raw.json files
+        try {
+          const settingsPath2 = `${base}/app_settings.json`;
+          const settingsRaw2 = await invoke<string>("read_text_file", { path: settingsPath2 });
+          const settingsData2 = JSON.parse(settingsRaw2);
+          const reviewerSlotNames: string[] = Object.keys(settingsData2.llm_slots || {}).filter((k: string) => k.startsWith("reviewer"));
+          if (reviewerSlotNames.length > 0) {
+            for (const checkName of ["structure", "expression", "methods_stats", "logic_argument", "figure_table", "ethics"]) {
+              const newResults: Record<string, string> = {};
+              for (const slotName of reviewerSlotNames) {
+                if (await checkFile(`outputs/${checkName}/${slotName}.raw.json`)) {
+                  newResults[slotName] = "done";
+                }
+              }
+              if (Object.keys(newResults).length > 0) {
+                if (checkName === "structure") setStructureCheckResults(newResults);
+                else if (checkName === "expression") setExpressionCheckResults(newResults);
+                else if (checkName === "methods_stats") setMethodsStatsCheckResults(newResults);
+                else if (checkName === "logic_argument") setLogicArgumentCheckResults(newResults);
+                else if (checkName === "figure_table") setFigureTableCheckResults(newResults);
+                else if (checkName === "ethics") setEthicsCheckResults(newResults);
+              }
+            }
+          }
+        } catch { /* settings not available — skip check result restoration */ }
       } catch {
         // If file checks fail, still proceed — the project is opened
       }
@@ -623,6 +969,62 @@ function App() {
       setPdfPath(selected);
       setValidationOk(false);
       setSourceAttached(false);
+    }
+  };
+
+  const attachSupplementalFiles = async () => {
+    if (!projectPath.trim()) {
+      addLog({ event: "error", message: "Please create or open a project first." });
+      return;
+    }
+    const selected = await open({
+      multiple: true,
+      title: "Select supplemental files (figures, tables, etc.)",
+      filters: [
+        { name: "All supported", extensions: ["pdf", "docx", "png", "jpg", "jpeg", "gif", "bmp", "tiff", "tif"] },
+        { name: "PDF files", extensions: ["pdf"] },
+        { name: "Word documents", extensions: ["docx"] },
+        { name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "bmp", "tiff", "tif"] },
+      ],
+    });
+    if (!selected || (Array.isArray(selected) && selected.length === 0)) return;
+
+    const paths = Array.isArray(selected) ? selected : [selected];
+    addLog({ event: "info", message: `Attaching ${paths.length} supplemental file(s)...` });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const args = [
+        "attach-supplemental",
+        "--project", projectPath,
+        "--files", ...paths,
+      ];
+      const cmd = Command.create("pra-cli", args);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+
+      if (output.code === 0) {
+        // Reload supplemental files from project.json
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          const projJsonPath = `${projectPath.replace(/\\/g, "/")}/project.json`;
+          const raw = await invoke<string>("read_text_file", { path: projJsonPath });
+          const proj = JSON.parse(raw);
+          const files = proj?.source?.supplemental_files || [];
+          setSupplementalFiles(files);
+          addLog({ event: "info", message: `${files.length} supplemental file(s) now attached.` });
+          setStatusMessage({ text: `${paths.length}件の補足ファイルを添付しました。`, type: "ok" });
+        } catch {
+          setStatusMessage({ text: "補足ファイルを添付しましたが、一覧の更新に失敗しました。", type: "error" });
+        }
+      } else {
+        setStatusMessage({ text: "補足ファイルの添付に失敗しました。", type: "error" });
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog({ event: "error", message: msg });
+      setStatusMessage({ text: `補足ファイルの添付でエラー: ${msg}`, type: "error" });
     }
   };
 
@@ -1606,6 +2008,132 @@ function App() {
   const [noveltyAssessRunning, setNoveltyAssessRunning] = useState(false);
   const [noveltyAssessmentContent, setNoveltyAssessmentContent] = useState("");
 
+  // ── Novelty translation state ──────────────────────────────────────────
+  const [noveltyTranslation, setNoveltyTranslation] = useState<Record<string, string>>({});
+  const [noveltyTranslationLoading, setNoveltyTranslationLoading] = useState(false);
+  const [noveltyTranslationError, setNoveltyTranslationError] = useState<string | null>(null);
+
+  // Novelty review section (for ReviewChecksPanel)
+  const [noveltyReviewJournalFitDone, setNoveltyReviewJournalFitDone] = useState(false);
+  const [noveltyReviewJournalFitRunning, setNoveltyReviewJournalFitRunning] = useState(false);
+  const [noveltyReviewJournalFitContent, setNoveltyReviewJournalFitContent] = useState("");
+  const [noveltyReviewUniversalDone, setNoveltyReviewUniversalDone] = useState(false);
+  const [noveltyReviewUniversalRunning, setNoveltyReviewUniversalRunning] = useState(false);
+  const [noveltyReviewUniversalContent, setNoveltyReviewUniversalContent] = useState("");
+  // Novelty review metadata (model + timestamp for viewer header)
+  const [noveltyReviewJournalFitModel, setNoveltyReviewJournalFitModel] = useState("");
+  const [noveltyReviewJournalFitGeneratedAt, setNoveltyReviewJournalFitGeneratedAt] = useState("");
+  const [noveltyReviewUniversalModel, setNoveltyReviewUniversalModel] = useState("");
+  const [noveltyReviewUniversalGeneratedAt, setNoveltyReviewUniversalGeneratedAt] = useState("");
+  // Novelty review: journal tier
+  const [noveltyReviewJournalTierDone, setNoveltyReviewJournalTierDone] = useState(false);
+  const [noveltyReviewJournalTierRunning, setNoveltyReviewJournalTierRunning] = useState(false);
+  const [noveltyReviewJournalTierContent, setNoveltyReviewJournalTierContent] = useState("");
+  const [noveltyReviewJournalTierModel, setNoveltyReviewJournalTierModel] = useState("");
+  const [noveltyReviewJournalTierGeneratedAt, setNoveltyReviewJournalTierGeneratedAt] = useState("");
+  const [noveltyAchievementDone, setNoveltyAchievementDone] = useState(false);
+  const [noveltyAchievementRunning, setNoveltyAchievementRunning] = useState(false);
+  const [noveltyAchievementContent, setNoveltyAchievementContent] = useState("");
+  // Journal search: internal LLM (single-call) + external copy-paste (A/B merge)
+  const [journalFindDone, setJournalFindDone] = useState(false);
+  const [journalFindRunning, setJournalFindRunning] = useState(false);
+  // External method state
+  const [journalSearchPromptDone, setJournalSearchPromptDone] = useState(false);
+  const [journalSearchPromptContent, setJournalSearchPromptContent] = useState("");
+  const [journalSearchExternalResultA, setJournalSearchExternalResultA] = useState("");
+  const [journalSearchExternalResultB, setJournalSearchExternalResultB] = useState("");
+  // Shared output (both methods write to the same files)
+  const [journalFindMergeDone, setJournalFindMergeDone] = useState(false);
+  const [journalFindMergeRunning, setJournalFindMergeRunning] = useState(false);
+  const [journalFindMergedContent, setJournalFindMergedContent] = useState("");
+  const [journalFindMergedContentJa, setJournalFindMergedContentJa] = useState("");
+  const [journalFindLang, setJournalFindLang] = useState<"en" | "ja">("en");
+  const [journalFindTranslateRunning, setJournalFindTranslateRunning] = useState(false);
+  // Novelty review translation
+  const [noveltyReviewJaContent, setNoveltyReviewJaContent] = useState<Record<string, string>>({});
+  const [noveltyReviewTranslationLoading, setNoveltyReviewTranslationLoading] = useState(false);
+
+  const translateNoveltyContent = async (kind: "summary" | "merge" | "assess" | "journal_fit" | "universal" | "journal_tier") => {
+    if (!projectPath.trim()) {
+      addLog({ event: "error", message: "Please create a project first." });
+      return;
+    }
+    // Find a suitable slot for translation (use summary slot or first available with valid config)
+    const slot = llmSlots.find(s =>
+      s.name === "summary" && s.enabled !== false &&
+      s.provider.trim() && s.baseUrl.trim() && (s.flashModel || s.model || "").trim(),
+    ) || llmSlots.find(s =>
+      s.enabled !== false &&
+      s.provider.trim() && s.baseUrl.trim() && (s.flashModel || s.model || "").trim(),
+    );
+    if (!slot) {
+      setNoveltyTranslationError("翻訳に使用できるLLMスロットが設定されていません。Base URLとモデルを設定してください。");
+      return;
+    }
+    const { Command } = await import("@tauri-apps/plugin-shell");
+    const provider = slot.provider;
+    const baseUrl = slot.baseUrl;
+    // Use flash model for translation if available, otherwise model
+    const model = (slot.flashModel || slot.model || "").trim();
+    let apiKey = slot.apiKey || "";
+    let apiKeyEnv = "";
+    if (slot.apiKeyMode === "env_var") {
+      apiKeyEnv = slot.apiKeyEnvName || "";
+      apiKey = "";
+    }
+
+    const args = [
+      "translate-novelty-content",
+      "--project", projectPath,
+      "--kind", kind,
+      "--slot", slot.name,
+      "--provider", provider,
+      "--base-url", baseUrl,
+      "--model", model,
+    ];
+    if (apiKey) args.push("--api-key", apiKey);
+    if (apiKeyEnv) args.push("--api-key-env", apiKeyEnv);
+
+    setNoveltyTranslationLoading(true);
+    setNoveltyTranslationError(null);
+    try {
+      const cmd = Command.create("pra-cli", args);
+      const output = await cmd.execute();
+      if (output.code !== 0) {
+        // Parse stdout for error event (CLI emits errors as JSON to stdout)
+        let errorMsg = "";
+        const stdout = output.stdout?.toString() || "";
+        for (const line of stdout.split("\n")) {
+          try {
+            const msg = JSON.parse(line.trim());
+            if (msg.event === "error") {
+              errorMsg = msg.message || msg.code || "";
+            }
+          } catch { /* skip non-JSON lines */ }
+        }
+        const stderr = output.stderr?.toString() || "";
+        const detail = errorMsg || stderr || "不明なエラー";
+        setNoveltyTranslationError("翻訳に失敗しました。ログを確認してください。");
+        addLog({ event: "error", message: `Novelty translation failed: ${detail}` });
+      } else {
+        const stdout = output.stdout?.toString() || "";
+        for (const line of stdout.split("\n")) {
+          try {
+            const msg = JSON.parse(line.trim());
+            if (msg.event === "done" && msg.translated_text) {
+              setNoveltyTranslation(prev => ({ ...prev, [kind]: msg.translated_text }));
+              addLog({ event: "info", message: `翻訳完了 (${kind}): ${msg.translated_length || "?"} 文字` });
+            }
+          } catch { /* skip non-JSON lines */ }
+        }
+      }
+    } catch (e: any) {
+      setNoveltyTranslationError(`翻訳エラー: ${e?.message || e}`);
+    } finally {
+      setNoveltyTranslationLoading(false);
+    }
+  };
+
   /** Run LLM re-parse + flags + viewer data refresh in one operation.
    *  Human decisions in human_reference_decisions.json are automatically
    *  reflected during flag generation. */
@@ -2006,7 +2534,10 @@ function App() {
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       addLog({ event: "error", message: `Windows Hello protect failed for ${slotName}: ${msg}` });
-      setStatusMessage({ text: "Windows Helloでの保存に失敗しました。", type: "error" });
+      setStatusMessage({
+        text: `Windows Helloでの暗号化保存に失敗しました。WindowsアカウントのPIN/生体認証が設定されていることを確認してください。エラー: ${msg}`,
+        type: "error",
+      });
       return false;
     }
   };
@@ -2039,7 +2570,24 @@ function App() {
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       addLog({ event: "error", message: `Windows Hello unprotect failed for ${slotName}: ${msg}` });
-      setStatusMessage({ text: "Windows Helloでの復号に失敗しました。", type: "error" });
+      const isDPAPI = /cryptunprotect|dpapi|cryptprotect/i.test(msg);
+      const isCancel = /cancelled|canceled|user verification|user_verification/i.test(msg);
+      if (isDPAPI) {
+        setStatusMessage({
+          text: "DPAPI復号に失敗しました。別のWindowsアカウントまたは別のPCで保存された可能性があります。APIキーを再設定してください。",
+          type: "error",
+        });
+      } else if (isCancel) {
+        setStatusMessage({
+          text: "Windows Helloでの本人確認がキャンセルされたか失敗しました。もう一度お試しください。",
+          type: "error",
+        });
+      } else {
+        setStatusMessage({
+          text: `Windows Helloでの復号に失敗しました: ${msg}`,
+          type: "error",
+        });
+      }
       return null;
     }
   };
@@ -2197,10 +2745,11 @@ function App() {
                 const parsed = JSON.parse(line);
                 if (parsed.event === "done") {
                   hasReasoning = parsed.reasoning_content_present === true;
-                  setLlmProReasoningResults((prev) => ({
-                    ...prev,
-                    [slotName]: hasReasoning,
-                  }));
+                  setLlmProReasoningResults((prev) => {
+                    const next = { ...prev };
+                    if (hasReasoning !== undefined) next[slotName] = hasReasoning;
+                    return next;
+                  });
                 }
               } catch { /* skip non-JSON line */ }
             }
@@ -2253,13 +2802,36 @@ function App() {
     }
   };
 
+  const [testAllProgress, setTestAllProgress] = React.useState("");
+
   const testAllLlm = async () => {
-    for (const slot of llmSlots) {
-      if (slot.enabled) {
-        if (slot.proModel.trim()) await testLlmSlot(slot.name, "pro");
-        if (slot.flashModel.trim()) await testLlmSlot(slot.name, "flash");
+    setTestAllProgress("接続確認を開始...");
+    const enabledSlots = llmSlots.filter(s => s.enabled && (s.proModel.trim() || s.flashModel.trim()));
+    // Test LLM slots
+    for (let si = 0; si < enabledSlots.length; si++) {
+      const slot = enabledSlots[si];
+      if (slot.proModel.trim()) {
+        setTestAllProgress(`LLM ${slotDisplayName(slot.name)} Proモデル (${slot.proModel}) をテスト中... (${si + 1}/${enabledSlots.length})`);
+        await testLlmSlot(slot.name, "pro");
+      }
+      if (slot.flashModel.trim()) {
+        setTestAllProgress(`LLM ${slotDisplayName(slot.name)} Flashモデル (${slot.flashModel}) をテスト中... (${si + 1}/${enabledSlots.length})`);
+        await testLlmSlot(slot.name, "flash");
       }
     }
+    // Test literature DB connections
+    const dbTests: { name: string; fn: () => Promise<void>; enabled: boolean }[] = [
+      { name: "PubMed", fn: testPubmedConnection, enabled: pubmedEnabled },
+      { name: "Google Books", fn: testGbConnection, enabled: googleBooksEnabled },
+      { name: "Semantic Scholar", fn: testSsConnection, enabled: semanticScholarEnabled },
+    ];
+    const enabledDbs = dbTests.filter(d => d.enabled);
+    for (let di = 0; di < enabledDbs.length; di++) {
+      setTestAllProgress(`文献DB ${enabledDbs[di].name} をテスト中... (${di + 1}/${enabledDbs.length})`);
+      await enabledDbs[di].fn();
+    }
+    setTestAllProgress("すべての接続確認が完了しました");
+    setTimeout(() => setTestAllProgress(""), 3000);
   };
 
   const checkLlmEnv = async (slotName: string) => {
@@ -2688,6 +3260,609 @@ function App() {
     }
   };
 
+  const runNoveltyReviewJournalFit = async (slotName: string) => {
+    const slot = llmSlots.find((s) => s.name === slotName);
+    if (!slot) return;
+
+    if (!slot.provider.trim() || !slot.baseUrl.trim() || !slot.proModel.trim()) {
+      addLog({ event: "error", message: `LLM slot ${slotName} is not configured (pro model required).` });
+      return;
+    }
+
+    setNoveltyReviewJournalFitRunning(true);
+    setNoveltyReviewJournalFitDone(false);
+    setNoveltyReviewJournalFitContent("");
+    setStatusMessage(null);
+    addLog({ event: "info", message: `Running novelty journal fit review on ${slotDisplayName(slotName)}...` });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const args = buildLlmArgs(slot, [
+        "novelty-review-journal-fit",
+        "--project", projectPath,
+        "--slot", slotName,
+      ], slot.proModel, "pro");
+      const cmd = Command.create("pra-cli", args);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+
+      if (output.code === 0) {
+        setNoveltyReviewJournalFitDone(true);
+        setNoveltyReviewJournalFitModel(slot.proModel);
+        setNoveltyReviewJournalFitGeneratedAt(new Date().toISOString());
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          const path = `${projectPath.replace(/\\/g, "/")}/outputs/novelty/novelty_review_journal_fit.md`;
+          const raw = await invoke<string>("read_text_file", { path });
+          setNoveltyReviewJournalFitContent(raw);
+        } catch { /* ignore */ }
+        setStatusMessage({ text: "ジャーナル適合評価が完了しました。", type: "ok" });
+      } else {
+        setStatusMessage({ text: "ジャーナル適合評価に失敗しました。", type: "error" });
+      }
+    } catch (e: unknown) {
+      addLog({ event: "error", message: e instanceof Error ? e.message : String(e) });
+      setStatusMessage({ text: "ジャーナル適合評価でエラーが発生しました。", type: "error" });
+    } finally {
+      setNoveltyReviewJournalFitRunning(false);
+    }
+  };
+
+  const runNoveltyReviewUniversal = async (slotName: string) => {
+    const slot = llmSlots.find((s) => s.name === slotName);
+    if (!slot) return;
+
+    if (!slot.provider.trim() || !slot.baseUrl.trim() || !slot.proModel.trim()) {
+      addLog({ event: "error", message: `LLM slot ${slotName} is not configured (pro model required).` });
+      return;
+    }
+
+    setNoveltyReviewUniversalRunning(true);
+    setNoveltyReviewUniversalDone(false);
+    setNoveltyReviewUniversalContent("");
+    setStatusMessage(null);
+    addLog({ event: "info", message: `Running universal novelty review on ${slotDisplayName(slotName)}...` });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const args = buildLlmArgs(slot, [
+        "novelty-review-universal",
+        "--project", projectPath,
+        "--slot", slotName,
+      ], slot.proModel, "pro");
+      const cmd = Command.create("pra-cli", args);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+
+      if (output.code === 0) {
+        setNoveltyReviewUniversalDone(true);
+        setNoveltyReviewUniversalModel(slot.proModel);
+        setNoveltyReviewUniversalGeneratedAt(new Date().toISOString());
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          const path = `${projectPath.replace(/\\/g, "/")}/outputs/novelty/novelty_review_universal.md`;
+          const raw = await invoke<string>("read_text_file", { path });
+          setNoveltyReviewUniversalContent(raw);
+        } catch { /* ignore */ }
+        setStatusMessage({ text: "テーマ新規性評価が完了しました。", type: "ok" });
+      } else {
+        setStatusMessage({ text: "テーマ新規性評価に失敗しました。", type: "error" });
+      }
+    } catch (e: unknown) {
+      addLog({ event: "error", message: e instanceof Error ? e.message : String(e) });
+      setStatusMessage({ text: "テーマ新規性評価でエラーが発生しました。", type: "error" });
+    } finally {
+      setNoveltyReviewUniversalRunning(false);
+    }
+  };
+
+  const runNoveltyReviewJournalTier = async (slotName: string) => {
+    const slot = llmSlots.find((s) => s.name === slotName);
+    if (!slot) return;
+
+    if (!slot.provider.trim() || !slot.baseUrl.trim() || !slot.proModel.trim()) {
+      addLog({ event: "error", message: `LLM slot ${slotName} is not configured (pro model required).` });
+      return;
+    }
+
+    setNoveltyReviewJournalTierRunning(true);
+    setNoveltyReviewJournalTierDone(false);
+    setNoveltyReviewJournalTierContent("");
+    setStatusMessage(null);
+    addLog({ event: "info", message: `Running journal tier estimation on ${slotDisplayName(slotName)}...` });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const args = buildLlmArgs(slot, [
+        "novelty-review-journal-tier",
+        "--project", projectPath,
+        "--slot", slotName,
+      ], slot.proModel, "pro");
+      const cmd = Command.create("pra-cli", args);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+
+      if (output.code === 0) {
+        setNoveltyReviewJournalTierDone(true);
+        setNoveltyReviewJournalTierModel(slot.proModel);
+        setNoveltyReviewJournalTierGeneratedAt(new Date().toISOString());
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          const path = `${projectPath.replace(/\\/g, "/")}/outputs/novelty/novelty_review_journal_tier.md`;
+          const raw = await invoke<string>("read_text_file", { path });
+          setNoveltyReviewJournalTierContent(raw);
+        } catch { /* ignore */ }
+        setStatusMessage({ text: "適正雑誌推定が完了しました。", type: "ok" });
+      } else {
+        setStatusMessage({ text: "適正雑誌推定に失敗しました。", type: "error" });
+      }
+    } catch (e: unknown) {
+      addLog({ event: "error", message: e instanceof Error ? e.message : String(e) });
+      setStatusMessage({ text: "適正雑誌推定でエラーが発生しました。", type: "error" });
+    } finally {
+      setNoveltyReviewJournalTierRunning(false);
+    }
+  };
+
+  const runNoveltyAchievement = async () => {
+    const slot = llmSlots.find((s) => s.name === "reviewer1");
+    if (!slot) {
+      addLog({ event: "error", message: "reviewer1 slot not configured." });
+      setStatusMessage({ text: "reviewer1 スロットが設定されていません。", type: "error" });
+      return;
+    }
+    if (!slot.provider.trim() || !slot.baseUrl.trim() || !slot.proModel.trim()) {
+      addLog({ event: "error", message: "reviewer1 API settings incomplete." });
+      setStatusMessage({ text: "reviewer1 のAPI設定が不完全です。", type: "error" });
+      return;
+    }
+
+    setNoveltyAchievementRunning(true);
+    setNoveltyAchievementDone(false);
+    setNoveltyAchievementContent("");
+    setStatusMessage(null);
+    addLog({ event: "info", message: "新規性達成度を評価中..." });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const args = buildLlmArgs(slot, [
+        "novelty-achievement",
+        "--project", projectPath,
+        "--slot", slot.name,
+      ], slot.proModel, "pro");
+      const cmd = Command.create("pra-cli", args);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+
+      if (output.code === 0) {
+        setNoveltyAchievementDone(true);
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          const path = `${projectPath.replace(/\\/g, "/")}/outputs/novelty/novelty_achievement.md`;
+          const raw = await invoke<string>("read_text_file", { path });
+          setNoveltyAchievementContent(raw);
+        } catch { /* ignore */ }
+        setStatusMessage({ text: "新規性達成度の評価が完了しました。翻訳を実行中...", type: "ok" });
+        addLog({ event: "info", message: "新規性達成度の評価が完了しました。" });
+        // Auto-translate
+        await runNoveltyReviewTranslation("achievement");
+      } else {
+        setStatusMessage({ text: "新規性達成度の評価に失敗しました。", type: "error" });
+      }
+    } catch (e: unknown) {
+      addLog({ event: "error", message: e instanceof Error ? e.message : String(e) });
+      setStatusMessage({ text: "新規性達成度の評価でエラーが発生しました。", type: "error" });
+    } finally {
+      setNoveltyAchievementRunning(false);
+    }
+  };
+
+  // Auto-generate journal search prompt when tier estimation completes
+  const promptGeneratedRef = useRef(false);
+  useEffect(() => {
+    if (noveltyReviewJournalTierDone && !journalSearchPromptDone && !promptGeneratedRef.current) {
+      promptGeneratedRef.current = true;
+      runGenerateJournalSearchPrompt();
+    }
+    if (!noveltyReviewJournalTierDone) {
+      promptGeneratedRef.current = false;
+    }
+  }, [noveltyReviewJournalTierDone, journalSearchPromptDone]);
+
+  // Auto-translate Reason column when journal merge completes
+  useEffect(() => {
+    // Guard: wait until LLM slots are actually loaded (baseUrl populated)
+    const hasReadySlot = llmSlots.some(s => s.enabled !== false && s.baseUrl.trim() && (s.flashModel || s.model).trim());
+    if (!hasReadySlot) return;
+    if (journalFindMergeDone && journalFindMergedContent && !journalFindMergedContentJa && !journalFindTranslateRunning) {
+      runTranslateJournalSearch();
+    }
+  }, [journalFindMergeDone, journalFindMergedContent, llmSlots]);
+
+  // ── Journal Search (internal + external) ───────────────────────────────
+
+  // Internal method: single LLM call
+  const runFindJournals = async () => {
+    if (!projectPath.trim()) {
+      addLog({ event: "error", message: "Please create a project first." });
+      return;
+    }
+    if (!noveltyReviewJournalTierDone) {
+      addLog({ event: "error", message: "先に適正雑誌（Journal Tier Estimation）を生成してください。" });
+      setStatusMessage({ text: "先に適正雑誌を生成してください。", type: "error" });
+      return;
+    }
+
+    const slot = llmSlots.find(s => s.name === "summary" && s.enabled !== false);
+    if (!slot) {
+      addLog({ event: "error", message: "有効なLLMスロット(summary)がありません。" });
+      return;
+    }
+    if (!slot.provider.trim() || !slot.baseUrl.trim() || !slot.proModel.trim()) {
+      addLog({ event: "error", message: "LLM slot summary is not configured (pro model required)." });
+      return;
+    }
+
+    setJournalFindRunning(true);
+    setJournalFindDone(false);
+    setJournalFindMergeDone(false);
+    setJournalFindMergedContent("");
+    setStatusMessage(null);
+    addLog({ event: "info", message: "[Find Journals] Internal LLM searching for suitable journals..." });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const args = buildLlmArgs(slot, [
+        "novelty-find-journals",
+        "--project", projectPath,
+        "--slot", slot.name,
+      ], slot.proModel, "pro");
+      const cmd = Command.create("pra-cli", args);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+
+      if (output.code === 0) {
+        setJournalFindDone(true);
+        setJournalFindMergeDone(true);
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          const mdPath = `${projectPath.replace(/\\/g, "/")}/outputs/novelty/novelty_find_journals_merged.md`;
+          const raw = await invoke<string>("read_text_file", { path: mdPath });
+          setJournalFindMergedContent(raw);
+          addLog({ event: "info", message: `[Find Journals] Table loaded (${raw.length} chars).` });
+        } catch {
+          addLog({ event: "warn", message: "[Find Journals] Could not read merged.md." });
+        }
+        addLog({ event: "info", message: "[Find Journals] Completed successfully." });
+        setStatusMessage({ text: "内部APIでジャーナル検索が完了しました。", type: "ok" });
+      } else {
+        addLog({ event: "error", message: `[Find Journals] Failed with exit code ${output.code}.` });
+        setStatusMessage({ text: "ジャーナル検索に失敗しました。", type: "error" });
+      }
+    } catch (e: unknown) {
+      addLog({ event: "error", message: `[Find Journals] ${e instanceof Error ? e.message : String(e)}` });
+      setStatusMessage({ text: "ジャーナル検索でエラーが発生しました。", type: "error" });
+    } finally {
+      setJournalFindRunning(false);
+    }
+  };
+
+  // External method: generate prompt
+  const runGenerateJournalSearchPrompt = async () => {
+    if (!projectPath.trim()) {
+      addLog({ event: "error", message: "Please create a project first." });
+      return;
+    }
+    if (!noveltyReviewJournalTierDone) {
+      addLog({ event: "error", message: "先に適正雑誌（Journal Tier Estimation）を生成してください。" });
+      setStatusMessage({ text: "先に適正雑誌を生成してください。", type: "error" });
+      return;
+    }
+
+    setJournalSearchPromptDone(false);
+    setJournalSearchPromptContent("");
+    setStatusMessage(null);
+    addLog({ event: "info", message: "[Journal Search] Generating prompt for external AI..." });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const args = ["novelty-journal-search-prompt", "--project", projectPath];
+      const cmd = Command.create("pra-cli", args);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+
+      if (output.code === 0) {
+        setJournalSearchPromptDone(true);
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          const path = `${projectPath.replace(/\\/g, "/")}/outputs/novelty/novelty_journal_search_prompt.md`;
+          const raw = await invoke<string>("read_text_file", { path });
+          setJournalSearchPromptContent(raw);
+        } catch { /* File might not be readable immediately */ }
+        setStatusMessage({ text: "ジャーナル検索プロンプトを生成しました。", type: "ok" });
+      } else {
+        setStatusMessage({ text: "ジャーナル検索プロンプトの生成に失敗しました。", type: "error" });
+      }
+    } catch (e: unknown) {
+      addLog({ event: "error", message: e instanceof Error ? e.message : String(e) });
+      setStatusMessage({ text: "ジャーナル検索プロンプト生成でエラーが発生しました。", type: "error" });
+    }
+  };
+
+  // External method: parse A + B results via coordinator
+  const runParseJournalSearchResults = async () => {
+    if (!projectPath.trim()) {
+      addLog({ event: "error", message: "Please create a project first." });
+      return;
+    }
+    if (!journalSearchExternalResultA.trim() && !journalSearchExternalResultB.trim()) {
+      addLog({ event: "error", message: "少なくとも1つの外部AIの検索結果を貼り付けてください。" });
+      setStatusMessage({ text: "少なくとも1つの外部AIの検索結果を貼り付けてください。", type: "error" });
+      return;
+    }
+
+    const slot = llmSlots.find(s => s.name === "summary" && s.enabled !== false);
+    if (!slot) {
+      addLog({ event: "error", message: "有効なLLMスロット(summary)がありません。" });
+      return;
+    }
+    if (!slot.provider.trim() || !slot.baseUrl.trim() || !slot.proModel.trim()) {
+      addLog({ event: "error", message: "LLM slot summary is not configured (pro model required)." });
+      return;
+    }
+
+    setJournalFindMergeRunning(true);
+    setJournalFindMergeDone(false);
+    setJournalFindMergedContent("");
+    setStatusMessage(null);
+    const hasB = journalSearchExternalResultB.trim().length > 0;
+    addLog({ event: "info", message: `[Journal Parse] Saving external results (A${hasB ? " + B" : ""}) and parsing...` });
+
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const base = `${projectPath.replace(/\\/g, "/")}/outputs/novelty`;
+      // Save slot A
+      await invoke("write_text_file", { path: `${base}/novelty_journal_search_result_a.txt`, content: journalSearchExternalResultA });
+      // Save slot B (even if empty, so the CLI knows it's absent)
+      if (hasB) {
+        await invoke("write_text_file", { path: `${base}/novelty_journal_search_result_b.txt`, content: journalSearchExternalResultB });
+      }
+
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const args = buildLlmArgs(slot, [
+        "novelty-journal-search-parse",
+        "--project", projectPath,
+        "--slot", slot.name,
+      ], slot.proModel, "pro");
+      const cmd = Command.create("pra-cli", args);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+
+      if (output.code === 0) {
+        setJournalFindMergeDone(true);
+        try {
+          const mdPath = `${base}/novelty_find_journals_merged.md`;
+          const raw = await invoke<string>("read_text_file", { path: mdPath });
+          setJournalFindMergedContent(raw);
+          addLog({ event: "info", message: `[Journal Parse] Table loaded (${raw.length} chars).` });
+        } catch {
+          addLog({ event: "warn", message: "[Journal Parse] Could not read merged.md." });
+        }
+        addLog({ event: "info", message: "[Journal Parse] Completed successfully." });
+        setStatusMessage({ text: "ジャーナル検索結果を解析しました。", type: "ok" });
+      } else {
+        addLog({ event: "error", message: `[Journal Parse] Failed with exit code ${output.code}.` });
+        setStatusMessage({ text: "ジャーナル解析に失敗しました。", type: "error" });
+      }
+    } catch (e: unknown) {
+      addLog({ event: "error", message: `[Journal Parse] ${e instanceof Error ? e.message : String(e)}` });
+      setStatusMessage({ text: "ジャーナル解析でエラーが発生しました。", type: "error" });
+    } finally {
+      setJournalFindMergeRunning(false);
+    }
+  };
+
+  // Translate Reason column to Japanese
+  const runTranslateJournalSearch = async () => {
+    if (!projectPath.trim()) {
+      addLog({ event: "error", message: "Please create a project first." });
+      return;
+    }
+    if (!journalFindMergedContent) {
+      addLog({ event: "error", message: "先にジャーナル候補テーブルを生成してください。" });
+      return;
+    }
+
+    // Find first enabled slot with valid base URL and model
+    const slot = llmSlots.find(s =>
+      s.enabled !== false &&
+      s.provider.trim() &&
+      s.baseUrl.trim() &&
+      (s.flashModel || s.model || "").trim(),
+    );
+    if (!slot) {
+      addLog({ event: "error", message: "base URLとモデルが設定された有効なLLMスロットがありません。" });
+      setStatusMessage({ text: "翻訳に使用できるLLMスロットが設定されていません。Base URLとFlashモデルを設定してください。", type: "error" });
+      return;
+    }
+
+    setJournalFindTranslateRunning(true);
+    setJournalFindMergedContentJa("");
+    addLog({ event: "info", message: "[Journal Translate] Translating Reason column to Japanese..." });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      // Use flash model for translation
+      const model = (slot.flashModel || slot.model || "").trim();
+      const args = buildLlmArgs(slot, [
+        "novelty-journal-search-translate",
+        "--project", projectPath,
+        "--slot", slot.name,
+      ], model, "flash");
+      const cmd = Command.create("pra-cli", args);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+
+      if (output.code === 0) {
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          const jaPath = `${projectPath.replace(/\\/g, "/")}/outputs/novelty/novelty_find_journals_merged_ja.md`;
+          const raw = await invoke<string>("read_text_file", { path: jaPath });
+          setJournalFindMergedContentJa(raw);
+          setJournalFindLang("ja");
+          addLog({ event: "info", message: `[Journal Translate] JP table loaded (${raw.length} chars).` });
+        } catch {
+          addLog({ event: "warn", message: "[Journal Translate] Could not read _ja.md." });
+        }
+        setStatusMessage({ text: "ジャーナルReason列の日本語翻訳が完了しました。", type: "ok" });
+      } else {
+        addLog({ event: "error", message: `[Journal Translate] Failed with exit code ${output.code}.` });
+        setStatusMessage({ text: "日本語翻訳に失敗しました。", type: "error" });
+      }
+    } catch (e: unknown) {
+      addLog({ event: "error", message: `[Journal Translate] ${e instanceof Error ? e.message : String(e)}` });
+      setStatusMessage({ text: "日本語翻訳でエラーが発生しました。", type: "error" });
+    } finally {
+      setJournalFindTranslateRunning(false);
+    }
+  };
+
+  const runNoveltyReviewTranslation = async (kind: "journal_fit" | "universal" | "journal_tier" | "achievement") => {
+    if (!projectPath.trim()) {
+      addLog({ event: "error", message: "Please create a project first." });
+      return;
+    }
+    // Find a suitable slot for translation
+    const slot = llmSlots.find(s =>
+      s.enabled !== false &&
+      s.provider.trim() &&
+      s.baseUrl.trim() &&
+      (s.flashModel || s.model || "").trim(),
+    );
+    if (!slot) {
+      setStatusMessage({ text: "翻訳に使用できるLLMスロットが設定されていません。Base URLとモデルを設定してください。", type: "error" });
+      return;
+    }
+    const { Command } = await import("@tauri-apps/plugin-shell");
+    const provider = slot.provider;
+    const baseUrl = slot.baseUrl;
+    const model = (slot.flashModel || slot.model || "").trim();
+    let apiKey = slot.apiKey || "";
+    let apiKeyEnv = "";
+    if (slot.apiKeyMode === "env_var") {
+      apiKeyEnv = slot.apiKeyEnvName || "";
+      apiKey = "";
+    }
+
+    const args = [
+      "translate-novelty-content",
+      "--project", projectPath,
+      "--kind", kind,
+      "--slot", slot.name,
+      "--provider", provider,
+      "--base-url", baseUrl,
+      "--model", model,
+    ];
+    if (apiKey) args.push("--api-key", apiKey);
+    if (apiKeyEnv) args.push("--api-key-env", apiKeyEnv);
+
+    setNoveltyReviewTranslationLoading(true);
+    try {
+      const cmd = Command.create("pra-cli", args);
+      const output = await cmd.execute();
+      if (output.code !== 0) {
+        const stderr = output.stderr?.toString() || "";
+        setStatusMessage({ text: "翻訳に失敗しました。ログを確認してください。", type: "error" });
+        addLog({ event: "error", message: `Novelty review translation failed: ${stderr}` });
+      } else {
+        // Read the generated _ja.md file
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          const jaFileMap: Record<string, string> = {
+            journal_fit: "novelty_review_journal_fit_ja.md",
+            universal: "novelty_review_universal_ja.md",
+            journal_tier: "novelty_review_journal_tier_ja.md",
+            achievement: "novelty_achievement_ja.md",
+          };
+          const jaFile = jaFileMap[kind];
+          const path = `${projectPath.replace(/\\/g, "/")}/outputs/novelty/${jaFile}`;
+          const raw = await invoke<string>("read_text_file", { path });
+          setNoveltyReviewJaContent(prev => ({ ...prev, [kind]: raw }));
+          setStatusMessage({ text: "翻訳が完了しました。", type: "ok" });
+          addLog({ event: "info", message: `Novelty review translation done (${kind}): ${raw.length} chars` });
+        } catch {
+          setStatusMessage({ text: "翻訳ファイルの読み込みに失敗しました。", type: "error" });
+        }
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setStatusMessage({ text: `翻訳エラー: ${msg}`, type: "error" });
+    } finally {
+      setNoveltyReviewTranslationLoading(false);
+    }
+  };
+
+  const runBatchNovelty = async () => {
+    if (!projectPath.trim()) {
+      addLog({ event: "error", message: "Please create a project first." });
+      return;
+    }
+    const slotName = "summary";
+    const slot = llmSlots.find((s) => s.name === slotName && s.enabled !== false);
+    if (!slot) {
+      addLog({ event: "error", message: "有効なLLMスロット(summary)がありません。" });
+      return;
+    }
+    if (!noveltyAssessDone) {
+      setStatusMessage({ text: "先に新規性評価（Phase 5）を実行してください。", type: "error" });
+      return;
+    }
+    setBatchRunning(prev => ({ ...prev, novelty: true }));
+    setStatusMessage(null);
+    addLog({ event: "info", message: "新規性レビュー一括実行（ジャーナル適合 + テーマ新規性 + 適正雑誌 + 達成度 + 翻訳）を開始..." });
+
+    await runNoveltyReviewJournalFit(slotName);
+    await runNoveltyReviewUniversal(slotName);
+    await runNoveltyReviewJournalTier(slotName);
+
+    // Translate all three results
+    addLog({ event: "info", message: "新規性レビュー翻訳を開始..." });
+    await runNoveltyReviewTranslation("journal_fit");
+    await runNoveltyReviewTranslation("universal");
+    await runNoveltyReviewTranslation("journal_tier");
+
+    // Run achievement evaluation if journal search is done
+    if (journalFindMergeDone) {
+      addLog({ event: "info", message: "新規性達成度評価を開始..." });
+      await runNoveltyAchievement();
+    }
+
+    setBatchRunning(prev => ({ ...prev, novelty: false }));
+    // Check output files to determine success
+    let allDone = false;
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const base = projectPath.replace(/\\/g, "/");
+      await invoke<string>("read_text_file", { path: `${base}/outputs/novelty/novelty_review_journal_fit.md` });
+      await invoke<string>("read_text_file", { path: `${base}/outputs/novelty/novelty_review_universal.md` });
+      await invoke<string>("read_text_file", { path: `${base}/outputs/novelty/novelty_review_journal_tier.md` });
+      allDone = true;
+    } catch { /* one or more missing */ }
+    if (allDone) {
+      setStatusMessage({ text: "新規性レビュー一括実行（レビュー + 達成度 + 翻訳）が完了しました。", type: "ok" });
+    } else {
+      setStatusMessage({ text: "新規性レビュー一括実行: 一部が失敗しました。", type: "error" });
+    }
+  };
+
   const runNoveltyMerge = async (slotName: string) => {
     const slot = llmSlots.find((s) => s.name === slotName);
     if (!slot) return;
@@ -2737,6 +3912,15 @@ function App() {
     }
   };
 
+  /** Run merge then assess in one pipeline. */
+  const runNoveltyMergeAndAssess = async (slotName: string) => {
+    addLog({ event: "info", message: `Deep Research 統合・評価を開始（${slotDisplayName(slotName)}）...` });
+    await runNoveltyMerge(slotName);
+    // Brief pause so file I/O settles before assess reads the merged file
+    await new Promise(r => setTimeout(r, 300));
+    await runNoveltyAssess(slotName);
+  };
+
   // ── Review check handlers ──────────────────────────────────────────────────
 
   const runStructureCheck = async (slotName: string) => {
@@ -2749,7 +3933,11 @@ function App() {
     }
     const hasKey = slot.apiKeyMode === "direct" ? !!slot.apiKey.trim() : !!slot.apiKeyEnvName.trim();
     if (!slot.provider.trim() || !slot.baseUrl.trim() || !slot.proModel.trim() || !hasKey) {
-      addLog({ event: "error", message: `${slotDisplayName(slotName)}: API設定が不完全です。「設定」画面を確認してください。` });
+      if (slot.apiKeyMode === "direct" && !slot.apiKey.trim() && windowsHelloStatus[slotName] === "saved") {
+        addLog({ event: "error", message: `${slotDisplayName(slotName)}: APIキーはWindows Helloで保護されています。設定画面で「Windows Helloで復号」を押してください。` });
+      } else {
+        addLog({ event: "error", message: `${slotDisplayName(slotName)}: API設定が不完全です。「設定」画面を確認してください。` });
+      }
       return;
     }
 
@@ -2766,12 +3954,20 @@ function App() {
         "--slot", slotName,
       ], slot.proModel, "pro");
       const cmd = Command.create("pra-cli", args);
-      const output = await cmd.execute();
+      const cmdKey = `structure:${slotName}`;
+      runningCommands.current[cmdKey] = cmd;
+      let output;
+      try {
+        output = await cmd.execute();
+      } finally {
+        delete runningCommands.current[cmdKey];
+      }
       parseOutput(output.stdout);
       if (output.stderr) addLog({ event: "stderr", message: output.stderr });
 
       if (output.code === 0) {
         setStructureCheckResults((prev) => ({ ...prev, [slotName]: "done" }));
+        setStructureMergeDone(false);
         setStatusMessage({text: `構成チェック（${slotDisplayName(slotName)}）が完了しました。`, type: "ok"});
       } else {
         setStructureCheckResults((prev) => ({ ...prev, [slotName]: "failed" }));
@@ -2794,8 +3990,12 @@ function App() {
       return;
     }
     const hasKey = slot.apiKeyMode === "direct" ? !!slot.apiKey.trim() : !!slot.apiKeyEnvName.trim();
-    if (!slot.provider.trim() || !slot.baseUrl.trim() || !slot.flashModel.trim() || !hasKey) {
-      addLog({ event: "error", message: `${slotDisplayName(slotName)}: API設定が不完全です。「設定」画面を確認してください。` });
+    if (!slot.provider.trim() || !slot.baseUrl.trim() || !slot.proModel.trim() || !hasKey) {
+      if (slot.apiKeyMode === "direct" && !slot.apiKey.trim() && windowsHelloStatus[slotName] === "saved") {
+        addLog({ event: "error", message: `${slotDisplayName(slotName)}: APIキーはWindows Helloで保護されています。設定画面で「Windows Helloで復号」を押してください。` });
+      } else {
+        addLog({ event: "error", message: `${slotDisplayName(slotName)}: API設定が不完全です。「設定」画面を確認してください。` });
+      }
       return;
     }
 
@@ -2810,14 +4010,22 @@ function App() {
         "--project", projectPath,
         "--check", "expression",
         "--slot", slotName,
-      ], slot.flashModel, "flash");
+      ], slot.proModel, "pro");
       const cmd = Command.create("pra-cli", args);
-      const output = await cmd.execute();
+      const cmdKey = `expression:${slotName}`;
+      runningCommands.current[cmdKey] = cmd;
+      let output;
+      try {
+        output = await cmd.execute();
+      } finally {
+        delete runningCommands.current[cmdKey];
+      }
       parseOutput(output.stdout);
       if (output.stderr) addLog({ event: "stderr", message: output.stderr });
 
       if (output.code === 0) {
         setExpressionCheckResults((prev) => ({ ...prev, [slotName]: "done" }));
+        setExpressionMergeDone(false);
         setStatusMessage({text: `表現チェック（${slotDisplayName(slotName)}）が完了しました。`, type: "ok"});
       } else {
         setExpressionCheckResults((prev) => ({ ...prev, [slotName]: "failed" }));
@@ -2841,7 +4049,11 @@ function App() {
     }
     const hasKey = slot.apiKeyMode === "direct" ? !!slot.apiKey.trim() : !!slot.apiKeyEnvName.trim();
     if (!slot.provider.trim() || !slot.baseUrl.trim() || !slot.proModel.trim() || !hasKey) {
-      addLog({ event: "error", message: `${slotDisplayName(slotName)}: API設定が不完全です。「設定」画面を確認してください。` });
+      if (slot.apiKeyMode === "direct" && !slot.apiKey.trim() && windowsHelloStatus[slotName] === "saved") {
+        addLog({ event: "error", message: `${slotDisplayName(slotName)}: APIキーはWindows Helloで保護されています。設定画面で「Windows Helloで復号」を押してください。` });
+      } else {
+        addLog({ event: "error", message: `${slotDisplayName(slotName)}: API設定が不完全です。「設定」画面を確認してください。` });
+      }
       return;
     }
 
@@ -2858,12 +4070,20 @@ function App() {
         "--slot", slotName,
       ], slot.proModel, "pro");
       const cmd = Command.create("pra-cli", args);
-      const output = await cmd.execute();
+      const cmdKey = `methods_stats:${slotName}`;
+      runningCommands.current[cmdKey] = cmd;
+      let output;
+      try {
+        output = await cmd.execute();
+      } finally {
+        delete runningCommands.current[cmdKey];
+      }
       parseOutput(output.stdout);
       if (output.stderr) addLog({ event: "stderr", message: output.stderr });
 
       if (output.code === 0) {
         setMethodsStatsCheckResults((prev) => ({ ...prev, [slotName]: "done" }));
+        setMethodsStatsMergeDone(false);
         setStatusMessage({text: `方法・統計チェック（${slotDisplayName(slotName)}）が完了しました。`, type: "ok"});
       } else {
         setMethodsStatsCheckResults((prev) => ({ ...prev, [slotName]: "failed" }));
@@ -2877,18 +4097,465 @@ function App() {
     }
   };
 
-  const runMergeStructure = async () => {
+  const runLogicArgumentCheck = async (slotName: string) => {
+    const slot = llmSlots.find((s) => s.name === slotName);
+    if (!slot) return;
+
     if (!projectPath.trim()) {
       addLog({ event: "error", message: "Please create a project first." });
       return;
     }
-    if (llmSlots.filter((s) => s.name.startsWith("reviewer")).every(
+    const hasKey = slot.apiKeyMode === "direct" ? !!slot.apiKey.trim() : !!slot.apiKeyEnvName.trim();
+    if (!slot.provider.trim() || !slot.baseUrl.trim() || !slot.proModel.trim() || !hasKey) {
+      if (slot.apiKeyMode === "direct" && !slot.apiKey.trim() && windowsHelloStatus[slotName] === "saved") {
+        addLog({ event: "error", message: `${slotDisplayName(slotName)}: APIキーはWindows Helloで保護されています。設定画面で「Windows Helloで復号」を押してください。` });
+      } else {
+        addLog({ event: "error", message: `${slotDisplayName(slotName)}: API設定が不完全です。「設定」画面を確認してください。` });
+      }
+      return;
+    }
+
+    setLogicArgumentCheckResults((prev) => ({ ...prev, [slotName]: "running" }));
+    setStatusMessage(null);
+    addLog({ event: "info", message: `${slotDisplayName(slotName)} で論理・主張チェックを実行中...` });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const args = buildLlmArgs(slot, [
+        "run-check",
+        "--project", projectPath,
+        "--check", "logic_argument",
+        "--slot", slotName,
+      ], slot.proModel, "pro");
+      const cmd = Command.create("pra-cli", args);
+      const cmdKey = `logic_argument:${slotName}`;
+      runningCommands.current[cmdKey] = cmd;
+      let output;
+      try {
+        output = await cmd.execute();
+      } finally {
+        delete runningCommands.current[cmdKey];
+      }
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+
+      if (output.code === 0) {
+        setLogicArgumentCheckResults((prev) => ({ ...prev, [slotName]: "done" }));
+        setLogicArgumentMergeDone(false);
+        setStatusMessage({text: `論理・主張チェック（${slotDisplayName(slotName)}）が完了しました。`, type: "ok"});
+      } else {
+        setLogicArgumentCheckResults((prev) => ({ ...prev, [slotName]: "failed" }));
+        setStatusMessage({text: `論理・主張チェック（${slotDisplayName(slotName)}）に失敗しました。`, type: "error"});
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog({ event: "error", message: msg });
+      setLogicArgumentCheckResults((prev) => ({ ...prev, [slotName]: "failed" }));
+      setStatusMessage({text: `論理・主張チェック（${slotDisplayName(slotName)}）でエラーが発生しました。`, type: "error"});
+    }
+  };
+
+  const runFigureTableCheck = async (slotName: string) => {
+    const slot = llmSlots.find((s) => s.name === slotName);
+    if (!slot) return;
+
+    if (!projectPath.trim()) {
+      addLog({ event: "error", message: "Please create a project first." });
+      return;
+    }
+    const hasKey = slot.apiKeyMode === "direct" ? !!slot.apiKey.trim() : !!slot.apiKeyEnvName.trim();
+    if (!slot.provider.trim() || !slot.baseUrl.trim() || !slot.proModel.trim() || !hasKey) {
+      if (slot.apiKeyMode === "direct" && !slot.apiKey.trim() && windowsHelloStatus[slotName] === "saved") {
+        addLog({ event: "error", message: `${slotDisplayName(slotName)}: APIキーはWindows Helloで保護されています。設定画面で「Windows Helloで復号」を押してください。` });
+      } else {
+        addLog({ event: "error", message: `${slotDisplayName(slotName)}: API設定が不完全です。「設定」画面を確認してください。` });
+      }
+      return;
+    }
+
+    setFigureTableCheckResults((prev) => ({ ...prev, [slotName]: "running" }));
+    setStatusMessage(null);
+    addLog({ event: "info", message: `${slotDisplayName(slotName)} で図表チェックを実行中...` });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const args = buildLlmArgs(slot, [
+        "run-check",
+        "--project", projectPath,
+        "--check", "figure_table",
+        "--slot", slotName,
+      ], slot.proModel, "pro");
+      const cmd = Command.create("pra-cli", args);
+      const cmdKey = `figure_table:${slotName}`;
+      runningCommands.current[cmdKey] = cmd;
+      let output;
+      try {
+        output = await cmd.execute();
+      } finally {
+        delete runningCommands.current[cmdKey];
+      }
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+
+      if (output.code === 0) {
+        setFigureTableCheckResults((prev) => ({ ...prev, [slotName]: "done" }));
+        setFigureTableMergeDone(false);
+        setStatusMessage({text: `図表チェック（${slotDisplayName(slotName)}）が完了しました。`, type: "ok"});
+      } else {
+        setFigureTableCheckResults((prev) => ({ ...prev, [slotName]: "failed" }));
+        setStatusMessage({text: `図表チェック（${slotDisplayName(slotName)}）に失敗しました。`, type: "error"});
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog({ event: "error", message: msg });
+      setFigureTableCheckResults((prev) => ({ ...prev, [slotName]: "failed" }));
+      setStatusMessage({text: `図表チェック（${slotDisplayName(slotName)}）でエラーが発生しました。`, type: "error"});
+    }
+  };
+
+  /** Run ethics & conflict of interest check for a specific reviewer slot. */
+  const runEthicsCheck = async (slotName: string) => {
+    const slot = llmSlots.find((s) => s.name === slotName);
+    if (!slot) return;
+
+    if (!projectPath.trim()) {
+      addLog({ event: "error", message: "Please create a project first." });
+      return;
+    }
+    const hasKey = slot.apiKeyMode === "direct" ? !!slot.apiKey.trim() : !!slot.apiKeyEnvName.trim();
+    if (!slot.provider.trim() || !slot.baseUrl.trim() || !slot.proModel.trim() || !hasKey) {
+      if (slot.apiKeyMode === "direct" && !slot.apiKey.trim() && windowsHelloStatus[slotName] === "saved") {
+        addLog({ event: "error", message: `${slotDisplayName(slotName)}: APIキーはWindows Helloで保護されています。設定画面で「Windows Helloで復号」を押してください。` });
+      } else {
+        addLog({ event: "error", message: `${slotDisplayName(slotName)}: API設定が不完全です。「設定」画面を確認してください。` });
+      }
+      return;
+    }
+    addLog({ event: "info", message: `${slotDisplayName(slotName)} で倫理・利益相反チェックを実行中...` });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const args = buildLlmArgs(slot, [
+        "run-check",
+        "--project", projectPath,
+        "--check", "ethics",
+        "--slot", slotName,
+      ], slot.proModel, "pro");
+      const cmd = Command.create("pra-cli", args);
+      const cmdKey = `ethics:${slotName}`;
+      runningCommands.current[cmdKey] = cmd;
+      let output;
+      try {
+        output = await cmd.execute();
+      } finally {
+        delete runningCommands.current[cmdKey];
+      }
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+
+      if (output.code === 0) {
+        setEthicsCheckResults((prev) => ({ ...prev, [slotName]: "done" }));
+        setEthicsMergeDone(false);
+        setStatusMessage({text: `倫理・利益相反チェック（${slotDisplayName(slotName)}）が完了しました。`, type: "ok"});
+      } else {
+        setEthicsCheckResults((prev) => ({ ...prev, [slotName]: "failed" }));
+        setStatusMessage({text: `倫理・利益相反チェック（${slotDisplayName(slotName)}）に失敗しました。`, type: "error"});
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog({ event: "error", message: msg });
+      setEthicsCheckResults((prev) => ({ ...prev, [slotName]: "failed" }));
+      setStatusMessage({text: `倫理・利益相反チェック（${slotDisplayName(slotName)}）でエラーが発生しました。`, type: "error"});
+    }
+  };
+
+  /** Cancel a running check or merge by killing the underlying process. */
+  const cancelCheck = async (checkName: string, slotName: string) => {
+    const key = `${checkName}:${slotName}`;
+    const cmd = runningCommands.current[key];
+    if (cmd) {
+      const checkLabelLocal = checkName === "structure" ? "構成" : checkName === "expression" ? "表現" : checkName === "methods_stats" ? "方法・統計" : checkName === "logic_argument" ? "論理・主張" : checkName === "figure_table" ? "図表" : checkName === "ethics" ? "倫理・利益相反" : checkName;
+      addLog({ event: "info", message: `${checkLabelLocal}チェック（${slotDisplayName(slotName)}）をキャンセル中...` });
+      try { await cmd.kill(); } catch { /* kill may throw if already dead */ }
+      delete runningCommands.current[key];
+    }
+  };
+
+  /** Clear all cached results for a specific check (disk + state), enabling re-run. */
+  const clearCheckCache = async (checkName: string) => {
+    if (!projectPath.trim()) return;
+    addLog({ event: "info", message: `${checkLabel(checkName)}: キャッシュをクリア中...` });
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const args = ["clear-check", "--project", projectPath, "--check", checkName];
+      const cmd = Command.create("pra-cli", args);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+
+      if (output.code === 0) {
+        // Reset App.tsx state for this check
+        switch (checkName) {
+          case "structure":
+            setStructureCheckResults({}); setStructureMergeDone(false); setStructureMergeRunning(false); break;
+          case "expression":
+            setExpressionCheckResults({}); setExpressionMergeDone(false); setExpressionMergeRunning(false); break;
+          case "methods_stats":
+            setMethodsStatsCheckResults({}); setMethodsStatsMergeDone(false); setMethodsStatsMergeRunning(false); break;
+          case "logic_argument":
+            setLogicArgumentCheckResults({}); setLogicArgumentMergeDone(false); setLogicArgumentMergeRunning(false); break;
+          case "figure_table":
+            setFigureTableCheckResults({}); setFigureTableMergeDone(false); setFigureTableMergeRunning(false); break;
+          case "ethics":
+            setEthicsCheckResults({}); setEthicsMergeDone(false); setEthicsMergeRunning(false); break;
+        }
+        setBatchRunning(prev => { const next = { ...prev }; delete next[checkName]; return next; });
+        setReevaluationRunning(prev => { const next = { ...prev }; delete next[checkName]; return next; });
+        setSolutionRunning(prev => { const next = { ...prev }; delete next[checkName]; return next; });
+
+        // Trigger ReviewChecksPanel to reload (load functions set state to null when file is missing)
+        reviewChecksRef.current?.loadReevaluation(checkName);
+        reviewChecksRef.current?.loadExternalCheck(checkName);
+        reviewChecksRef.current?.loadSolutions(checkName);
+
+        addLog({ event: "info", message: `${checkLabel(checkName)}: キャッシュをクリアしました。` });
+      } else {
+        addLog({ event: "error", message: `${checkLabel(checkName)}: キャッシュクリアに失敗しました。` });
+      }
+    } catch (e: unknown) {
+      addLog({ event: "error", message: `${checkLabel(checkName)}: キャッシュクリアでエラー: ${e instanceof Error ? e.message : String(e)}` });
+    }
+  };
+
+  /** Run all reviewer checks sequentially, then merge. One button for the whole pipeline. */
+  /** Run translation for a merged check result from batch execution.
+   *  Uses the first configured reviewer slot as the LLM for translation. */
+  const runTranslateMerged = async (checkName: string) => {
+    const slot = llmSlots.find(s =>
+      s.name.startsWith("reviewer") && s.enabled !== false &&
+      s.provider?.trim() && s.baseUrl?.trim() && (s.proModel || s.model)?.trim()
+    );
+    if (!slot) {
+      addLog({ event: "error", message: `${checkName}: 統合結果の翻訳に使用できるLLMスロットがありません。` });
+      return;
+    }
+    addLog({ event: "info", message: `${checkLabel(checkName)}統合結果を翻訳中...` });
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const args = buildLlmArgs(slot, [
+        "translate-check-result",
+        "--project", projectPath,
+        "--check", checkName,
+        "--slot", "merged",
+      ], slot.proModel || slot.model, "pro");
+      const cmd = Command.create("pra-cli", args);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+      if (output.code === 0) {
+        addLog({ event: "info", message: `${checkLabel(checkName)}統合結果の翻訳が完了しました。` });
+        setCheckTranslateVersion(v => v + 1);
+      } else {
+        addLog({ event: "error", message: `${checkLabel(checkName)}統合結果の翻訳に失敗しました。` });
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog({ event: "error", message: `${checkLabel(checkName)}統合結果の翻訳でエラー: ${msg}` });
+    }
+  };
+
+  const checkLabel = (checkName: string) =>
+    checkName === "structure" ? "構成" : checkName === "expression" ? "表現" : checkName === "methods_stats" ? "方法・統計" : checkName === "logic_argument" ? "論理・主張" : checkName === "figure_table" ? "図表" : checkName === "ethics" ? "倫理・利益相反" : checkName;
+
+  const runBatchStructure = async () => {
+    const reviewerSlots = llmSlots.filter(s => s.name.startsWith("reviewer") && s.enabled !== false);
+    if (reviewerSlots.length === 0) {
+      addLog({ event: "error", message: "有効な査読AIスロットがありません。" });
+      return;
+    }
+    setBatchRunning(prev => ({ ...prev, structure: true }));
+    setStatusMessage(null);
+    addLog({ event: "info", message: "構成チェック一括実行（全reviewer → 統合）を開始..." });
+    let anyDone = false;
+    for (const slot of reviewerSlots) {
+      await runStructureCheck(slot.name);
+      // After await, check if the result file exists to confirm success
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const p = `${projectPath.replace(/\\/g, "/")}/outputs/structure/${slot.name}.raw.json`;
+        await invoke<string>("read_text_file", { path: p });
+        anyDone = true;
+      } catch { /* check failed for this slot */ }
+    }
+    if (anyDone) {
+      await runMergeStructure(true);
+      await runTranslateMerged("structure");
+    } else {
+      addLog({ event: "error", message: "構成チェック: 全reviewerが失敗しました。統合をスキップします。" });
+      setStatusMessage({ text: "構成チェック一括実行: 全reviewerが失敗しました。", type: "error" });
+    }
+    setBatchRunning(prev => ({ ...prev, structure: false }));
+  };
+
+  const runBatchExpression = async () => {
+    const reviewerSlots = llmSlots.filter(s => s.name.startsWith("reviewer") && s.enabled !== false);
+    if (reviewerSlots.length === 0) {
+      addLog({ event: "error", message: "有効な査読AIスロットがありません。" });
+      return;
+    }
+    setBatchRunning(prev => ({ ...prev, expression: true }));
+    setStatusMessage(null);
+    addLog({ event: "info", message: "表現チェック一括実行（全reviewer → 統合）を開始..." });
+    let anyDone = false;
+    for (const slot of reviewerSlots) {
+      await runExpressionCheck(slot.name);
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const p = `${projectPath.replace(/\\/g, "/")}/outputs/expression/${slot.name}.raw.json`;
+        await invoke<string>("read_text_file", { path: p });
+        anyDone = true;
+      } catch { /* check failed for this slot */ }
+    }
+    if (anyDone) {
+      await runMergeExpression(true);
+      await runTranslateMerged("expression");
+    } else {
+      addLog({ event: "error", message: "表現チェック: 全reviewerが失敗しました。統合をスキップします。" });
+      setStatusMessage({ text: "表現チェック一括実行: 全reviewerが失敗しました。", type: "error" });
+    }
+    setBatchRunning(prev => ({ ...prev, expression: false }));
+  };
+
+  const runBatchMethodsStats = async () => {
+    const reviewerSlots = llmSlots.filter(s => s.name.startsWith("reviewer") && s.enabled !== false);
+    if (reviewerSlots.length === 0) {
+      addLog({ event: "error", message: "有効な査読AIスロットがありません。" });
+      return;
+    }
+    setBatchRunning(prev => ({ ...prev, methods_stats: true }));
+    setStatusMessage(null);
+    addLog({ event: "info", message: "方法・統計チェック一括実行（全reviewer → 統合）を開始..." });
+    let anyDone = false;
+    for (const slot of reviewerSlots) {
+      await runMethodsStatsCheck(slot.name);
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const p = `${projectPath.replace(/\\/g, "/")}/outputs/methods_stats/${slot.name}.raw.json`;
+        await invoke<string>("read_text_file", { path: p });
+        anyDone = true;
+      } catch { /* check failed for this slot */ }
+    }
+    if (anyDone) {
+      await runMergeMethodsStats(true);
+      await runTranslateMerged("methods_stats");
+    } else {
+      addLog({ event: "error", message: "方法・統計チェック: 全reviewerが失敗しました。統合をスキップします。" });
+      setStatusMessage({ text: "方法・統計チェック一括実行: 全reviewerが失敗しました。", type: "error" });
+    }
+    setBatchRunning(prev => ({ ...prev, methods_stats: false }));
+  };
+
+  const runBatchLogicArgument = async () => {
+    const reviewerSlots = llmSlots.filter(s => s.name.startsWith("reviewer") && s.enabled !== false);
+    if (reviewerSlots.length === 0) {
+      addLog({ event: "error", message: "有効な査読AIスロットがありません。" });
+      return;
+    }
+    setBatchRunning(prev => ({ ...prev, logic_argument: true }));
+    setStatusMessage(null);
+    addLog({ event: "info", message: "論理・主張チェック一括実行（全reviewer → 統合）を開始..." });
+    let anyDone = false;
+    for (const slot of reviewerSlots) {
+      await runLogicArgumentCheck(slot.name);
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const p = `${projectPath.replace(/\\/g, "/")}/outputs/logic_argument/${slot.name}.raw.json`;
+        await invoke<string>("read_text_file", { path: p });
+        anyDone = true;
+      } catch { /* check failed for this slot */ }
+    }
+    if (anyDone) {
+      await runMergeLogicArgument(true);
+      await runTranslateMerged("logic_argument");
+    } else {
+      addLog({ event: "error", message: "論理・主張チェック: 全reviewerが失敗しました。統合をスキップします。" });
+      setStatusMessage({ text: "論理・主張チェック一括実行: 全reviewerが失敗しました。", type: "error" });
+    }
+    setBatchRunning(prev => ({ ...prev, logic_argument: false }));
+  };
+
+  const runBatchFigureTable = async () => {
+    const reviewerSlots = llmSlots.filter(s => s.name.startsWith("reviewer") && s.enabled !== false);
+    if (reviewerSlots.length === 0) {
+      addLog({ event: "error", message: "有効な査読AIスロットがありません。" });
+      return;
+    }
+    setBatchRunning(prev => ({ ...prev, figure_table: true }));
+    setStatusMessage(null);
+    addLog({ event: "info", message: "図表チェック一括実行（全reviewer → 統合）を開始..." });
+    let anyDone = false;
+    for (const slot of reviewerSlots) {
+      await runFigureTableCheck(slot.name);
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const p = `${projectPath.replace(/\\/g, "/")}/outputs/figure_table/${slot.name}.raw.json`;
+        await invoke<string>("read_text_file", { path: p });
+        anyDone = true;
+      } catch { /* check failed for this slot */ }
+    }
+    if (anyDone) {
+      await runMergeFigureTable(true);
+      await runTranslateMerged("figure_table");
+    } else {
+      addLog({ event: "error", message: "図表チェック: 全reviewerが失敗しました。統合をスキップします。" });
+      setStatusMessage({ text: "図表チェック一括実行: 全reviewerが失敗しました。", type: "error" });
+    }
+    setBatchRunning(prev => ({ ...prev, figure_table: false }));
+  };
+
+  const runBatchEthics = async () => {
+    const reviewerSlots = llmSlots.filter(s => s.name.startsWith("reviewer") && s.enabled !== false);
+    if (reviewerSlots.length === 0) {
+      addLog({ event: "error", message: "有効な査読AIスロットがありません。" });
+      return;
+    }
+    setBatchRunning(prev => ({ ...prev, ethics: true }));
+    setStatusMessage(null);
+    addLog({ event: "info", message: "倫理・利益相反チェック一括実行（全reviewer → 統合）を開始..." });
+    let anyDone = false;
+    for (const slot of reviewerSlots) {
+      await runEthicsCheck(slot.name);
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const p = `${projectPath.replace(/\\/g, "/")}/outputs/ethics/${slot.name}.raw.json`;
+        await invoke<string>("read_text_file", { path: p });
+        anyDone = true;
+      } catch { /* check failed for this slot */ }
+    }
+    if (anyDone) {
+      await runMergeEthics(true);
+      await runTranslateMerged("ethics");
+    } else {
+      addLog({ event: "error", message: "倫理・利益相反チェック: 全reviewerが失敗しました。統合をスキップします。" });
+      setStatusMessage({ text: "倫理・利益相反チェック一括実行: 全reviewerが失敗しました。", type: "error" });
+    }
+    setBatchRunning(prev => ({ ...prev, ethics: false }));
+  };
+
+  const runMergeStructure = async (skipGate = false) => {
+    if (!projectPath.trim()) {
+      addLog({ event: "error", message: "Please create a project first." });
+      return;
+    }
+    if (!skipGate && llmSlots.filter((s) => s.name.startsWith("reviewer")).every(
       (s) => structureCheckResults[s.name] !== "done"
     )) {
       addLog({ event: "error", message: "At least one reviewer must complete a structure check first." });
       return;
     }
 
+    // Clear previous merge state so UI shows fresh progress
+    setStructureMergeDone(false);
     setStructureMergeRunning(true);
     setStatusMessage(null);
     addLog({ event: "info", message: "Merging structure check results..." });
@@ -2919,18 +4586,20 @@ function App() {
     }
   };
 
-  const runMergeExpression = async () => {
+  const runMergeExpression = async (skipGate = false) => {
     if (!projectPath.trim()) {
       addLog({ event: "error", message: "Please create a project first." });
       return;
     }
-    if (llmSlots.filter((s) => s.name.startsWith("reviewer")).every(
+    if (!skipGate && llmSlots.filter((s) => s.name.startsWith("reviewer")).every(
       (s) => expressionCheckResults[s.name] !== "done"
     )) {
       addLog({ event: "error", message: "At least one reviewer must complete an expression check first." });
       return;
     }
 
+    // Clear previous merge state so UI shows fresh progress
+    setExpressionMergeDone(false);
     setExpressionMergeRunning(true);
     setStatusMessage(null);
     addLog({ event: "info", message: "Merging expression check results..." });
@@ -2961,18 +4630,20 @@ function App() {
     }
   };
 
-  const runMergeMethodsStats = async () => {
+  const runMergeMethodsStats = async (skipGate = false) => {
     if (!projectPath.trim()) {
       addLog({ event: "error", message: "Please create a project first." });
       return;
     }
-    if (llmSlots.filter((s) => s.name.startsWith("reviewer")).every(
+    if (!skipGate && llmSlots.filter((s) => s.name.startsWith("reviewer")).every(
       (s) => methodsStatsCheckResults[s.name] !== "done"
     )) {
       addLog({ event: "error", message: "At least one reviewer must complete a methods/stats check first." });
       return;
     }
 
+    // Clear previous merge state so UI shows fresh progress
+    setMethodsStatsMergeDone(false);
     setMethodsStatsMergeRunning(true);
     setStatusMessage(null);
     addLog({ event: "info", message: "Merging methods/stats check results..." });
@@ -3003,7 +4674,139 @@ function App() {
     }
   };
 
-  const runFinalMerge = async () => {
+  const runMergeLogicArgument = async (skipGate = false) => {
+    if (!projectPath.trim()) {
+      addLog({ event: "error", message: "Please create a project first." });
+      return;
+    }
+    if (!skipGate && llmSlots.filter((s) => s.name.startsWith("reviewer")).every(
+      (s) => logicArgumentCheckResults[s.name] !== "done"
+    )) {
+      addLog({ event: "error", message: "At least one reviewer must complete a logic/argument check first." });
+      return;
+    }
+
+    // Clear previous merge state so UI shows fresh progress
+    setLogicArgumentMergeDone(false);
+    setLogicArgumentMergeRunning(true);
+    setStatusMessage(null);
+    addLog({ event: "info", message: "Merging logic/argument check results..." });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const cmd = Command.create("pra-cli", [
+        "merge-section",
+        "--project", projectPath,
+        "--check", "logic_argument",
+      ]);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+
+      if (output.code === 0) {
+        setLogicArgumentMergeDone(true);
+        setStatusMessage({text: "論理・主張チェック結果を統合しました。", type: "ok"});
+      } else {
+        setStatusMessage({text: "論理・主張チェック結果の統合に失敗しました。", type: "error"});
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog({ event: "error", message: msg });
+      setStatusMessage({text: "論理・主張チェック結果の統合でエラーが発生しました。", type: "error"});
+    } finally {
+      setLogicArgumentMergeRunning(false);
+    }
+  };
+
+  const runMergeFigureTable = async (skipGate = false) => {
+    if (!projectPath.trim()) {
+      addLog({ event: "error", message: "Please create a project first." });
+      return;
+    }
+    if (!skipGate && llmSlots.filter((s) => s.name.startsWith("reviewer")).every(
+      (s) => figureTableCheckResults[s.name] !== "done"
+    )) {
+      addLog({ event: "error", message: "At least one reviewer must complete a figure/table check first." });
+      return;
+    }
+
+    // Clear previous merge state so UI shows fresh progress
+    setFigureTableMergeDone(false);
+    setFigureTableMergeRunning(true);
+    setStatusMessage(null);
+    addLog({ event: "info", message: "Merging figure/table check results..." });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const cmd = Command.create("pra-cli", [
+        "merge-section",
+        "--project", projectPath,
+        "--check", "figure_table",
+      ]);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+
+      if (output.code === 0) {
+        setFigureTableMergeDone(true);
+        setStatusMessage({text: "図表チェック結果を統合しました。", type: "ok"});
+      } else {
+        setStatusMessage({text: "図表チェック結果の統合に失敗しました。", type: "error"});
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog({ event: "error", message: msg });
+      setStatusMessage({text: "図表チェック結果の統合でエラーが発生しました。", type: "error"});
+    } finally {
+      setFigureTableMergeRunning(false);
+    }
+  };
+
+  const runMergeEthics = async (skipGate = false) => {
+    if (!projectPath.trim()) {
+      addLog({ event: "error", message: "Please create a project first." });
+      return;
+    }
+    if (!skipGate && llmSlots.filter((s) => s.name.startsWith("reviewer")).every(
+      (s) => ethicsCheckResults[s.name] !== "done"
+    )) {
+      addLog({ event: "error", message: "At least one reviewer must complete an ethics check first." });
+      return;
+    }
+
+    // Clear previous merge state so UI shows fresh progress
+    setEthicsMergeDone(false);
+    setEthicsMergeRunning(true);
+    setStatusMessage(null);
+    addLog({ event: "info", message: "Merging ethics check results..." });
+
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const cmd = Command.create("pra-cli", [
+        "merge-section",
+        "--project", projectPath,
+        "--check", "ethics",
+      ]);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+
+      if (output.code === 0) {
+        setEthicsMergeDone(true);
+        setStatusMessage({text: "倫理・利益相反チェック結果を統合しました。", type: "ok"});
+      } else {
+        setStatusMessage({text: "倫理・利益相反チェック結果の統合に失敗しました。", type: "error"});
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog({ event: "error", message: msg });
+      setStatusMessage({text: "倫理・利益相反チェック結果の統合でエラーが発生しました。", type: "error"});
+    } finally {
+      setEthicsMergeRunning(false);
+    }
+  };
+
+  const runFinalMerge = async (lang: "en" | "ja" = "en", format: string = "md") => {
     if (!projectPath.trim()) {
       addLog({ event: "error", message: "Please create a project first." });
       return;
@@ -3011,13 +4814,20 @@ function App() {
 
     setFinalMergeRunning(true);
     setStatusMessage(null);
-    addLog({ event: "info", message: "Generating final review..." });
+    const langLabel = lang === "ja" ? "日本語" : "英語";
+    const formatLabel = format === "docx" ? "Word" : format === "txt" ? "テキスト" : "Markdown";
+    addLog({ event: "info", message: `最終査読コメントを生成中 (${langLabel} / ${formatLabel})...` });
 
     try {
+      // comment_card_checked.json is kept up-to-date by the persistence effect.
+      // final-merge reads it directly — no need to write a separate checked_ids.json.
+
       const { Command } = await import("@tauri-apps/plugin-shell");
       const cmd = Command.create("pra-cli", [
         "final-merge",
         "--project", projectPath,
+        "--lang", lang,
+        "--format", format,
       ]);
       const output = await cmd.execute();
       parseOutput(output.stdout);
@@ -3025,7 +4835,12 @@ function App() {
 
       if (output.code === 0) {
         setFinalMergeDone(true);
-        setStatusMessage({text: "最終査読コメントを生成しました。", type: "ok"});
+        const ext = format === "docx" ? "docx" : format === "txt" ? "txt" : "md";
+        const suffix = lang === "ja" ? "_jp" : "";
+        const outFile = `final_review${suffix}.${ext}`;
+        const outPath = `${projectPath.replace(/\\/g, "/")}/outputs/final/${outFile}`;
+        setStatusMessage({text: `査読コメントを生成しました → ${outPath}`, type: "ok"});
+        await loadResultFile(outFile);
       } else {
         setStatusMessage({text: "最終査読コメントの生成に失敗しました。", type: "error"});
       }
@@ -3037,6 +4852,418 @@ function App() {
       setFinalMergeRunning(false);
     }
   };
+
+  const runGenerateAssessmentCandidates = async (volume: "brief" | "standard" | "detailed" = "standard") => {
+    if (!projectPath.trim()) {
+      addLog({ event: "error", message: "Please create a project first." });
+      return;
+    }
+    const slot = llmSlots.find(s => s.name === "reviewer1");
+    if (!slot) {
+      addLog({ event: "error", message: "reviewer1 slot not configured." });
+      setStatusMessage({text: "reviewer1 スロットが設定されていません。", type: "error"});
+      return;
+    }
+    const hasKey = slot.apiKeyMode === "direct" ? !!slot.apiKey.trim() : !!slot.apiKeyEnvName.trim();
+    if (!slot.provider.trim() || !slot.baseUrl.trim() || !slot.proModel.trim() || !hasKey) {
+      addLog({ event: "error", message: "reviewer1 API settings incomplete." });
+      setStatusMessage({text: "reviewer1 のAPI設定が不完全です。", type: "error"});
+      return;
+    }
+
+    setAssessmentCandidatesRunning(true);
+    setStatusMessage(null);
+    addLog({ event: "info", message: `全体所感の候補を生成中... (volume: ${volume})` });
+
+    const cmdKey = "overall-assessment-candidates";
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const args = buildLlmArgs(slot, [
+        "overall-assessment-candidates",
+        "--project", projectPath,
+        "--slot", slot.name,
+        "--volume", volume,
+      ], slot.proModel, "pro");
+      const cmd = Command.create("pra-cli", args);
+      runningCommands.current[cmdKey] = cmd;
+      let output;
+      try {
+        output = await cmd.execute();
+      } finally {
+        delete runningCommands.current[cmdKey];
+      }
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+
+      if (output.code === 0) {
+        setStatusMessage({text: "候補を生成しました。採用する項目を選択してください。", type: "ok"});
+        addLog({ event: "info", message: "全体所感候補の生成が完了しました。" });
+        // Load candidates data
+        await loadAssessmentCandidates();
+      } else {
+        setStatusMessage({text: "候補の生成に失敗しました。", type: "error"});
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes("abort") || msg.includes("cancel")) {
+        addLog({ event: "info", message: "候補生成をキャンセルしました。" });
+        setStatusMessage({text: "キャンセルしました。", type: "info"});
+      } else {
+        addLog({ event: "error", message: msg });
+        setStatusMessage({text: "候補の生成でエラーが発生しました。", type: "error"});
+      }
+    } finally {
+      setAssessmentCandidatesRunning(false);
+    }
+  };
+
+  const runRegenerateSection = async (sectionKey: string, focus: string[], tone: string) => {
+    if (!projectPath.trim()) return;
+    const slot = llmSlots.find(s => s.name === "reviewer1");
+    if (!slot) {
+      setStatusMessage({text: "reviewer1 スロットが設定されていません。", type: "error"});
+      return;
+    }
+    const hasKey = slot.apiKeyMode === "direct" ? !!slot.apiKey.trim() : !!slot.apiKeyEnvName.trim();
+    if (!slot.provider.trim() || !slot.baseUrl.trim() || !slot.proModel.trim() || !hasKey) {
+      setStatusMessage({text: "reviewer1 のAPI設定が不完全です。", type: "error"});
+      return;
+    }
+
+    setAssessmentCandidatesRunning(true);
+    setStatusMessage(null);
+    addLog({ event: "info", message: `セクション ${sectionKey} を再生成中...` });
+
+    const cmdKey = "overall-assessment-candidates";
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const focusArgs = focus.length > 0 && !(focus.length === 1 && focus[0] === "general")
+        ? focus.flatMap(f => ["--focus", f])
+        : [];
+      const args = buildLlmArgs(slot, [
+        "overall-assessment-candidates",
+        "--project", projectPath,
+        "--slot", slot.name,
+        "--volume", "standard",
+        "--section", sectionKey,
+        ...focusArgs,
+        "--tone", tone,
+      ], slot.proModel, "pro");
+      const cmd = Command.create("pra-cli", args);
+      runningCommands.current[cmdKey] = cmd;
+      let output;
+      try {
+        output = await cmd.execute();
+      } finally {
+        delete runningCommands.current[cmdKey];
+      }
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+
+      if (output.code === 0) {
+        setStatusMessage({text: "セクションを再生成しました。", type: "ok"});
+        addLog({ event: "info", message: `セクション ${sectionKey} の再生成が完了しました。` });
+        await loadAssessmentCandidates();
+      } else {
+        setStatusMessage({text: "セクションの再生成に失敗しました。", type: "error"});
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes("abort") || msg.includes("cancel")) {
+        addLog({ event: "info", message: "再生成をキャンセルしました。" });
+        setStatusMessage({text: "キャンセルしました。", type: "info"});
+      } else {
+        addLog({ event: "error", message: msg });
+        setStatusMessage({text: "再生成でエラーが発生しました。", type: "error"});
+      }
+    } finally {
+      setAssessmentCandidatesRunning(false);
+    }
+  };
+
+  const runComposeOverallAssessment = async () => {
+    if (!projectPath.trim()) {
+      addLog({ event: "error", message: "Please create a project first." });
+      return;
+    }
+    if (assessmentSelectedIds.length === 0) {
+      setStatusMessage({text: "候補が選択されていません。", type: "error"});
+      return;
+    }
+    const slot = llmSlots.find(s => s.name === "reviewer1");
+    if (!slot) {
+      addLog({ event: "error", message: "reviewer1 slot not configured." });
+      setStatusMessage({text: "reviewer1 スロットが設定されていません。", type: "error"});
+      return;
+    }
+    const hasKey = slot.apiKeyMode === "direct" ? !!slot.apiKey.trim() : !!slot.apiKeyEnvName.trim();
+    if (!slot.provider.trim() || !slot.baseUrl.trim() || !slot.proModel.trim() || !hasKey) {
+      addLog({ event: "error", message: "reviewer1 API settings incomplete." });
+      setStatusMessage({text: "reviewer1 のAPI設定が不完全です。", type: "error"});
+      return;
+    }
+
+    // Save selection and free text to files first
+    await saveAssessmentSelection();
+    if (assessmentFreeText.trim()) {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const freeTextPath = projectPath.replace(/\\/g, "/") + "/outputs/final/_data/free_text.md";
+        await invoke("write_text_file", { path: freeTextPath, content: assessmentFreeText });
+      } catch { /* ignore */ }
+    }
+
+    setAssessmentComposeRunning(true);
+    setStatusMessage(null);
+    addLog({ event: "info", message: "全体所感を作成中..." });
+
+    const cmdKey = "overall-assessment-compose";
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const args = buildLlmArgs(slot, [
+        "overall-assessment-compose",
+        "--project", projectPath,
+        "--slot", slot.name,
+        "--selected-ids", assessmentSelectedIds.join(","),
+      ], slot.proModel, "pro");
+      const cmd = Command.create("pra-cli", args);
+      runningCommands.current[cmdKey] = cmd;
+      let output;
+      try {
+        output = await cmd.execute();
+      } finally {
+        delete runningCommands.current[cmdKey];
+      }
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+
+      if (output.code === 0) {
+        setAssessmentComposed(true);
+        setStatusMessage({text: "全体所感を構成しました。左の「全体所感」ボタンで表示できます。", type: "ok"});
+        addLog({ event: "info", message: "全体所感の構成が完了しました。" });
+      } else {
+        setStatusMessage({text: "全体所感の構成に失敗しました。", type: "error"});
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes("abort") || msg.includes("cancel")) {
+        addLog({ event: "info", message: "全体所感の構成をキャンセルしました。" });
+        setStatusMessage({text: "キャンセルしました。", type: "info"});
+      } else {
+        addLog({ event: "error", message: msg });
+        setStatusMessage({text: "全体所感の構成でエラーが発生しました。", type: "error"});
+      }
+    } finally {
+      setAssessmentComposeRunning(false);
+    }
+  };
+
+  const cancelAssessmentCandidates = async () => {
+    const cmd = runningCommands.current["overall-assessment-candidates"];
+    if (cmd) {
+      addLog({ event: "info", message: "候補生成をキャンセル中..." });
+      try { await cmd.kill(); } catch { /* kill may throw if already dead */ }
+    }
+  };
+
+  const cancelAssessmentCompose = async () => {
+    const cmd = runningCommands.current["overall-assessment-compose"];
+    if (cmd) {
+      addLog({ event: "info", message: "全体所感構成をキャンセル中..." });
+      try { await cmd.kill(); } catch { /* kill may throw if already dead */ }
+    }
+  };
+
+  const runDeleteCandidate = async (candidateId: string) => {
+    if (!projectPath.trim()) return;
+    if (!assessmentCandidatesData?.sections) return;
+    try {
+      // Find and remove the candidate from in-memory data
+      const newSections = { ...assessmentCandidatesData.sections };
+      for (const sk of Object.keys(newSections)) {
+        const section = newSections[sk];
+        const idx = section.candidates.findIndex(c => c.id === candidateId);
+        if (idx !== -1) {
+          const updated = { ...section, candidates: [...section.candidates] };
+          updated.candidates.splice(idx, 1);
+          newSections[sk] = updated;
+          break;
+        }
+      }
+      const newData = { ...assessmentCandidatesData, sections: newSections };
+      setAssessmentCandidatesData(newData);
+      // Remove from selection
+      setAssessmentSelectedIds(prev => prev.filter(id => id !== candidateId));
+      // Persist to file
+      const { invoke } = await import("@tauri-apps/api/core");
+      const candidatesPath = projectPath.replace(/\\/g, "/") + "/outputs/final/_data/overall_assessment_candidates.json";
+      await invoke("write_text_file", { path: candidatesPath, content: JSON.stringify(newData, null, 2) });
+      // Update selection file
+      const selectionPath = projectPath.replace(/\\/g, "/") + "/outputs/final/_data/overall_assessment_selection.json";
+      const newSelection = assessmentSelectedIds.filter(id => id !== candidateId);
+      await invoke("write_text_file", { path: selectionPath, content: JSON.stringify({ selected_ids: newSelection }, null, 2) });
+      addLog({ event: "info", message: `候補 ${candidateId} を削除しました。` });
+    } catch (e: unknown) {
+      addLog({ event: "error", message: `Failed to delete candidate: ${e}` });
+    }
+  };
+
+  const handleFreeTextChange = async (content: string) => {
+    setAssessmentFreeText(content);
+    if (!projectPath.trim()) return;
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const freeTextPath = projectPath.replace(/\\/g, "/") + "/outputs/final/_data/free_text.md";
+      await invoke("write_text_file", { path: freeTextPath, content });
+    } catch (e: unknown) {
+      addLog({ event: "error", message: `Failed to save free text: ${e}` });
+    }
+  };
+
+  const loadAssessmentCandidates = async () => {
+    if (!projectPath.trim()) return;
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const candidatesPath = `${projectPath.replace(/\\/g, "/")}/outputs/final/_data/overall_assessment_candidates.json`;
+      const content = await invoke<string>("read_text_file", { path: candidatesPath });
+      const data = JSON.parse(content);
+      setAssessmentCandidatesData(data);
+
+      // Load selection
+      const selectionPath = `${projectPath.replace(/\\/g, "/")}/outputs/final/_data/overall_assessment_selection.json`;
+      try {
+        const selContent = await invoke<string>("read_text_file", { path: selectionPath });
+        const sel = JSON.parse(selContent);
+        setAssessmentSelectedIds(sel.selected_ids || []);
+      } catch {
+        // Default: all recommendation=high
+        const highIds: string[] = [];
+        if (data.sections) {
+          for (const sk of Object.keys(data.sections)) {
+            for (const c of data.sections[sk].candidates || []) {
+              if (c.recommendation === "high") highIds.push(c.id);
+            }
+          }
+        }
+        setAssessmentSelectedIds(highIds);
+      }
+    } catch {
+      // Candidates file doesn't exist yet — that's fine
+      setAssessmentCandidatesData(null);
+    }
+  };
+
+  const saveAssessmentSelection = async () => {
+    if (!projectPath.trim()) return;
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const selectionPath = `${projectPath.replace(/\\/g, "/")}/outputs/final/_data/overall_assessment_selection.json`;
+      const data = JSON.stringify({ selected_ids: assessmentSelectedIds }, null, 2);
+      await invoke("write_text_file", { path: selectionPath, content: data });
+    } catch {
+      addLog({ event: "error", message: "Failed to save selection." });
+    }
+  };
+
+  const toggleAssessmentCandidate = (id: string) => {
+    setAssessmentSelectedIds(prev => {
+      const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
+      // Auto-save selection to disk (fire and forget)
+      if (projectPath.trim()) {
+        const selectionPath = `${projectPath.replace(/\\/g, "/")}/outputs/final/_data/overall_assessment_selection.json`;
+        const data = JSON.stringify({ selected_ids: next }, null, 2);
+        import("@tauri-apps/api/core").then(({ invoke }) => {
+          invoke("write_text_file", { path: selectionPath, content: data }).catch(() => {});
+        });
+      }
+      return next;
+    });
+  };
+
+  // Comment card checkbox toggle
+  const toggleCommentCard = (cardKey: string) => {
+    setCommentCardChecked(prev => ({ ...prev, [cardKey]: !prev[cardKey] }));
+  };
+
+  // Reset the persistence gate when project changes (before new cards load)
+  useEffect(() => {
+    checkedStateRestored.current = false;
+  }, [projectPath]);
+
+  // Path to the check-state persistence file
+  const checkedStatePath = projectPath.trim()
+    ? `${projectPath.replace(/\\/g, "/")}/outputs/final/_data/comment_card_checked.json`
+    : "";
+
+  // Initialize commentCardChecked when commentCards change.
+  // Loads persisted state from JSON file, merges with in-memory changes,
+  // adds new cards defaulting to checked, and prunes stale keys.
+  useEffect(() => {
+    if (!checkedStatePath) return;
+    if (commentCards.length === 0) return;
+
+    let cancelled = false;
+    (async () => {
+      // Read persisted state from file
+      let saved: Record<string, boolean> = {};
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const raw = await invoke<string>("read_text_file", { path: checkedStatePath });
+        saved = JSON.parse(raw);
+      } catch { /* file not found or unreadable */ }
+      if (cancelled) return;
+
+      setCommentCardChecked(prev => {
+        // Start from saved data; in-memory prev takes precedence for keys it defines
+        let next: Record<string, boolean> = { ...saved, ...prev };
+        // Track whether next differs from prev — if saved had data, by definition
+        // next already differs (it has all the saved keys that prev doesn't).
+        let changed = Object.keys(saved).length > 0;
+        // Add new cards (default checked)
+        for (const card of commentCards) {
+          if (!(card.key in next)) {
+            next[card.key] = true;
+            changed = true;
+          }
+        }
+        // Prune keys from sources that ARE in the current cards but whose
+        // specific card keys no longer exist.  Keys from sources NOT YET loaded
+        // (e.g. novelty_achievement on the first buildCommentCards pass) are
+        // preserved — otherwise the second pass re-adds them as default true.
+        const activeSources = new Set(commentCards.map(c => c.source));
+        const validKeys = new Set(commentCards.map(c => c.key));
+        for (const key of Object.keys(next)) {
+          if (!validKeys.has(key)) {
+            const keySource = key.split("::")[0] as CardSource;
+            if (activeSources.has(keySource)) {
+              delete next[key];
+              changed = true;
+            }
+          }
+        }
+        checkedStateRestored.current = true;
+        return changed ? next : prev;
+      });
+    })();
+    return () => { cancelled = true; };
+  }, [commentCards, checkedStatePath]);
+
+  // Persist commentCardChecked to JSON file whenever it changes.
+  // Must wait until checkedStateRestored is true — otherwise the save fires
+  // in the same render cycle as the load and writes the empty initial state.
+  useEffect(() => {
+    if (!checkedStatePath) return;
+    if (!checkedStateRestored.current) return;
+    (async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        await invoke("write_text_file", {
+          path: checkedStatePath,
+          content: JSON.stringify(commentCardChecked),
+        });
+      } catch { /* ignore write errors */ }
+    })();
+  }, [commentCardChecked, checkedStatePath]);
 
   /** Common validation and arg-building for translation commands.
    *  Returns { slot, modelToUse } or null (already sets error messages). */
@@ -3167,6 +5394,179 @@ function App() {
     }
   };
 
+  /** Re-evaluate disputed findings (disagree/partial from external check)
+   *  using reviewer1 as adjudicator. */
+  const runReEvaluate = async (checkName: string) => {
+    const slot = llmSlots.find(s => s.name === "reviewer1");
+    if (!slot || !projectPath.trim()) return;
+    setReevaluationRunning(prev => ({ ...prev, [checkName]: true }));
+    addLog({ event: "info", message: `${checkLabel(checkName)}: 再評価を開始（評価AI 1で裁決）...` });
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const args = buildLlmArgs(slot, [
+        "re-evaluate",
+        "--project", projectPath,
+        "--check", checkName,
+        "--slot", slot.name,
+      ], slot.proModel, "pro");
+      const cmd = Command.create("pra-cli", args);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+      if (output.code === 0) {
+        addLog({ event: "info", message: `${checkLabel(checkName)}: 再評価が完了しました。` });
+        reviewChecksRef.current?.loadReevaluation(checkName);
+      } else {
+        addLog({ event: "error", message: `${checkLabel(checkName)}: 再評価に失敗しました。` });
+      }
+    } catch (e: unknown) {
+      addLog({ event: "error", message: `${checkLabel(checkName)}: 再評価でエラー: ${e instanceof Error ? e.message : String(e)}` });
+    } finally {
+      setReevaluationRunning(prev => ({ ...prev, [checkName]: false }));
+    }
+  };
+
+  /** Translate external check reasoning to Japanese via CLI. */
+  const runTranslateExternalCheck = async (checkName: string) => {
+    const slot = llmSlots.find(s => s.name === "reviewer1");
+    if (!slot || !projectPath.trim()) return;
+    addLog({ event: "info", message: `${checkLabel(checkName)}: 外部評価の日本語訳を生成中...` });
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const args = buildLlmArgs(slot, [
+        "translate-external-check",
+        "--project", projectPath,
+        "--check", checkName,
+        "--slot", slot.name,
+      ], slot.proModel, "pro");
+      const cmd = Command.create("pra-cli", args);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+      if (output.code === 0) {
+        addLog({ event: "info", message: `${checkLabel(checkName)}: 外部評価の日本語訳が完了しました。` });
+        reviewChecksRef.current?.loadExternalCheck(checkName);
+      } else {
+        addLog({ event: "error", message: `${checkLabel(checkName)}: 外部評価の日本語訳に失敗しました。` });
+      }
+    } catch (e: unknown) {
+      addLog({ event: "error", message: `${checkLabel(checkName)}: 外部評価翻訳でエラー: ${e instanceof Error ? e.message : String(e)}` });
+    }
+  };
+
+  /** Translate untranslated external check + reevaluation reasoning to Japanese. */
+  const runTranslateCardJa = async (checkName: string) => {
+    const slot = llmSlots.find(s => s.name === "reviewer1");
+    if (!slot || !projectPath.trim()) return;
+    addLog({ event: "info", message: `${checkLabel(checkName)}: カード日本語訳を生成中...` });
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const args = buildLlmArgs(slot, [
+        "translate-card-ja",
+        "--project", projectPath,
+        "--check", checkName,
+        "--slot", slot.name,
+      ], slot.proModel, "pro");
+      const cmd = Command.create("pra-cli", args);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+      if (output.code === 0) {
+        addLog({ event: "info", message: `${checkLabel(checkName)}: カード日本語訳が完了しました。` });
+        reviewChecksRef.current?.loadExternalCheck(checkName);
+        reviewChecksRef.current?.loadReevaluation(checkName);
+      } else {
+        addLog({ event: "error", message: `${checkLabel(checkName)}: カード日本語訳に失敗しました。` });
+      }
+    } catch (e: unknown) {
+      addLog({ event: "error", message: `${checkLabel(checkName)}: カード翻訳でエラー: ${e instanceof Error ? e.message : String(e)}` });
+    }
+  };
+
+  /** Generate a solution suggestion for a specific finding. */
+  const runSuggestSolution = async (
+    checkName: string, findingId: string,
+    defaultPrompt: string, additionalPrompt: string,
+    includeInOutput: boolean,
+    systemPrompt?: string,
+  ) => {
+    const slot = llmSlots.find(s => s.name === "reviewer1");
+    if (!slot || !projectPath.trim()) return;
+    setSolutionRunning(prev => ({
+      ...prev,
+      [checkName]: { ...(prev[checkName] || {}), [findingId]: true },
+    }));
+    addLog({ event: "info", message: `${checkLabel(checkName)}: 解決策提示を生成中 (${findingId})...` });
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const args = buildLlmArgs(slot, [
+        "suggest-solution",
+        "--project", projectPath,
+        "--check", checkName,
+        "--slot", slot.name,
+        "--finding-id", findingId,
+        "--default-prompt", defaultPrompt,
+        "--additional-prompt", additionalPrompt,
+      ], slot.proModel, "pro");
+      if (includeInOutput) {
+        args.push("--include-in-output");
+      }
+      if (systemPrompt && systemPrompt.trim()) {
+        args.push("--system-prompt", systemPrompt.trim());
+      }
+      const cmd = Command.create("pra-cli", args);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+      if (output.code === 0) {
+        addLog({ event: "info", message: `${checkLabel(checkName)}: 解決策提示が完了しました (${findingId})。` });
+        reviewChecksRef.current?.loadSolutions(checkName);
+      } else {
+        addLog({ event: "error", message: `${checkLabel(checkName)}: 解決策提示に失敗しました (${findingId})。` });
+      }
+    } catch (e: unknown) {
+      addLog({ event: "error", message: `${checkLabel(checkName)}: 解決策提示でエラー: ${e instanceof Error ? e.message : String(e)}` });
+    } finally {
+      setSolutionRunning(prev => {
+        const next = { ...prev };
+        if (next[checkName]) {
+          const checkNext = { ...next[checkName] };
+          delete checkNext[findingId];
+          next[checkName] = checkNext;
+        }
+        return next;
+      });
+    }
+  };
+
+  const runMoveFinding = async (
+    sourceCheck: string, destCheck: string, findingId: string,
+  ) => {
+    if (!projectPath.trim()) return;
+    addLog({ event: "info", message: `${checkLabel(sourceCheck)} → ${checkLabel(destCheck)}: コメントを移動中 (${findingId})...` });
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      const cmd = Command.create("pra-cli", [
+        "move-finding",
+        "--project", projectPath,
+        "--source-check", sourceCheck,
+        "--dest-check", destCheck,
+        "--finding-id", findingId,
+      ]);
+      const output = await cmd.execute();
+      parseOutput(output.stdout);
+      if (output.stderr) addLog({ event: "stderr", message: output.stderr });
+      if (output.code === 0) {
+        addLog({ event: "info", message: `${checkLabel(sourceCheck)} → ${checkLabel(destCheck)}: コメントを移動しました。` });
+        reviewChecksRef.current?.loadMergedResult(sourceCheck);
+      } else {
+        addLog({ event: "error", message: `コメントの移動に失敗しました。` });
+      }
+    } catch (e: unknown) {
+      addLog({ event: "error", message: `コメント移動でエラー: ${e instanceof Error ? e.message : String(e)}` });
+    }
+  };
+
   /** Delete translation for a specific section via CLI. */
   const deleteSectionTranslation = async (sectionName: string) => {
     if (!projectPath.trim()) return;
@@ -3234,7 +5634,8 @@ function App() {
 
   const loadResultFile = async (filename: string) => {
     if (!projectPath.trim()) return;
-    const filePath = `${projectPath.replace(/\\/g, "/")}/outputs/final/${filename}`;
+    const subdir = (filename === "final_review.md" || filename === "final_review_jp.md") ? "" : "/_data";
+    const filePath = `${projectPath.replace(/\\/g, "/")}/outputs/final${subdir}/${filename}`;
     setResultFileLoading(true);
     setSelectedResultFile(filename);
     try {
@@ -3252,20 +5653,608 @@ function App() {
     loadResultFile(selectedResultFile);
   };
 
+  const runTranslateResultFile = async () => {
+    if (!projectPath.trim() || !selectedResultFile) return;
+    const kindMap: Record<string, string> = {
+      "overall_assessment.md": "overall_assessment",
+      "Review_comments.md": "verdict",
+      "comments_to_authors.md": "comments_to_authors",
+    };
+    const kind = kindMap[selectedResultFile];
+    if (!kind) return;
+
+    const slot = llmSlots.find(s =>
+      s.enabled !== false &&
+      s.provider.trim() &&
+      s.baseUrl.trim() &&
+      (s.flashModel || s.model || "").trim(),
+    );
+    if (!slot) {
+      setStatusMessage({ text: "翻訳に使用できるLLMスロットが設定されていません。", type: "error" });
+      return;
+    }
+    const { Command } = await import("@tauri-apps/plugin-shell");
+    const provider = slot.provider;
+    const baseUrl = slot.baseUrl;
+    const model = (slot.flashModel || slot.model || "").trim();
+    let apiKey = slot.apiKey || "";
+    let apiKeyEnv = "";
+    if (slot.apiKeyMode === "env_var") {
+      apiKeyEnv = slot.apiKeyEnvName || "";
+      apiKey = "";
+    }
+
+    const args = [
+      "translate-result-content",
+      "--project", projectPath,
+      "--kind", kind,
+      "--slot", slot.name,
+      "--provider", provider,
+      "--base-url", baseUrl,
+      "--model", model,
+    ];
+    if (apiKey) args.push("--api-key", apiKey);
+    if (apiKeyEnv) args.push("--api-key-env", apiKeyEnv);
+
+    setResultFileTranslateLoading(true);
+    try {
+      const cmd = Command.create("pra-cli", args);
+      const output = await cmd.execute();
+      if (output.code !== 0) {
+        // Parse stdout for error event (CLI emits errors as JSON to stdout)
+        let errorMsg = "";
+        const stdout = output.stdout?.toString() || "";
+        for (const line of stdout.split("\n")) {
+          try {
+            const msg = JSON.parse(line.trim());
+            if (msg.event === "error") {
+              errorMsg = msg.message || msg.code || "";
+            }
+          } catch { /* skip non-JSON lines */ }
+        }
+        const stderr = output.stderr?.toString() || "";
+        const detail = errorMsg || stderr || "不明なエラー";
+        setStatusMessage({ text: `翻訳に失敗しました: ${detail}`, type: "error" });
+        addLog({ event: "error", message: `Result file translation failed: ${detail}` });
+      } else {
+        // Reload the file to get updated content
+        await loadResultFile(selectedResultFile);
+        // Rebuild comment cards so verdict cards reflect translated content
+        if (selectedResultFile === "Review_comments.md") {
+          buildCommentCards().then(cards => setCommentCards(cards));
+        }
+      }
+    } catch (e: any) {
+      setStatusMessage({ text: `翻訳エラー: ${e.message || e}`, type: "error" });
+    } finally {
+      setResultFileTranslateLoading(false);
+    }
+  };
+
+  const runReflectEdit = async () => {
+    if (!projectPath.trim() || !editInstruction.trim()) return;
+    // Prefer the summary (統括AI) slot
+    const slot = llmSlots.find(s =>
+      s.name === "summary" &&
+      s.enabled !== false &&
+      s.provider.trim() &&
+      s.baseUrl.trim() &&
+      (s.flashModel || s.model || "").trim(),
+    ) || llmSlots.find(s =>
+      s.enabled !== false &&
+      s.provider.trim() &&
+      s.baseUrl.trim() &&
+      (s.flashModel || s.model || "").trim(),
+    );
+    if (!slot) {
+      setStatusMessage({ text: "編集に使用できるLLMスロットが設定されていません。統括AIを設定してください。", type: "error" });
+      return;
+    }
+    const { Command } = await import("@tauri-apps/plugin-shell");
+    const provider = slot.provider;
+    const baseUrl = slot.baseUrl;
+    const model = (slot.flashModel || slot.model || "").trim();
+    let apiKey = slot.apiKey || "";
+    let apiKeyEnv = "";
+    if (slot.apiKeyMode === "env_var") {
+      apiKeyEnv = slot.apiKeyEnvName || "";
+      apiKey = "";
+    }
+
+    const args = [
+      "edit-result-content",
+      "--project", projectPath,
+      "--instruction", editInstruction,
+      "--slot", slot.name,
+      "--provider", provider,
+      "--base-url", baseUrl,
+      "--model", model,
+    ];
+    if (apiKey) args.push("--api-key", apiKey);
+    if (apiKeyEnv) args.push("--api-key-env", apiKeyEnv);
+
+    setEditReflectRunning(true);
+    try {
+      const cmd = Command.create("pra-cli", args);
+      const output = await cmd.execute();
+      if (output.code !== 0) {
+        const stderr = output.stderr?.toString() || "";
+        setStatusMessage({ text: "編集に失敗しました。", type: "error" });
+        addLog({ event: "error", message: `Edit result failed: ${stderr}` });
+      } else {
+        setEditInstruction("");
+        await loadResultFile("overall_assessment.md");
+        setStatusMessage({ text: "指示を反映しました。", type: "ok" });
+      }
+    } catch (e: any) {
+      setStatusMessage({ text: `編集エラー: ${e.message || e}`, type: "error" });
+    } finally {
+      setEditReflectRunning(false);
+    }
+  };
+
+  // ── buildCommentCards / parseNoveltyAchievementSections ──
+
+  /** Parse `novelty_achievement.md` into numbered sections. */
+  function parseNoveltyAchievementSections(content: string): { index: number; title: string; body: string }[] {
+    const normalized = content.replace(/\r\n/g, "\n");
+    const parts = normalized.split(/\n(?=## \d+\. )/);
+    const sections: { index: number; title: string; body: string }[] = [];
+    for (const part of parts) {
+      const m = part.match(/^## (\d+)\. (.+)/m);
+      if (m) {
+        const body = part.replace(/^## \d+\. .+\n?/, "").trim();
+        sections.push({ index: parseInt(m[1], 10), title: m[2].trim(), body });
+      }
+    }
+    return sections;
+  }
+
+  /** Aggregate all review data into CommentCard[] for the 査読コメント viewer. */
+  async function buildCommentCards(): Promise<CommentCard[]> {
+    const cards: CommentCard[] = [];
+    const { invoke } = await import("@tauri-apps/api/core");
+    const base = projectPath.replace(/\\/g, "/");
+
+    // Load meta_comment_ids from line number extraction (paragraph_line_map.json)
+    let metaCommentIds: Set<string> = new Set();
+    try {
+      const lineDataRaw = await invoke<string>("read_text_file", { path: `${base}/lines/paragraph_line_map.json` });
+      const lineData = JSON.parse(lineDataRaw);
+      if (lineData.meta_comment_ids && Array.isArray(lineData.meta_comment_ids)) {
+        metaCommentIds = new Set(lineData.meta_comment_ids as string[]);
+      }
+    } catch { /* line data not yet generated */ }
+
+    // ── 1. 採否決定 ──
+    try {
+      const raw = await invoke<string>("read_text_file", { path: `${base}/outputs/final/_data/Review_comments.md` });
+      const sections = parseVerdictSections(raw);
+      if (sections) {
+        for (const s of sections) {
+          cards.push({
+            key: `verdict::${s.key}`,
+            groupLabel: "採否決定",
+            cardLabel: s.label,
+            cardSubtitle: VERDICT_SECTION_DEFS.find(d => d.key === s.key)?.enHeader.replace("## ", "") || s.label,
+            source: "verdict",
+            contentEn: s.contentEn,
+            contentJa: s.contentJa,
+          });
+        }
+      }
+    } catch { /* file not found */ }
+
+    // ── 2. 全体所感 ──
+    try {
+      const raw = await invoke<string>("read_text_file", { path: `${base}/outputs/final/_data/overall_assessment.md` });
+      const parsed = parseResultContent(raw);
+      if (parsed) {
+        cards.push({
+          key: "general_impressions::main",
+          groupLabel: "全体所感",
+          cardLabel: "全体所感",
+          cardSubtitle: "General Impressions",
+          source: "general_impressions",
+          contentEn: parsed.en,
+          contentJa: parsed.ja,
+        });
+      }
+    } catch { /* file not found */ }
+
+    // ── 3. 新規性 — 新規性達成度 (cards 1-4) ──
+    if (noveltyAchievementContent) {
+      const enSections = parseNoveltyAchievementSections(noveltyAchievementContent);
+      const jaContent = noveltyReviewJaContent["achievement"] || "";
+      const jaSections = parseNoveltyAchievementSections(jaContent);
+      for (const enSec of enSections) {
+        if (enSec.index >= 5) continue; // skip card 5 (Publication Prospects)
+        const jaSec = jaSections.find(js => js.index === enSec.index);
+        cards.push({
+          key: `novelty_achievement::${enSec.index}`,
+          groupLabel: "新規性",
+          cardLabel: `新規性達成度 (${enSec.index}) ${enSec.title}`,
+          cardSubtitle: `Achievement Card ${enSec.index}: ${enSec.title}`,
+          source: "novelty_achievement",
+          contentEn: enSec.body,
+          contentJa: jaSec?.body || "",
+        });
+      }
+    }
+
+    // ── 5-10. 査読チェック findings ──
+    const CHECK_META: { name: string; source: CardSource; label: string; done: boolean }[] = [
+      { name: "structure", source: "check_structure", label: "構成", done: structureMergeDone },
+      { name: "expression", source: "check_expression", label: "表現", done: expressionMergeDone },
+      { name: "methods_stats", source: "check_methods_stats", label: "方法・統計", done: methodsStatsMergeDone },
+      { name: "logic_argument", source: "check_logic", label: "論理・主張", done: logicArgumentMergeDone },
+      { name: "figure_table", source: "check_figure_table", label: "図表", done: figureTableMergeDone },
+      { name: "ethics", source: "check_ethics", label: "倫理・利益相反", done: ethicsMergeDone },
+    ];
+
+    for (const check of CHECK_META) {
+      if (!check.done) continue;
+      try {
+        const raw = await invoke<string>("read_text_file", { path: `${base}/outputs/${check.name}/merged.section.json` });
+        const data = JSON.parse(raw);
+        const comments: Array<{
+          comment_id: string; severity: string; category: string;
+          location?: { section?: string; text_excerpt?: string; paragraph_start?: number; paragraph_end?: number }; issue: string;
+          suggested_author_comment: string; confidence: string;
+        }> = data.comments || [];
+
+        // Load Japanese translations if available
+        const jaMap = new Map<string, string>();
+        try {
+          const tRaw = await invoke<string>("read_text_file", {
+            path: `${base}/outputs/${check.name}/merged.translation.json`,
+          });
+          const tData = JSON.parse(tRaw);
+          const findingsJa: Array<{ finding_id: string; issue_ja: string }> =
+            tData.findings_ja || [];
+          for (const fj of findingsJa) {
+            if (fj.finding_id && fj.issue_ja) {
+              jaMap.set(fj.finding_id, fj.issue_ja);
+            }
+          }
+        } catch { /* translation file not found */ }
+
+        for (const c of comments) {
+          cards.push({
+            key: `${check.source}::${c.comment_id}`,
+            groupLabel: check.label,
+            cardLabel: c.category || check.label,
+            cardSubtitle: [check.label, c.category, c.location?.section].filter(Boolean).join(" / "),
+            source: check.source,
+            contentEn: c.issue,
+            contentJa: jaMap.get(c.comment_id) || "",
+            severity: c.severity,
+            confidence: c.confidence,
+            location: c.location,
+            suggestedAuthorComment: c.suggested_author_comment || undefined,
+            isMeta: metaCommentIds.has(c.comment_id),
+          });
+        }
+      } catch { /* merge not done, skip */ }
+    }
+
+    return cards;
+  }
+
+  // Auto-rebuild commentCards when relevant inputs change
+  useEffect(() => {
+    if (!projectPath.trim() || activeView !== "results") return;
+    let cancelled = false;
+    buildCommentCards().then(cards => { if (!cancelled) setCommentCards(cards); });
+    return () => { cancelled = true; };
+  }, [
+    projectPath, activeView,
+    structureMergeDone, expressionMergeDone, methodsStatsMergeDone,
+    logicArgumentMergeDone, figureTableMergeDone, ethicsMergeDone,
+    finalMergeDone, assessmentComposed,
+    noveltyReviewJournalFitContent, noveltyAchievementContent,
+    JSON.stringify(noveltyReviewJaContent),
+    checkTranslateVersion,
+  ]);
+
+  const runGenerateVerdict = async () => {
+    if (!projectPath.trim()) return;
+    // Prefer the summary (統括AI) slot
+    const slot = llmSlots.find(s =>
+      s.name === "summary" &&
+      s.enabled !== false &&
+      s.provider.trim() &&
+      s.baseUrl.trim() &&
+      (s.flashModel || s.model || "").trim(),
+    ) || llmSlots.find(s =>
+      s.enabled !== false &&
+      s.provider.trim() &&
+      s.baseUrl.trim() &&
+      (s.flashModel || s.model || "").trim(),
+    );
+    if (!slot) {
+      setStatusMessage({ text: "採否決定に使用できるLLMスロットが設定されていません。統括AIを設定してください。", type: "error" });
+      return;
+    }
+    const { Command } = await import("@tauri-apps/plugin-shell");
+    const provider = slot.provider;
+    const baseUrl = slot.baseUrl;
+    const model = (slot.flashModel || slot.model || "").trim();
+    let apiKey = slot.apiKey || "";
+    let apiKeyEnv = "";
+    if (slot.apiKeyMode === "env_var") {
+      apiKeyEnv = slot.apiKeyEnvName || "";
+      apiKey = "";
+    }
+
+    const args = [
+      "generate-verdict",
+      "--project", projectPath,
+      "--slot", slot.name,
+      "--provider", provider,
+      "--base-url", baseUrl,
+      "--model", model,
+      "--verdict-only",
+    ];
+    if (apiKey) args.push("--api-key", apiKey);
+    if (apiKeyEnv) args.push("--api-key-env", apiKeyEnv);
+
+    setVerdictGenerating(true);
+    try {
+      const cmd = Command.create("pra-cli", args);
+      const output = await cmd.execute();
+      if (output.code !== 0) {
+        const stderr = output.stderr?.toString() || "";
+        setStatusMessage({ text: "採否決定の生成に失敗しました。", type: "error" });
+        addLog({ event: "error", message: `Generate verdict failed: ${stderr}` });
+        return;
+      }
+
+      setFinalMergeDone(true);
+      await loadResultFile("Review_comments.md");
+      buildCommentCards().then(cards => setCommentCards(cards));
+      setStatusMessage({ text: "採否確率を生成しました。判定を選択し「理由等を生成」で続けてください。", type: "ok" });
+    } catch (e: any) {
+      setStatusMessage({ text: `採否確率生成エラー: ${e.message || e}`, type: "error" });
+    } finally {
+      setVerdictGenerating(false);
+    }
+  };
+
+  const runGenerateVerdictDetail = async () => {
+    if (!projectPath.trim()) return;
+    const slot = llmSlots.find(s =>
+      s.name === "summary" &&
+      s.enabled !== false &&
+      s.provider.trim() &&
+      s.baseUrl.trim() &&
+      (s.flashModel || s.model || "").trim(),
+    ) || llmSlots.find(s =>
+      s.enabled !== false &&
+      s.provider.trim() &&
+      s.baseUrl.trim() &&
+      (s.flashModel || s.model || "").trim(),
+    );
+    if (!slot) {
+      setStatusMessage({ text: "Reasoning等の生成に使用できるLLMスロットが設定されていません。統括AIを設定してください。", type: "error" });
+      return;
+    }
+    const { Command } = await import("@tauri-apps/plugin-shell");
+    const provider = slot.provider;
+    const baseUrl = slot.baseUrl;
+    const model = (slot.flashModel || slot.model || "").trim();
+    let apiKey = slot.apiKey || "";
+    let apiKeyEnv = "";
+    if (slot.apiKeyMode === "env_var") {
+      apiKeyEnv = slot.apiKeyEnvName || "";
+      apiKey = "";
+    }
+
+    const args = [
+      "generate-verdict-detail",
+      "--project", projectPath,
+      "--slot", slot.name,
+      "--provider", provider,
+      "--base-url", baseUrl,
+      "--model", model,
+    ];
+    if (apiKey) args.push("--api-key", apiKey);
+    if (apiKeyEnv) args.push("--api-key-env", apiKeyEnv);
+
+    addLog({ event: "info", message: `[generate-verdict-detail] args: ${args.join(" ")}` });
+
+    setVerdictDetailGenerating(true);
+    try {
+      // Read current file content before running
+      const { invoke } = await import("@tauri-apps/api/core");
+      let beforeContent = "";
+      try {
+        const verdictPath = `${projectPath.replace(/\\/g, "/")}/outputs/final/_data/Review_comments.md`;
+        beforeContent = await invoke<string>("read_text_file", { path: verdictPath });
+      } catch { /* file may not exist yet */ }
+      addLog({ event: "info", message: `[generate-verdict-detail] BEFORE file (${beforeContent.length} chars): ${beforeContent.substring(0, 300)}` });
+
+      const cmd = Command.create("pra-cli", args);
+      const output = await cmd.execute();
+      addLog({ event: "info", message: `[generate-verdict-detail] exit code: ${output.code}` });
+      addLog({ event: "info", message: `[generate-verdict-detail] stdout (${(output.stdout?.toString() || "").length} chars): ${(output.stdout?.toString() || "").substring(0, 500)}` });
+      const stderr = output.stderr?.toString() || "";
+      if (stderr) {
+        addLog({ event: "info", message: `[generate-verdict-detail] stderr: ${stderr.substring(0, 500)}` });
+      }
+
+      if (output.code !== 0) {
+        setStatusMessage({ text: "理由等の生成に失敗しました。", type: "error" });
+        addLog({ event: "error", message: `Generate verdict detail failed: ${stderr}` });
+        return;
+      }
+
+      // Read file after running
+      let afterContent = "";
+      try {
+        const verdictPath = `${projectPath.replace(/\\/g, "/")}/outputs/final/_data/Review_comments.md`;
+        afterContent = await invoke<string>("read_text_file", { path: verdictPath });
+      } catch { /* ignore */ }
+      addLog({ event: "info", message: `[generate-verdict-detail] AFTER file (${afterContent.length} chars): ${afterContent.substring(0, 500)}` });
+
+      await loadResultFile("Review_comments.md");
+      // Rebuild comment cards so verdict detail cards reflect the new content
+      buildCommentCards().then(cards => setCommentCards(cards));
+      setStatusMessage({ text: "理由等を生成しました。", type: "ok" });
+    } catch (e: any) {
+      addLog({ event: "error", message: `[generate-verdict-detail] exception: ${e.message || e}` });
+      setStatusMessage({ text: `理由等生成エラー: ${e.message || e}`, type: "error" });
+    } finally {
+      setVerdictDetailGenerating(false);
+    }
+  };
+
+  const selectVerdict = async (verdict: string) => {
+    if (!projectPath.trim()) return;
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const path = `${projectPath.replace(/\\/g, "/")}/outputs/final/_data/Review_comments.md`;
+      await invoke("write_text_file", {
+        path,
+        content: `## Verdict\n\n**Verdict: ${verdict}**\n`,
+      });
+      setStatusMessage({ text: `判定を「${verdict}」に決定しました。「Reasoning等を生成」で続けてください。`, type: "ok" });
+    } catch (e: any) {
+      setStatusMessage({ text: `判定の保存に失敗: ${e.message || e}`, type: "error" });
+    }
+  };
+
+  const runVerdictEdit = async () => {
+    if (!projectPath.trim() || !verdictEditInstruction.trim()) return;
+    // Prefer the summary (統括AI) slot
+    const slot = llmSlots.find(s =>
+      s.name === "summary" &&
+      s.enabled !== false &&
+      s.provider.trim() &&
+      s.baseUrl.trim() &&
+      (s.flashModel || s.model || "").trim(),
+    ) || llmSlots.find(s =>
+      s.enabled !== false &&
+      s.provider.trim() &&
+      s.baseUrl.trim() &&
+      (s.flashModel || s.model || "").trim(),
+    );
+    if (!slot) {
+      setStatusMessage({ text: "編集に使用できるLLMスロットが設定されていません。統括AIを設定してください。", type: "error" });
+      return;
+    }
+    const { Command } = await import("@tauri-apps/plugin-shell");
+    const provider = slot.provider;
+    const baseUrl = slot.baseUrl;
+    const model = (slot.flashModel || slot.model || "").trim();
+    let apiKey = slot.apiKey || "";
+    let apiKeyEnv = "";
+    if (slot.apiKeyMode === "env_var") {
+      apiKeyEnv = slot.apiKeyEnvName || "";
+      apiKey = "";
+    }
+
+    const args = [
+      "edit-verdict",
+      "--project", projectPath,
+      "--instruction", verdictEditInstruction,
+      "--slot", slot.name,
+      "--provider", provider,
+      "--base-url", baseUrl,
+      "--model", model,
+    ];
+    if (apiKey) args.push("--api-key", apiKey);
+    if (apiKeyEnv) args.push("--api-key-env", apiKeyEnv);
+
+    setVerdictEditRunning(true);
+    try {
+      const cmd = Command.create("pra-cli", args);
+      const output = await cmd.execute();
+      if (output.code !== 0) {
+        const stderr = output.stderr?.toString() || "";
+        setStatusMessage({ text: "採否決定の編集に失敗しました。", type: "error" });
+        addLog({ event: "error", message: `Edit verdict failed: ${stderr}` });
+      } else {
+        setVerdictEditInstruction("");
+        await loadResultFile("Review_comments.md");
+        setStatusMessage({ text: "採否決定を更新しました。翻訳を実行中...", type: "info" });
+        // Auto-translate the edited EN content
+        await runTranslateResultFileInternal();
+        await loadResultFile("Review_comments.md");
+        setStatusMessage({ text: "採否決定の編集と翻訳が完了しました。", type: "ok" });
+      }
+    } catch (e: any) {
+      setStatusMessage({ text: `編集エラー: ${e.message || e}`, type: "error" });
+    } finally {
+      setVerdictEditRunning(false);
+    }
+  };
+
+  // Internal translate helper (no state changes for loading flags)
+  const runTranslateResultFileInternal = async () => {
+    if (!projectPath.trim() || !selectedResultFile) return;
+    const kindMap: Record<string, string> = {
+      "overall_assessment.md": "overall_assessment",
+      "Review_comments.md": "verdict",
+      "comments_to_authors.md": "comments_to_authors",
+    };
+    const kind = kindMap[selectedResultFile];
+    if (!kind) return;
+
+    const slot = llmSlots.find(s =>
+      s.enabled !== false &&
+      s.provider.trim() &&
+      s.baseUrl.trim() &&
+      (s.flashModel || s.model || "").trim(),
+    );
+    if (!slot) return;
+    const { Command } = await import("@tauri-apps/plugin-shell");
+    const provider = slot.provider;
+    const baseUrl = slot.baseUrl;
+    const model = (slot.flashModel || slot.model || "").trim();
+    let apiKey = slot.apiKey || "";
+    let apiKeyEnv = "";
+    if (slot.apiKeyMode === "env_var") {
+      apiKeyEnv = slot.apiKeyEnvName || "";
+      apiKey = "";
+    }
+
+    const args = [
+      "translate-result-content",
+      "--project", projectPath,
+      "--kind", kind,
+      "--slot", slot.name,
+      "--provider", provider,
+      "--base-url", baseUrl,
+      "--model", model,
+    ];
+    if (apiKey) args.push("--api-key", apiKey);
+    if (apiKeyEnv) args.push("--api-key-env", apiKeyEnv);
+
+    const cmd = Command.create("pra-cli", args);
+    const output = await cmd.execute();
+    if (output.code !== 0) {
+      const stderr = output.stderr?.toString() || "";
+      addLog({ event: "error", message: `Auto-translate after edit failed: ${stderr}` });
+    }
+  };
+
   const openOutputFolder = async () => {
     if (!projectPath.trim()) return;
     try {
-      const { open: shellOpen } = await import("@tauri-apps/plugin-shell");
+      const { Command } = await import("@tauri-apps/plugin-shell");
       const finalDir = `${projectPath.replace(/\\/g, "/")}/outputs/final`;
-      await shellOpen(`file:///${finalDir}`);
-    } catch {
-      // ignore - folder may not exist
+      await Command.create("explorer", [finalDir.replace(/\//g, "\\")]).execute();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addLog({ event: "error", message: `フォルダを開けません: ${msg}` });
+      setStatusMessage({text: `フォルダを開けません: ${msg}`, type: "error"});
     }
   };
 
   useEffect(() => {
     if (finalMergeDone && projectPath.trim()) {
-      loadResultFile("final_review.md");
+      loadResultFile("Review_comments.md");
     }
   }, [finalMergeDone]);
 
@@ -3312,6 +6301,9 @@ function App() {
     structureMergeDone,
     expressionMergeDone,
     methodsStatsMergeDone,
+    logicArgumentMergeDone,
+    figureTableMergeDone,
+    ethicsMergeDone,
     finalMergeDone,
     settingsConfigured,
     onStepClick: handleStepClick,
@@ -3519,6 +6511,11 @@ function App() {
               noveltyAssessRunning={noveltyAssessRunning}
               noveltyAssessmentContent={noveltyAssessmentContent}
               onNoveltyAssess={runNoveltyAssess}
+              onNoveltyMergeAndAssess={runNoveltyMergeAndAssess}
+              noveltyTranslation={noveltyTranslation}
+              noveltyTranslationLoading={noveltyTranslationLoading}
+              noveltyTranslationError={noveltyTranslationError}
+              onTranslateNoveltyContent={translateNoveltyContent}
               onNavigateToSettings={() => setActiveView("settings")}
               statusMessage={statusMessage}
             />
@@ -3526,28 +6523,111 @@ function App() {
 
           {activeView === "review" && (
             <ReviewChecksPanel
+              ref={reviewChecksRef}
               projectPath={projectPath}
+              crossrefDone={crossrefDone}
+              windowsHelloStatus={windowsHelloStatus}
               llmSlots={llmSlots}
               structureCheckResults={structureCheckResults}
               expressionCheckResults={expressionCheckResults}
               methodsStatsCheckResults={methodsStatsCheckResults}
+              logicArgumentCheckResults={logicArgumentCheckResults}
+              figureTableCheckResults={figureTableCheckResults}
+              ethicsCheckResults={ethicsCheckResults}
               structureMergeDone={structureMergeDone}
               structureMergeRunning={structureMergeRunning}
               expressionMergeDone={expressionMergeDone}
               expressionMergeRunning={expressionMergeRunning}
               methodsStatsMergeDone={methodsStatsMergeDone}
               methodsStatsMergeRunning={methodsStatsMergeRunning}
+              logicArgumentMergeDone={logicArgumentMergeDone}
+              logicArgumentMergeRunning={logicArgumentMergeRunning}
+              figureTableMergeDone={figureTableMergeDone}
+              figureTableMergeRunning={figureTableMergeRunning}
+              ethicsMergeDone={ethicsMergeDone}
+              ethicsMergeRunning={ethicsMergeRunning}
               finalMergeDone={finalMergeDone}
-              finalMergeRunning={finalMergeRunning}
               onStructureCheck={runStructureCheck}
               onExpressionCheck={runExpressionCheck}
               onMethodsStatsCheck={runMethodsStatsCheck}
-              onMergeStructure={runMergeStructure}
-              onMergeExpression={runMergeExpression}
-              onMergeMethodsStats={runMergeMethodsStats}
-              onFinalMerge={runFinalMerge}
+              onLogicArgumentCheck={runLogicArgumentCheck}
+              onFigureTableCheck={runFigureTableCheck}
+              onEthicsCheck={runEthicsCheck}
+              onBatchStructure={runBatchStructure}
+              onBatchExpression={runBatchExpression}
+              onBatchMethodsStats={runBatchMethodsStats}
+              onBatchLogicArgument={runBatchLogicArgument}
+              onBatchFigureTable={runBatchFigureTable}
+              onBatchEthics={runBatchEthics}
+              batchRunning={batchRunning}
+              reevaluationRunning={reevaluationRunning}
+              onMergeStructure={() => runMergeStructure()}
+              onMergeExpression={() => runMergeExpression()}
+              onMergeMethodsStats={() => runMergeMethodsStats()}
+              onMergeLogicArgument={() => runMergeLogicArgument()}
+              onMergeFigureTable={() => runMergeFigureTable()}
+              onMergeEthics={() => runMergeEthics()}
+              onCancelCheck={cancelCheck}
+              onReEvaluate={runReEvaluate}
+              onTranslateExternalCheck={runTranslateExternalCheck}
+              onTranslateCardJa={runTranslateCardJa}
               onNavigateToSettings={() => setActiveView("settings")}
+              supplementalFiles={supplementalFiles}
+              onAttachSupplemental={attachSupplementalFiles}
               statusMessage={statusMessage}
+              onClearCheck={clearCheckCache}
+              // Novelty review section
+              noveltyAssessDone={noveltyAssessDone}
+              journalProfile={journalProfile}
+              noveltyReviewJournalFitDone={noveltyReviewJournalFitDone}
+              noveltyReviewJournalFitRunning={noveltyReviewJournalFitRunning}
+              noveltyReviewJournalFitContent={noveltyReviewJournalFitContent}
+              noveltyReviewUniversalDone={noveltyReviewUniversalDone}
+              noveltyReviewUniversalRunning={noveltyReviewUniversalRunning}
+              noveltyReviewUniversalContent={noveltyReviewUniversalContent}
+              onNoveltyReviewJournalFit={runNoveltyReviewJournalFit}
+              onNoveltyReviewUniversal={runNoveltyReviewUniversal}
+              noveltyReviewJaContent={noveltyReviewJaContent}
+              noveltyReviewTranslationLoading={noveltyReviewTranslationLoading}
+              onTranslateNoveltyReview={runNoveltyReviewTranslation}
+              onBatchNovelty={runBatchNovelty}
+              noveltyReviewJournalFitModel={noveltyReviewJournalFitModel}
+              noveltyReviewJournalFitGeneratedAt={noveltyReviewJournalFitGeneratedAt}
+              noveltyReviewUniversalModel={noveltyReviewUniversalModel}
+              noveltyReviewUniversalGeneratedAt={noveltyReviewUniversalGeneratedAt}
+              noveltyReviewJournalTierDone={noveltyReviewJournalTierDone}
+              noveltyReviewJournalTierRunning={noveltyReviewJournalTierRunning}
+              noveltyReviewJournalTierContent={noveltyReviewJournalTierContent}
+              noveltyReviewJournalTierModel={noveltyReviewJournalTierModel}
+              noveltyReviewJournalTierGeneratedAt={noveltyReviewJournalTierGeneratedAt}
+              onNoveltyReviewJournalTier={runNoveltyReviewJournalTier}
+              noveltyAchievementDone={noveltyAchievementDone}
+              noveltyAchievementRunning={noveltyAchievementRunning}
+              noveltyAchievementContent={noveltyAchievementContent}
+              onNoveltyAchievement={runNoveltyAchievement}
+              // Journal search (internal + external methods)
+              journalFindDone={journalFindDone}
+              journalFindRunning={journalFindRunning}
+              journalFindMergeDone={journalFindMergeDone}
+              journalFindMergeRunning={journalFindMergeRunning}
+              journalFindMergedContent={journalFindMergedContent}
+              journalSearchPromptDone={journalSearchPromptDone}
+              journalSearchPromptContent={journalSearchPromptContent}
+              journalSearchExternalResultA={journalSearchExternalResultA}
+              setJournalSearchExternalResultA={setJournalSearchExternalResultA}
+              journalSearchExternalResultB={journalSearchExternalResultB}
+              setJournalSearchExternalResultB={setJournalSearchExternalResultB}
+              onFindJournals={runFindJournals}
+              onGenerateJournalSearchPrompt={runGenerateJournalSearchPrompt}
+              onParseJournalSearchResults={runParseJournalSearchResults}
+              journalFindMergedContentJa={journalFindMergedContentJa}
+              journalFindLang={journalFindLang}
+              setJournalFindLang={setJournalFindLang}
+              journalFindTranslateRunning={journalFindTranslateRunning}
+              onTranslateJournalSearch={runTranslateJournalSearch}
+              solutionRunning={solutionRunning}
+              onSuggestSolution={runSuggestSolution}
+              onMoveFinding={runMoveFinding}
             />
           )}
 
@@ -3561,6 +6641,42 @@ function App() {
               onReloadResults={reloadResults}
               onOpenOutputFolder={openOutputFolder}
               statusMessage={statusMessage}
+              assessmentCandidatesRunning={assessmentCandidatesRunning}
+              onGenerateCandidates={runGenerateAssessmentCandidates}
+              onRegenerateSection={runRegenerateSection}
+              onCancelCandidates={cancelAssessmentCandidates}
+              candidatesData={assessmentCandidatesData}
+              selectedIds={assessmentSelectedIds}
+              onToggleCandidate={toggleAssessmentCandidate}
+              assessmentComposeRunning={assessmentComposeRunning}
+              onComposeAssessment={runComposeOverallAssessment}
+              onCancelCompose={cancelAssessmentCompose}
+              onDeleteCandidate={runDeleteCandidate}
+              assessmentComposed={assessmentComposed}
+              freeTextContent={assessmentFreeText}
+              onFreeTextChange={handleFreeTextChange}
+              resultFileTranslateLoading={resultFileTranslateLoading}
+              onTranslateResultFile={runTranslateResultFile}
+              editInstruction={editInstruction}
+              onEditInstructionChange={setEditInstruction}
+              editReflectRunning={editReflectRunning}
+              onReflectEdit={runReflectEdit}
+              verdictGenerating={verdictGenerating}
+              onGenerateVerdict={runGenerateVerdict}
+              verdictDetailGenerating={verdictDetailGenerating}
+              onGenerateVerdictDetail={runGenerateVerdictDetail}
+              onSelectVerdict={selectVerdict}
+              verdictEditInstruction={verdictEditInstruction}
+              onVerdictEditInstructionChange={setVerdictEditInstruction}
+              verdictEditRunning={verdictEditRunning}
+              onVerdictEdit={runVerdictEdit}
+              commentCards={commentCards}
+              commentCardChecked={commentCardChecked}
+              onToggleCommentCard={toggleCommentCard}
+              viewerFontSize={viewerFontSize}
+              onViewerFontSizeChange={setViewerFontSize}
+              finalMergeDone={finalMergeDone}
+              onRunFinalMerge={runFinalMerge}
             />
           )}
 
@@ -3579,6 +6695,7 @@ function App() {
               onTestSlot={testLlmSlot}
               onCheckLlmEnv={checkLlmEnv}
               onTestAll={testAllLlm}
+              testAllProgress={testAllProgress}
               onLockSecrets={lockSecrets}
               onWindowsHelloSave={windowsHelloSaveKey}
               onWindowsHelloDecrypt={windowsHelloDecryptKey}
@@ -3621,13 +6738,32 @@ function App() {
               onPubmedEnabledChange={setPubmedEnabled}
               ciniiAppid={ciniiAppid}
               onCiniiAppidChange={setCiniiAppid}
+              ciniiEnabled={ciniiEnabled}
+              onCiniiEnabledChange={setCiniiEnabled}
               onSaveAppSettings={saveAppSettings}
             />
           )}
         </div>
 
         {/* Bottom collapsible log pane */}
-        <div className={`app-log-pane ${logExpanded ? "" : "collapsed"}`}>
+        <div
+          className={`app-log-pane ${logExpanded ? "" : "collapsed"}`}
+          style={logExpanded ? { height: logHeightPx } : undefined}
+        >
+          {/* Drag handle for resize */}
+          {logExpanded && (
+            <div
+              onMouseDown={onLogDragStart}
+              style={{
+                height: 6, cursor: "ns-resize",
+                background: "#e0e0e0",
+                borderTop: "1px solid #ccc",
+                borderBottom: "1px solid #ccc",
+                flexShrink: 0,
+              }}
+              title="ドラッグで高さを変更"
+            />
+          )}
           <div className="app-log-header">
             <button
               className="log-toggle-btn"
@@ -3640,9 +6776,6 @@ function App() {
             </button>
             {logExpanded && (
               <div className="log-header-actions">
-                <button onClick={cycleLogHeight} className="clear-btn" title="ログ領域の高さを切り替え">
-                  {logHeight === "small" ? "▤ 小" : logHeight === "medium" ? "▤ 中" : "▤ 大"}
-                </button>
                 <button onClick={copyLogs} className="clear-btn">ログをコピー</button>
                 <button onClick={clearLogs} className="clear-btn">ログを消去</button>
               </div>
@@ -3651,7 +6784,6 @@ function App() {
           {logExpanded && (
             <div
               className="app-log-area"
-              style={{ maxHeight: logHeightPx }}
             >
               {logs.length === 0 && (
                 <p className="log-empty-msg">

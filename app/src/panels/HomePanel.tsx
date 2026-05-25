@@ -35,7 +35,7 @@ export default function HomePanel({
     { label: "文献DB照合", done: crossrefDone },
     { label: "文献確認", done: viewerDataReady },
     { label: "査読チェック", done: structureMergeDone },
-    { label: "最終出力", done: finalMergeDone },
+    { label: "査読結果作成", done: finalMergeDone },
   ];
 
   const doneCount = stages.filter((s) => s.done).length;

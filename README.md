@@ -34,41 +34,28 @@
 
 ## インストール方法
 
-### 推奨: インストーラーを使用する（Windows）
+### 1. Python 3.11 以上をインストール
 
-[Releases](https://github.com/soheidon/Peer-Review-Assistant/releases) から最新の `Peer Review Assistant_x.x.x_x64-setup.exe` をダウンロードして実行してください。
+まだインストールしていない場合は [python.org](https://www.python.org/downloads/) からダウンロードしてください。
+インストール時に「Add Python to PATH」にチェックを入れてください。
 
-インストーラーが以下のセットアップを行います：
-- アプリケーション本体のインストール
-- スタートメニュー・デスクトップへのショートカット作成
+### 2. Peer Review Assistant をインストール
 
-**別途必要なもの**:
-- **Python 3.11 以上** — Python CLI（査読処理エンジン）の実行に必要です
-- Python CLI のインストール:
+[Releases](https://github.com/soheidon/Peer-Review-Assistant/releases) から最新の `Peer Review Assistant_x.x.x_x64-setup.exe` をダウンロードして実行します。
 
-```bash
-# リポジトリをクローン
-git clone https://github.com/soheidon/Peer-Review-Assistant.git
-cd Peer-Review-Assistant/python
-pip install -e .
-```
+### 3. Python CLI をセットアップ
 
-### 開発者向け: ソースコードからビルド
+コマンドプロンプトまたは PowerShell で以下を実行します：
 
 ```bash
-# リポジトリをクローン
-git clone https://github.com/soheidon/Peer-Review-Assistant.git
-cd Peer-Review-Assistant
-
-# Tauri アプリのビルド
-cd app
-npm install
-npm run tauri build
-
-# Python CLI のセットアップ
-cd ../python
-pip install -e .
+pip install git+https://github.com/soheidon/Peer-Review-Assistant.git#subdirectory=python
 ```
+
+### 4. 起動
+
+スタートメニューまたはデスクトップの **Peer Review Assistant** を起動してください。
+
+> **開発者向け**: ソースコードからビルドする場合は、`git clone` 後 `cd app && npm install && npm run tauri build` でビルドできます（Node.js 20+ と Rust が必要です）。
 
 ## 最小限の使い方
 
@@ -92,9 +79,7 @@ pip install -e .
 ## 動作環境
 
 - **OS**: Windows 11（主対象）
-- **Python**: 3.11 以上（必須）
-- **Node.js**: 20 以上（ソースコードからビルドする場合のみ）
-- **Rust**: 最新の stable（ソースコードからビルドする場合のみ）
+- **Python**: 3.11 以上
 
 ## 注意事項
 

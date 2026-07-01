@@ -22,4 +22,17 @@ pub enum Commands {
         #[arg(long)]
         output: String,
     },
+
+    /// Convert a markdown review document to plain text.
+    /// Reads markdown from --input, writes plain text to --output.
+    ConvertMdToTxt {
+        #[arg(long)]
+        input: String,
+
+        #[arg(long)]
+        output: String,
+
+        #[arg(long, default_value = "en")]
+        lang: String,
+    },
 }

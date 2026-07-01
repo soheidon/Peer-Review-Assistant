@@ -1,0 +1,86 @@
+[
+  {
+    "name": "h1_simple",
+    "input": "# Introduction\n\nBody text.",
+    "lang": "en",
+    "output": "━━━ Introduction ━━━\nBody text."
+  },
+  {
+    "name": "h2_simple",
+    "input": "## Methods\n\nBody text.",
+    "lang": "en",
+    "output": "━━━ Methods ━━━\nBody text."
+  },
+  {
+    "name": "h3_simple",
+    "input": "### Results\n\nBody text.",
+    "lang": "en",
+    "output": "┄┄ Results ┄┄\nBody text."
+  },
+  {
+    "name": "h4_simple",
+    "input": "#### Details\n\nBody text.",
+    "lang": "en",
+    "output": "┄┄ Details ┄┄\nBody text."
+  },
+  {
+    "name": "bold_label",
+    "input": "**Issue**: The sample size is too small.",
+    "lang": "en",
+    "output": "[Issue] The sample size is too small."
+  },
+  {
+    "name": "bold_label_with_colons",
+    "input": "**Note**: See section 3.1: methods.",
+    "lang": "en",
+    "output": "[Note] See section 3.1: methods."
+  },
+  {
+    "name": "quote",
+    "input": "\"This is a quoted passage.\"",
+    "lang": "en",
+    "output": "\"This is a quoted passage.\""
+  },
+  {
+    "name": "consecutive_lines",
+    "input": "Line one.\nLine two.\nLine three.",
+    "lang": "en",
+    "output": "Line one. Line two. Line three."
+  },
+  {
+    "name": "empty",
+    "input": "",
+    "lang": "en",
+    "output": ""
+  },
+  {
+    "name": "whitespace",
+    "input": "   \n\n  \n",
+    "lang": "en",
+    "output": ""
+  },
+  {
+    "name": "full_document",
+    "input": "# Paper Review\n\n## Major Comments\n\n**Issue**: Small sample size.\n**Confidence**: high\n\n## Minor Comments\n\nThe formatting of Table 2 needs improvement.\nConsider adding a figure legend.",
+    "lang": "en",
+    "output": "━━━ Paper Review ━━━\n\n━━━ Major Comments ━━━\n[Issue] Small sample size.\n\n[Confidence] high\n\n━━━ Minor Comments ━━━\nThe formatting of Table 2 needs improvement. Consider adding a figure legend."
+  },
+  {
+    "name": "heading_spacing",
+    "input": "## Title\nContent line.",
+    "lang": "en",
+    "output": "━━━ Title ━━━\nContent line."
+  },
+  {
+    "name": "para_spacing",
+    "input": "First paragraph.\n\nSecond paragraph.",
+    "lang": "en",
+    "output": "First paragraph.\n\nSecond paragraph."
+  },
+  {
+    "name": "with_ja_lang",
+    "input": "# はじめに\n\n本文です。",
+    "lang": "ja",
+    "output": "━━━ はじめに ━━━\n本文です。"
+  }
+]

@@ -1,0 +1,19 @@
+[package]
+name = "pra_cli_rs"
+version = "0.1.0"
+edition = "2021"
+description = "Rust CLI for Academic Paper Checker — incrementally replacing Python backend modules"
+
+[[bin]]
+name = "pra-cli-rs"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+
+[dev-dependencies]
+tempfile = "3"
+insta = { version = "1", features = ["json"] }

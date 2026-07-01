@@ -11,6 +11,7 @@ venv/
 node_modules/
 app/src-tauri/target/
 app/src-tauri/gen/
+rust/pra-cli/target/
 
 # IDE
 .vscode/

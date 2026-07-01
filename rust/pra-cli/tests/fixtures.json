@@ -1,0 +1,111 @@
+[
+  {
+    "name": "raw_object",
+    "input": "{\"key\": \"value\"}",
+    "output": {
+      "key": "value"
+    }
+  },
+  {
+    "name": "raw_array",
+    "input": "[{\"a\": 1}, {\"b\": 2}]",
+    "output": [
+      {
+        "a": 1
+      },
+      {
+        "b": 2
+      }
+    ]
+  },
+  {
+    "name": "raw_nested",
+    "input": "{\"status\": \"ok\", \"count\": 42}",
+    "output": {
+      "status": "ok",
+      "count": 42
+    }
+  },
+  {
+    "name": "fence_json",
+    "input": "Here is the result:\n```json\n{\"status\": \"ok\", \"count\": 42}\n```\nDone.",
+    "output": {
+      "status": "ok",
+      "count": 42
+    }
+  },
+  {
+    "name": "fence_json_only",
+    "input": "```json\n{\"findings\": [{\"id\": 1}]}\n```",
+    "output": {
+      "findings": [
+        {
+          "id": 1
+        }
+      ]
+    }
+  },
+  {
+    "name": "fence_generic",
+    "input": "```\n{\"data\": [1, 2, 3]}\n```",
+    "output": {
+      "data": [
+        1,
+        2,
+        3
+      ]
+    }
+  },
+  {
+    "name": "outer_braces",
+    "input": "The answer is {\"score\": 95, \"pass\": true}. Hope this helps!",
+    "output": {
+      "score": 95,
+      "pass": true
+    }
+  },
+  {
+    "name": "outer_array",
+    "input": "Results: [{\"id\": 1}, {\"id\": 2}] end.",
+    "output": null
+  },
+  {
+    "name": "truncated_braces",
+    "input": "{\"findings\": [{\"issue\": \"needs work\", \"severity\": \"major\"",
+    "output": {
+      "findings": [
+        {
+          "issue": "needs work",
+          "severity": "major"
+        }
+      ]
+    }
+  },
+  {
+    "name": "truncated_string",
+    "input": "{\"title\": \"Introduction to",
+    "output": {
+      "title": "Introduction to"
+    }
+  },
+  {
+    "name": "empty",
+    "input": "",
+    "output": null
+  },
+  {
+    "name": "whitespace_only",
+    "input": "   ",
+    "output": null
+  },
+  {
+    "name": "no_json",
+    "input": "not json at all",
+    "output": null
+  },
+  {
+    "name": "unrepairable",
+    "input": "still not { valid",
+    "output": null
+  }
+]

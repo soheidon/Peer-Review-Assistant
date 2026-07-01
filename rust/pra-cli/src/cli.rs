@@ -35,4 +35,15 @@ pub enum Commands {
         #[arg(long, default_value = "en")]
         lang: String,
     },
+
+    /// Merge individual reviewer raw.json files into a unified section result.
+    /// Reads from <project>/outputs/<check>/, writes merged.section.json to
+    /// <project>/results/merge/<check>/.
+    MergeSection {
+        #[arg(long)]
+        project: String,
+
+        #[arg(long)]
+        check: String,
+    },
 }

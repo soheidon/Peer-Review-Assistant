@@ -22,6 +22,9 @@ fn main() {
         } => {
             cmd_convert_md_to_txt(&input, &output, &lang);
         }
+        Commands::MergeSection { project, check } => {
+            cmd_merge_section(&project, &check);
+        }
     }
 }
 
@@ -95,6 +98,43 @@ fn cmd_convert_md_to_txt(input_path: &str, output_path: &str, lang: &str) {
         lib::emit::fail(
             "output_write_error",
             &format!("Failed to write --output: {}", e),
+        );
+    }
+
+    lib::emit::done();
+}
+
+fn cmd_merge_section(project: &str, check: &str) {
+    let project_dir = Path::new(project);
+
+    // Perform the merge
+    let output = match lib::merge::merge_section(project_dir, check) {
+        Ok(o) => o,
+        Err(e) => {
+            lib::emit::fail("merge_failed", &format!("{}", e));
+        }
+    };
+
+    // Ensure output directory exists (matching Python CLI behaviour)
+    let out_dir = project_dir
+        .join("results")
+        .join("merge")
+        .join(check);
+    if let Err(e) = fs::create_dir_all(&out_dir) {
+        lib::emit::fail(
+            "output_dir_create_failed",
+            &format!("Failed to create output directory {}: {}", out_dir.display(), e),
+        );
+    }
+
+    // Write merged.section.json
+    let json_str = serde_json::to_string_pretty(&output)
+        .expect("failed to serialize merged output");
+    let output_path = out_dir.join("merged.section.json");
+    if let Err(e) = fs::write(&output_path, &json_str) {
+        lib::emit::fail(
+            "output_write_error",
+            &format!("Failed to write {}: {}", output_path.display(), e),
         );
     }
 

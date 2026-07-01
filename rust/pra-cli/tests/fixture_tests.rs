@@ -42,3 +42,196 @@ fn fixture_count_is_reasonable() {
     // We expect at least the 14 generated fixtures
     assert!(fixtures.len() >= 14);
 }
+
+// ── Merge fixture tests ──
+
+mod merge_tests {
+    use pra_cli_rs::merge::{self, build_markdown};
+    use serde_json::Value;
+    use std::fs;
+    use tempfile::TempDir;
+
+    struct MergeCase {
+        name: &'static str,
+        check_name: &'static str,
+        raw_files: &'static [(&'static str, &'static str)], // (filename, content)
+    }
+
+    fn all_cases() -> Vec<MergeCase> {
+        vec![
+            MergeCase {
+                name: "single_reviewer",
+                check_name: "structure",
+                raw_files: &[
+                    (
+                        "gpt-4o.raw.json",
+                        include_str!("merge_fixtures/single_reviewer/gpt-4o.raw.json"),
+                    ),
+                ],
+            },
+            MergeCase {
+                name: "multi_reviewer_overlap",
+                check_name: "structure",
+                raw_files: &[
+                    (
+                        "claude-opus.raw.json",
+                        include_str!("merge_fixtures/multi_reviewer_overlap/claude-opus.raw.json"),
+                    ),
+                    (
+                        "gpt-4o.raw.json",
+                        include_str!("merge_fixtures/multi_reviewer_overlap/gpt-4o.raw.json"),
+                    ),
+                ],
+            },
+            MergeCase {
+                name: "multi_reviewer_no_overlap",
+                check_name: "structure",
+                raw_files: &[
+                    (
+                        "claude-opus.raw.json",
+                        include_str!(
+                            "merge_fixtures/multi_reviewer_no_overlap/claude-opus.raw.json"
+                        ),
+                    ),
+                    (
+                        "gpt-4o.raw.json",
+                        include_str!("merge_fixtures/multi_reviewer_no_overlap/gpt-4o.raw.json"),
+                    ),
+                ],
+            },
+            MergeCase {
+                name: "intra_reviewer_duplicate",
+                check_name: "structure",
+                raw_files: &[(
+                    "gpt-4o.raw.json",
+                    include_str!("merge_fixtures/intra_reviewer_duplicate/gpt-4o.raw.json"),
+                )],
+            },
+            MergeCase {
+                name: "severity_conflict",
+                check_name: "structure",
+                raw_files: &[
+                    (
+                        "claude-opus.raw.json",
+                        include_str!("merge_fixtures/severity_conflict/claude-opus.raw.json"),
+                    ),
+                    (
+                        "gpt-4o.raw.json",
+                        include_str!("merge_fixtures/severity_conflict/gpt-4o.raw.json"),
+                    ),
+                ],
+            },
+            MergeCase {
+                name: "empty_findings",
+                check_name: "structure",
+                raw_files: &[
+                    (
+                        "claude-opus.raw.json",
+                        include_str!("merge_fixtures/empty_findings/claude-opus.raw.json"),
+                    ),
+                    (
+                        "gpt-4o.raw.json",
+                        include_str!("merge_fixtures/empty_findings/gpt-4o.raw.json"),
+                    ),
+                ],
+            },
+        ]
+    }
+
+    fn expected_json(name: &str) -> Value {
+        let path = format!(
+            "{}/tests/merge_fixtures/{}/merged.section.json",
+            env!("CARGO_MANIFEST_DIR"),
+            name
+        );
+        let content = fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("Failed to read expected JSON at {}: {}", path, e));
+        serde_json::from_str(&content)
+            .unwrap_or_else(|e| panic!("Failed to parse expected JSON at {}: {}", path, e))
+    }
+
+    fn expected_md(name: &str) -> String {
+        let path = format!(
+            "{}/tests/merge_fixtures/{}/merged.md",
+            env!("CARGO_MANIFEST_DIR"),
+            name
+        );
+        let content = fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("Failed to read expected markdown at {}: {}", path, e));
+        // Normalize CRLF → LF for cross-platform comparison
+        content.replace("\r\n", "\n")
+    }
+
+    fn run_merge(case: &MergeCase) -> (Value, String) {
+        let tmp = TempDir::new().expect("tempdir");
+        let project_dir = tmp.path();
+
+        // Set up outputs/<check_name>/ directory with raw.json files
+        let outputs_dir = project_dir.join("outputs").join(case.check_name);
+        fs::create_dir_all(&outputs_dir).expect("create outputs dir");
+
+        for (filename, content) in case.raw_files {
+            fs::write(outputs_dir.join(filename), content).expect("write raw file");
+        }
+
+        // Run merge
+        let output =
+            merge::merge_section(project_dir, case.check_name).expect("merge_section should succeed");
+
+        // Serialize to Value for comparison
+        let json_str = serde_json::to_string_pretty(&output).expect("serialize output");
+        let json_val: Value = serde_json::from_str(&json_str).expect("re-parse output");
+
+        let md = build_markdown(&output);
+
+        (json_val, md)
+    }
+
+    #[test]
+    fn merge_single_reviewer() {
+        let case = all_cases().into_iter().find(|c| c.name == "single_reviewer").unwrap();
+        let (actual_json, actual_md) = run_merge(&case);
+        assert_eq!(actual_json, expected_json("single_reviewer"));
+        assert_eq!(actual_md, expected_md("single_reviewer"));
+    }
+
+    #[test]
+    fn merge_multi_reviewer_overlap() {
+        let case = all_cases().into_iter().find(|c| c.name == "multi_reviewer_overlap").unwrap();
+        let (actual_json, actual_md) = run_merge(&case);
+        assert_eq!(actual_json, expected_json("multi_reviewer_overlap"));
+        assert_eq!(actual_md, expected_md("multi_reviewer_overlap"));
+    }
+
+    #[test]
+    fn merge_multi_reviewer_no_overlap() {
+        let case = all_cases().into_iter().find(|c| c.name == "multi_reviewer_no_overlap").unwrap();
+        let (actual_json, actual_md) = run_merge(&case);
+        assert_eq!(actual_json, expected_json("multi_reviewer_no_overlap"));
+        assert_eq!(actual_md, expected_md("multi_reviewer_no_overlap"));
+    }
+
+    #[test]
+    fn merge_intra_reviewer_duplicate() {
+        let case = all_cases().into_iter().find(|c| c.name == "intra_reviewer_duplicate").unwrap();
+        let (actual_json, actual_md) = run_merge(&case);
+        assert_eq!(actual_json, expected_json("intra_reviewer_duplicate"));
+        assert_eq!(actual_md, expected_md("intra_reviewer_duplicate"));
+    }
+
+    #[test]
+    fn merge_severity_conflict() {
+        let case = all_cases().into_iter().find(|c| c.name == "severity_conflict").unwrap();
+        let (actual_json, actual_md) = run_merge(&case);
+        assert_eq!(actual_json, expected_json("severity_conflict"));
+        assert_eq!(actual_md, expected_md("severity_conflict"));
+    }
+
+    #[test]
+    fn merge_empty_findings() {
+        let case = all_cases().into_iter().find(|c| c.name == "empty_findings").unwrap();
+        let (actual_json, actual_md) = run_merge(&case);
+        assert_eq!(actual_json, expected_json("empty_findings"));
+        assert_eq!(actual_md, expected_md("empty_findings"));
+    }
+}

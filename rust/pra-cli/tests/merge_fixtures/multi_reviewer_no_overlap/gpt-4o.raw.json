@@ -1,0 +1,18 @@
+{
+  "source": "gpt-4o",
+  "status": "done",
+  "model": "gpt-4o",
+  "findings": [
+    {
+      "finding_id": "R1_01",
+      "severity": "major",
+      "category": "Structure",
+      "location": {
+        "section": "Introduction"
+      },
+      "issue": "Missing clear research question.",
+      "suggested_comment": "Add an explicit research question.",
+      "confidence": "high"
+    }
+  ]
+}

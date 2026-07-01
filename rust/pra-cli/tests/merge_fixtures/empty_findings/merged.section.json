@@ -1,0 +1,40 @@
+{
+  "check_name": "structure",
+  "status": "done",
+  "generated_at": null,
+  "sources": [
+    {
+      "source": "claude-opus",
+      "status": "done",
+      "model": "claude-opus-4",
+      "finding_count": 0
+    },
+    {
+      "source": "gpt-4o",
+      "status": "done",
+      "model": "gpt-4o",
+      "finding_count": 1
+    }
+  ],
+  "summary": "No issues found.",
+  "comments": [
+    {
+      "comment_id": "structure_001",
+      "severity": "major",
+      "category": "Structure",
+      "location": {
+        "section": "Introduction"
+      },
+      "issue": "Missing clear research question.",
+      "evidence": "gpt-4o flagged this issue.",
+      "suggested_author_comment": "Add an explicit research question.",
+      "reviewer_note": "",
+      "confidence": "high",
+      "conflict": false,
+      "source_findings": [
+        "S001"
+      ]
+    }
+  ],
+  "conflicts": []
+}

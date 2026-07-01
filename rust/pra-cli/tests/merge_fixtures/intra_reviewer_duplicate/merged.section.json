@@ -1,0 +1,51 @@
+{
+  "check_name": "structure",
+  "status": "done",
+  "generated_at": null,
+  "sources": [
+    {
+      "source": "gpt-4o",
+      "status": "done",
+      "model": "gpt-4o",
+      "finding_count": 2
+    }
+  ],
+  "summary": "No summary available.",
+  "comments": [
+    {
+      "comment_id": "structure_001",
+      "severity": "major",
+      "category": "Structure",
+      "location": {
+        "section": "Introduction"
+      },
+      "issue": "The introduction lacks a clear research gap.",
+      "evidence": "gpt-4o flagged this issue.",
+      "suggested_author_comment": "Add research gap statement.",
+      "reviewer_note": "",
+      "confidence": "high",
+      "conflict": false,
+      "source_findings": [
+        "S001"
+      ]
+    },
+    {
+      "comment_id": "structure_002",
+      "severity": "major",
+      "category": "Structure",
+      "location": {
+        "section": "Introduction"
+      },
+      "issue": "The introduction needs a clearer research gap statement.",
+      "evidence": "gpt-4o flagged this issue.",
+      "suggested_author_comment": "Clarify what gap this study addresses.",
+      "reviewer_note": "",
+      "confidence": "high",
+      "conflict": false,
+      "source_findings": [
+        "S002"
+      ]
+    }
+  ],
+  "conflicts": []
+}

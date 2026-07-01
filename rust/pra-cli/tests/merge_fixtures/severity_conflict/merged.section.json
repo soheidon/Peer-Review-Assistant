@@ -1,0 +1,41 @@
+{
+  "check_name": "structure",
+  "status": "done",
+  "generated_at": null,
+  "sources": [
+    {
+      "source": "claude-opus",
+      "status": "done",
+      "model": "claude-opus-4",
+      "finding_count": 1
+    },
+    {
+      "source": "gpt-4o",
+      "status": "done",
+      "model": "gpt-4o",
+      "finding_count": 1
+    }
+  ],
+  "summary": "No summary available.",
+  "comments": [
+    {
+      "comment_id": "structure_001",
+      "severity": "major",
+      "category": "Methods",
+      "location": {
+        "section": "Methods"
+      },
+      "issue": "The statistical method is not appropriate for the study design.",
+      "evidence": "claude-opus and gpt-4o both flagged this issue.",
+      "suggested_author_comment": "Consider using a mixed-effects model instead of ANOVA.",
+      "reviewer_note": "Severity disagreement between reviewers: gpt-4o: severity=major; claude-opus: severity=minor",
+      "confidence": "high",
+      "conflict": true,
+      "source_findings": [
+        "R1_01",
+        "R2_01"
+      ]
+    }
+  ],
+  "conflicts": []
+}

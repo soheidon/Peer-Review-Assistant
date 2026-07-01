@@ -1,0 +1,29 @@
+{
+  "source": "claude-opus",
+  "status": "done",
+  "model": "claude-opus-4",
+  "findings": [
+    {
+      "finding_id": "R2_01",
+      "severity": "major",
+      "category": "Structure",
+      "location": {
+        "section": "Introduction"
+      },
+      "issue": "The research gap is missing from the introduction.",
+      "suggested_comment": "State what gap this study addresses.",
+      "confidence": "high"
+    },
+    {
+      "finding_id": "R2_02",
+      "severity": "minor",
+      "category": "Expression",
+      "location": {
+        "section": "Discussion"
+      },
+      "issue": "Long sentences make the text hard to follow.",
+      "suggested_comment": "Consider revising for clarity.",
+      "confidence": "medium"
+    }
+  ]
+}

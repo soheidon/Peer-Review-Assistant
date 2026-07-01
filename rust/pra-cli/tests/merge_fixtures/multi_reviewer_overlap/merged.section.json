@@ -1,0 +1,59 @@
+{
+  "check_name": "structure",
+  "status": "done",
+  "generated_at": null,
+  "sources": [
+    {
+      "source": "claude-opus",
+      "status": "done",
+      "model": "claude-opus-4",
+      "finding_count": 2
+    },
+    {
+      "source": "gpt-4o",
+      "status": "done",
+      "model": "gpt-4o",
+      "finding_count": 2
+    }
+  ],
+  "summary": "No summary available.",
+  "comments": [
+    {
+      "comment_id": "structure_001",
+      "severity": "major",
+      "category": "Structure",
+      "location": {
+        "section": "Introduction"
+      },
+      "issue": "The research gap is missing from the introduction.",
+      "evidence": "claude-opus and gpt-4o both flagged this issue.",
+      "suggested_author_comment": "State what gap this study addresses.",
+      "reviewer_note": "",
+      "confidence": "high",
+      "conflict": false,
+      "source_findings": [
+        "R2_01",
+        "R1_01"
+      ]
+    },
+    {
+      "comment_id": "structure_002",
+      "severity": "minor",
+      "category": "Expression",
+      "location": {
+        "section": "Discussion"
+      },
+      "issue": "Sentences are too long and hard to follow.",
+      "evidence": "claude-opus and gpt-4o both flagged this issue.",
+      "suggested_author_comment": "Break long sentences into shorter ones.",
+      "reviewer_note": "",
+      "confidence": "medium",
+      "conflict": false,
+      "source_findings": [
+        "R1_02",
+        "R2_02"
+      ]
+    }
+  ],
+  "conflicts": []
+}

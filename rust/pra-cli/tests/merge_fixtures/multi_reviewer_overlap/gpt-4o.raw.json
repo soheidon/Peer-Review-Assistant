@@ -1,0 +1,29 @@
+{
+  "source": "gpt-4o",
+  "status": "done",
+  "model": "gpt-4o",
+  "findings": [
+    {
+      "finding_id": "R1_01",
+      "severity": "major",
+      "category": "Structure",
+      "location": {
+        "section": "Introduction"
+      },
+      "issue": "The research gap is not stated in the introduction.",
+      "suggested_comment": "Add a clear research gap statement.",
+      "confidence": "high"
+    },
+    {
+      "finding_id": "R1_02",
+      "severity": "minor",
+      "category": "Expression",
+      "location": {
+        "section": "Discussion"
+      },
+      "issue": "Sentences are too long and hard to follow.",
+      "suggested_comment": "Break long sentences into shorter ones.",
+      "confidence": "medium"
+    }
+  ]
+}

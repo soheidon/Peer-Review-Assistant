@@ -1,0 +1,57 @@
+{
+  "check_name": "structure",
+  "status": "done",
+  "generated_at": null,
+  "sources": [
+    {
+      "source": "claude-opus",
+      "status": "done",
+      "model": "claude-opus-4",
+      "finding_count": 1
+    },
+    {
+      "source": "gpt-4o",
+      "status": "done",
+      "model": "gpt-4o",
+      "finding_count": 1
+    }
+  ],
+  "summary": "No summary available.",
+  "comments": [
+    {
+      "comment_id": "structure_001",
+      "severity": "major",
+      "category": "Methods",
+      "location": {
+        "section": "Methods"
+      },
+      "issue": "Sample size justification is missing.",
+      "evidence": "claude-opus flagged this issue.",
+      "suggested_author_comment": "Add power analysis.",
+      "reviewer_note": "",
+      "confidence": "high",
+      "conflict": false,
+      "source_findings": [
+        "R2_01"
+      ]
+    },
+    {
+      "comment_id": "structure_002",
+      "severity": "major",
+      "category": "Structure",
+      "location": {
+        "section": "Introduction"
+      },
+      "issue": "Missing clear research question.",
+      "evidence": "gpt-4o flagged this issue.",
+      "suggested_author_comment": "Add an explicit research question.",
+      "reviewer_note": "",
+      "confidence": "high",
+      "conflict": false,
+      "source_findings": [
+        "R1_01"
+      ]
+    }
+  ],
+  "conflicts": []
+}

@@ -1,0 +1,68 @@
+{
+  "check_name": "structure",
+  "status": "done",
+  "generated_at": null,
+  "sources": [
+    {
+      "source": "gpt-4o",
+      "status": "done",
+      "model": "gpt-4o",
+      "finding_count": 3
+    }
+  ],
+  "summary": "The structure is generally sound.",
+  "comments": [
+    {
+      "comment_id": "structure_001",
+      "severity": "major",
+      "category": "Structure",
+      "location": {
+        "section": "Introduction"
+      },
+      "issue": "Missing clear research question.",
+      "evidence": "gpt-4o flagged this issue.",
+      "suggested_author_comment": "Add an explicit research question at the end of the introduction.",
+      "reviewer_note": "",
+      "confidence": "high",
+      "conflict": false,
+      "source_findings": [
+        "S001"
+      ]
+    },
+    {
+      "comment_id": "structure_002",
+      "severity": "minor",
+      "category": "Formatting",
+      "location": {
+        "section": "Results"
+      },
+      "issue": "Table 2 lacks a descriptive caption.",
+      "evidence": "gpt-4o flagged this issue.",
+      "suggested_author_comment": "Add a caption describing what the table shows.",
+      "reviewer_note": "",
+      "confidence": "high",
+      "conflict": false,
+      "source_findings": [
+        "S003"
+      ]
+    },
+    {
+      "comment_id": "structure_003",
+      "severity": "minor",
+      "category": "Structure",
+      "location": {
+        "section": "Methods"
+      },
+      "issue": "Sample size justification is unclear.",
+      "evidence": "gpt-4o flagged this issue.",
+      "suggested_author_comment": "Provide a power analysis or reference for sample size.",
+      "reviewer_note": "",
+      "confidence": "medium",
+      "conflict": false,
+      "source_findings": [
+        "S002"
+      ]
+    }
+  ],
+  "conflicts": []
+}

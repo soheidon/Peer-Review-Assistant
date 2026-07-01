@@ -1,0 +1,18 @@
+{
+  "source": "claude-opus",
+  "status": "done",
+  "model": "claude-opus-4",
+  "findings": [
+    {
+      "finding_id": "R2_01",
+      "severity": "major",
+      "category": "Methods",
+      "location": {
+        "section": "Methods"
+      },
+      "issue": "Sample size justification is missing.",
+      "suggested_comment": "Add power analysis.",
+      "confidence": "high"
+    }
+  ]
+}

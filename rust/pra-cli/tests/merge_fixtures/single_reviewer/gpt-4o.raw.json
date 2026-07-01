@@ -1,0 +1,41 @@
+{
+  "source": "gpt-4o",
+  "status": "done",
+  "model": "gpt-4o",
+  "summary": "The structure is generally sound.",
+  "findings": [
+    {
+      "finding_id": "S001",
+      "severity": "major",
+      "category": "Structure",
+      "location": {
+        "section": "Introduction"
+      },
+      "issue": "Missing clear research question.",
+      "suggested_comment": "Add an explicit research question at the end of the introduction.",
+      "confidence": "high"
+    },
+    {
+      "finding_id": "S002",
+      "severity": "minor",
+      "category": "Structure",
+      "location": {
+        "section": "Methods"
+      },
+      "issue": "Sample size justification is unclear.",
+      "suggested_comment": "Provide a power analysis or reference for sample size.",
+      "confidence": "medium"
+    },
+    {
+      "finding_id": "S003",
+      "severity": "minor",
+      "category": "Formatting",
+      "location": {
+        "section": "Results"
+      },
+      "issue": "Table 2 lacks a descriptive caption.",
+      "suggested_comment": "Add a caption describing what the table shows.",
+      "confidence": "high"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "source": "gpt-4o",
+  "status": "done",
+  "model": "gpt-4o",
+  "findings": [
+    {
+      "finding_id": "R1_01",
+      "severity": "major",
+      "category": "Methods",
+      "location": {
+        "section": "Methods"
+      },
+      "issue": "The statistical method is not appropriate for the study design.",
+      "suggested_comment": "Consider using a mixed-effects model instead of ANOVA.",
+      "confidence": "high"
+    }
+  ]
+}

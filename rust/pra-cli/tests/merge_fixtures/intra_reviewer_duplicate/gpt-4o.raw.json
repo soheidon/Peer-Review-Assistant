@@ -1,0 +1,29 @@
+{
+  "source": "gpt-4o",
+  "status": "done",
+  "model": "gpt-4o",
+  "findings": [
+    {
+      "finding_id": "S001",
+      "severity": "major",
+      "category": "Structure",
+      "location": {
+        "section": "Introduction"
+      },
+      "issue": "The introduction lacks a clear research gap.",
+      "suggested_comment": "Add research gap statement.",
+      "confidence": "high"
+    },
+    {
+      "finding_id": "S002",
+      "severity": "major",
+      "category": "Structure",
+      "location": {
+        "section": "Introduction"
+      },
+      "issue": "The introduction needs a clearer research gap statement.",
+      "suggested_comment": "Clarify what gap this study addresses.",
+      "confidence": "high"
+    }
+  ]
+}

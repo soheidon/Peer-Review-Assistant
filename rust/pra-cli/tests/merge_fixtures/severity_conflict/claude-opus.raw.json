@@ -1,0 +1,18 @@
+{
+  "source": "claude-opus",
+  "status": "done",
+  "model": "claude-opus-4",
+  "findings": [
+    {
+      "finding_id": "R2_01",
+      "severity": "minor",
+      "category": "Methods",
+      "location": {
+        "section": "Methods"
+      },
+      "issue": "The statistical method choice could be questioned.",
+      "suggested_comment": "Justify the choice of ANOVA or consider alternatives.",
+      "confidence": "medium"
+    }
+  ]
+}

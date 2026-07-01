@@ -574,7 +574,7 @@ const ReviewChecksPanel = forwardRef<ReviewChecksPanelHandle, ReviewChecksPanelP
     "この論文のこの分析において、著者向け指摘文が指摘している問題に対し、どのような改善の方向性が考えられるか、建設的な選択肢を提示してください。例えば追加データの収集、分析手法の再検討、実験デザインの見直し、文章改訂などの観点から、考えられる対応策を挙げてください。分析手法に関しては、現行の方法がそもそも妥当かどうかという根本的な検討も含めてください。なお、ベイズ統計学への移行を提案することはなるべく避けてください。回答は「〜が考えられます」「〜してみるとよいかもしれません」「〜という方向性があります」のような婉曲的な表現を用い、決して断定調（〜すべきだ、〜しなさい）にならないようにしてください。これらはあくまで検討材料であり、最終的な判断は著者に委ねられます。"
   );
   const SOLUTION_SYSTEM_PROMPT = `You are an expert academic advisor helping authors improve their manuscript.
-Your task is to suggest possible approaches to address a specific peer review finding.
+Your task is to suggest possible approaches to address a specific manuscript check finding.
 
 CRITICAL — Tone and Framing:
 - This is NOT a prescription or instruction. You are offering possible directions for the authors to consider.

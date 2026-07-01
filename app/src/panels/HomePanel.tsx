@@ -82,7 +82,7 @@ export default function HomePanel({
           <p style={{ fontSize: "13px", color: "#666", margin: "0 0 8px 0" }}>
             手動でインストールする場合は、コマンドプロンプトで以下を実行してください：
           </p>
-          <code>pip install git+https://github.com/soheidon/Peer-Review-Assistant.git#subdirectory=python</code>
+          <code>pip install git+https://github.com/soheidon/Academic-Paper-Checker.git#subdirectory=python</code>
         </div>
       </div>
     );
@@ -154,7 +154,7 @@ export default function HomePanel({
           <p style={{ fontSize: "13px", color: "#666", margin: "0 0 8px 0" }}>
             手動でインストールする場合は、コマンドプロンプトで以下を実行してください：
           </p>
-          <code>pip install git+https://github.com/soheidon/Peer-Review-Assistant.git#subdirectory=python</code>
+          <code>pip install git+https://github.com/soheidon/Academic-Paper-Checker.git#subdirectory=python</code>
         </div>
       </div>
     );

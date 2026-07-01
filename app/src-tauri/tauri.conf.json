@@ -1,8 +1,8 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicedoc/open-tauri/main/schemas/config.schema.json",
   "productName": "Academic Paper Checker",
-  "version": "0.4.1",
-  "identifier": "com.peerreviewassistant.app",
+  "version": "0.5.0",
+  "identifier": "com.academicpaperchecker.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",

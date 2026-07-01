@@ -676,7 +676,7 @@ function App() {
       const { Command } = await import("@tauri-apps/plugin-shell");
       const cmd = Command.create("cmd", [
         "/c", "pip", "install",
-        "git+https://github.com/soheidon/Peer-Review-Assistant.git#subdirectory=python",
+        "git+https://github.com/soheidon/Academic-Paper-Checker.git#subdirectory=python",
       ]);
       const output = await cmd.execute();
 

@@ -41,7 +41,7 @@
 
 ### 2. Academic Paper Checker をインストール
 
-[Releases](https://github.com/soheidon/Peer-Review-Assistant/releases) から最新の `Academic Paper Checker_x.x.x_x64-setup.exe` をダウンロードして実行します。
+[Releases](https://github.com/soheidon/Academic-Paper-Checker/releases) から最新の `Academic Paper Checker_x.x.x_x64-setup.exe` をダウンロードして実行します。
 
 ### 3. 起動
 
@@ -51,7 +51,7 @@
 
 > **手動セットアップ（必要な場合のみ）**: 自動セットアップが失敗した場合は、コマンドプロンプトで以下を実行してください：
 > ```bash
-> pip install git+https://github.com/soheidon/Peer-Review-Assistant.git#subdirectory=python
+> pip install git+https://github.com/soheidon/Academic-Paper-Checker.git#subdirectory=python
 > ```
 
 > **開発者向け**: ソースコードからビルドする場合は、`git clone` 後 `cd app && npm install && npm run tauri build` でビルドできます（Node.js 20+ と Rust が必要です）。

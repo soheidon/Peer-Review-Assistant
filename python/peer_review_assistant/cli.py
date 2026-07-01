@@ -1,4 +1,4 @@
-"""CLI entry point for Peer Review Assistant."""
+"""CLI entry point for Academic Paper Checker."""
 
 import hashlib
 import json
@@ -153,7 +153,7 @@ def validate_input_files(docx_path, pdf_path=None):
 
 @click.group()
 def main():
-    """Peer Review Assistant — Python CLI engine."""
+    """Academic Paper Checker — Python CLI engine."""
 
 
 @main.command()
@@ -4272,8 +4272,8 @@ def translate_check_result(project_dir, check_name, slot, provider, base_url, mo
 
     system_prompt = (
         "You are a professional academic translator. "
-        "Translate the following peer review content from English to Japanese. "
-        "Use formal academic Japanese appropriate for scholarly peer review. "
+        "Translate the following manuscript check content from English to Japanese. "
+        "Use formal academic Japanese appropriate for scholarly communication. "
         "Preserve technical terms accurately. "
         "Respond ONLY with a JSON object in this exact format:\n"
         '{"translated":[{"kind":"summary","text_ja":"..."},'
@@ -5197,8 +5197,8 @@ def re_evaluate_cmd(project_dir, check_name, slot, provider, base_url, model,
 
         messages = [
             {"role": "system", "content": (
-                "You are a peer reviewer for a scientific journal. "
-                "An AI review tool and an external evaluation AI disagree "
+                "You are a pre-submission manuscript checker. "
+                "An automated check and an external evaluation disagree "
                 "about the finding below. Judge which opinion is correct, "
                 "then write the final comment text that will be shown to "
                 "the paper's authors. Respond in JSON."
@@ -6511,7 +6511,7 @@ TRANSLATION_SYSTEM_PROMPT = (
     "\n"
     "要件：\n"
     "- 原文の意味を変えない\n"
-    "- 査読用なので、意訳しすぎない\n"
+    "- 学術的な正確さを保ちつつ、自然な日本語に翻訳してください\n"
     "- 統計用語、尺度名、固有名詞、引用表記は保持する\n"
     "- 見出し構造を保持する\n"
     "- 省略しない\n"
@@ -9227,13 +9227,13 @@ def translate_result_content_cmd(project_dir, content_kind, slot, provider, base
     # Rebuild with JA first then EN (same format as overall_assessment)
     ja_header_map = {
         "overall_assessment": "# 全体所感",
-        "verdict": "# 採否決定",
-        "comments_to_authors": "# 査読コメント",
+        "verdict": "# 投稿準備状況",
+        "comments_to_authors": "# 修正提案",
     }
     en_header_map = {
         "overall_assessment": "# General Impressions",
-        "verdict": "# Publication Decision",
-        "comments_to_authors": "# Comments to Authors",
+        "verdict": "# Submission Readiness",
+        "comments_to_authors": "# Fix Suggestions",
     }
 
     ja_header = ja_header_map.get(content_kind, "# Translated")
@@ -9302,7 +9302,7 @@ def edit_result_content_cmd(project_dir, instruction, slot, provider, base_url, 
          slot=slot, instruction_length=len(instruction))
 
     system_prompt = (
-        "You are an academic editor. You are given a peer review assessment "
+        "You are a submission readiness checker. You are given a manuscript assessment "
         "and a user instruction. Apply the instruction to modify the assessment text. "
         "You must ONLY work with the existing text — do NOT introduce new facts, "
         "references, data, or information from outside the provided text. "
@@ -9454,12 +9454,12 @@ def generate_verdict_cmd(project_dir, slot, provider, base_url, model,
 
     if verdict_only:
         system_prompt = (
-            "You are a senior academic journal editor making a publication decision. "
-            "You are given the findings from a comprehensive peer review of a manuscript, "
+            "You are a submission readiness checker helping authors evaluate their manuscript before submission. "
+            "You are given the findings from a comprehensive pre-submission check of a manuscript, "
             "covering 構成 (Structure), 表現 (Expression), 方法・統計 (Methods & Statistics), "
             "論理・主張 (Logic & Argument), 図表 (Figures & Tables), and 倫理・利益相反 (Ethics & COI). "
             "You also have novelty assessment data. "
-            "Based on ALL of these, evaluate the appropriateness of each possible verdict. "
+            "Based on ALL of these, evaluate the appropriateness of each possible readiness level. "
             "Assign a confidence percentage (0-100) to each of the four options. "
             "The four percentages MUST sum to exactly 100. "
             "Consider whether the problems are fundamental (reject) or fixable (minor/major revision). "
@@ -9475,13 +9475,13 @@ def generate_verdict_cmd(project_dir, slot, provider, base_url, model,
         )
     else:
         system_prompt = (
-            "You are a senior academic journal editor making a publication decision. "
-            "You are given the findings from a comprehensive peer review of a manuscript, "
+            "You are a submission readiness checker helping authors evaluate their manuscript before submission. "
+            "You are given the findings from a comprehensive pre-submission check of a manuscript, "
             "covering 構成 (Structure), 表現 (Expression), 方法・統計 (Methods & Statistics), "
             "論理・主張 (Logic & Argument), 図表 (Figures & Tables), and 倫理・利益相反 (Ethics & COI). "
             "You also have novelty assessment data. "
-            "Based on ALL of these, make a publication recommendation. "
-            "Choose one: Accept, Minor Revision, Major Revision, or Reject. "
+            "Based on ALL of these, assess the submission readiness. "
+            "Choose one: Ready for Submission, Ready with Minor Changes, Needs Revision Before Submission, or Major Rework Recommended. "
             "Provide your reasoning, weighing the severity and number of issues across all categories. "
             "Consider whether the problems are fundamental (reject) or fixable (minor/major revision). "
             "Output in the following format:\n\n"
@@ -9652,11 +9652,11 @@ def generate_verdict_detail_cmd(project_dir, slot, provider, base_url, model,
     emit("progress", task=task_id, step="calling_llm", percent=50, slot=slot)
 
     system_prompt = (
-        "You are a senior academic journal editor. "
-        "You are given a Verdict (Accept/Minor Revision/Major Revision/Reject) that has already been made "
-        "for a manuscript, along with the full review check findings. "
+        "You are a submission readiness checker. "
+        "You are given a readiness assessment (Ready for Submission / Ready with Minor Changes / Needs Revision Before Submission / Major Rework Recommended) that has already been made "
+        "for a manuscript, along with the full check findings. "
         "Your task is to write the Reasoning, Key Strengths, and Key Concerns "
-        "that justify and support the given Verdict. "
+        "that justify and support the given readiness level. "
         "CRITICAL: The Reasoning MUST be consistent with the specific Verdict given below. "
         "If the Verdict is Accept, write reasoning that emphasizes the manuscript's strengths and why it meets the journal's standards. "
         "If the Verdict is Minor Revision, explain what minor issues need fixing and why they don't undermine the core contribution. "
@@ -9767,7 +9767,7 @@ def edit_verdict_cmd(project_dir, instruction, slot, provider, base_url, model,
         before = normalized[:sep_match.start()].strip()
         after = normalized[sep_match.end():].strip()
         # Determine which side is JA vs EN
-        ja_like = bool(re.search(r"[぀-ゟ゠-ヿ一-鿿]", before)) or before.startswith("# 採否決定")
+        ja_like = bool(re.search(r"[぀-ゟ゠-ヿ一-鿿]", before)) or before.startswith("# 投稿準備状況")
         if ja_like:
             ja_text = before
             en_text = after
@@ -9776,9 +9776,9 @@ def edit_verdict_cmd(project_dir, instruction, slot, provider, base_url, model,
             en_text = before
 
     # Extract just the JA body (without the header line) and EN body
-    ja_header = "# 採否決定"
+    ja_header = "# 投稿準備状況"
     ja_body = ja_text
-    en_header_line = "# Publication Decision"
+    en_header_line = "# Submission Readiness"
     if ja_text.startswith("# "):
         first_nl = ja_text.find("\n")
         if first_nl >= 0:
@@ -9864,9 +9864,9 @@ def edit_verdict_cmd(project_dir, instruction, slot, provider, base_url, model,
     emit("progress", task=task_id, step="calling_llm", percent=50, slot=slot)
 
     system_prompt = (
-        "You are a senior academic journal editor. You are given:\n"
-        "1. The Reasoning, Key Strengths, and Key Concerns sections of a publication decision\n"
-        "2. The complete peer review findings across 構成 (Structure), "
+        "You are a submission readiness checker. You are given:\n"
+        "1. The Reasoning, Key Strengths, and Key Concerns sections of a readiness assessment\n"
+        "2. The complete check findings across 構成 (Structure), "
         "表現 (Expression), 方法・統計 (Methods & Statistics), "
         "論理・主張 (Logic & Argument), 図表 (Figures & Tables), "
         "and 倫理・利益相反 (Ethics & COI)\n"

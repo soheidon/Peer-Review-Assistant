@@ -1,7 +1,7 @@
-"""Final review document generation.
+"""Final check report generation.
 
 Reads merged section results (merged.section.json) and generates the
-final human-readable review documents in outputs/final/.
+final human-readable check reports in outputs/final/.
 """
 
 import json
@@ -13,8 +13,8 @@ from peer_review_assistant.output.txt_writer import convert_md_to_txt
 # Translation map: key -> {"en": ..., "ja": ...}
 _T = {
     "general_assessment": {"en": "General Assessment", "ja": "総合評価"},
-    "verdict": {"en": "Verdict", "ja": "判定"},
-    "verdict_label": {"en": "Verdict", "ja": "判定"},
+    "verdict": {"en": "Submission Readiness", "ja": "投稿準備状況"},
+    "verdict_label": {"en": "Readiness", "ja": "準備状況"},
     "key_strengths": {"en": "Key Strengths", "ja": "主な強み"},
     "key_concerns": {"en": "Key Concerns", "ja": "主な懸念"},
     "general_impressions": {"en": "General Impressions", "ja": "全体所感"},
@@ -24,9 +24,9 @@ _T = {
     "logic_argument": {"en": "Logic and Argument", "ja": "論理と議論"},
     "figure_table": {"en": "Figures and Tables", "ja": "図表"},
     "ethics": {"en": "Ethics and Conflict of Interest", "ja": "倫理と利益相反"},
-    "recommendation_major": {"en": "Major Revision", "ja": "大幅修正"},
-    "recommendation_minor": {"en": "Minor Revision", "ja": "軽微修正"},
-    "issue": {"en": "Issue", "ja": "指摘"},
+    "recommendation_major": {"en": "Needs Major Revision", "ja": "大幅修正が必要"},
+    "recommendation_minor": {"en": "Minor Improvements Suggested", "ja": "軽微な改善を提案"},
+    "issue": {"en": "Suggestion", "ja": "改善提案"},
     "no_issues": {"en": "No issues were identified.", "ja": "問題は見つかりませんでした。"},
     "no_structural": {"en": "No structural issues were identified.", "ja": "構造上の問題は見つかりませんでした。"},
     "no_ms": {"en": "No methods/statistics issues were identified.", "ja": "方法・統計上の問題は見つかりませんでした。"},
@@ -672,10 +672,10 @@ def _load_user_verdict(project_dir):
         if not selected:
             return None
         verdict_map = {
-            "Accept": {"level_en": "Accept", "level_ja": "アクセプト"},
-            "Minor Revision": {"level_en": "Minor Revision", "level_ja": "軽微修正"},
-            "Major Revision": {"level_en": "Major Revision", "level_ja": "大幅修正"},
-            "Reject": {"level_en": "Reject", "level_ja": "リジェクト"},
+            "Ready for Submission": {"level_en": "Ready for Submission", "level_ja": "投稿可能"},
+            "Ready with Minor Changes": {"level_en": "Ready with Minor Changes", "level_ja": "軽微な修正で投稿可能"},
+            "Needs Revision Before Submission": {"level_en": "Needs Revision Before Submission", "level_ja": "投稿前に修正が必要"},
+            "Major Rework Recommended": {"level_en": "Major Rework Recommended", "level_ja": "大幅な改訂を推奨"},
         }
         return verdict_map.get(selected)
     except (json.JSONDecodeError, KeyError):
@@ -815,7 +815,8 @@ def _load_comments_to_authors_jp(project_dir):
 
     # Check Japanese section exists (may start with either header)
     if not (ja_part.startswith("# 著者へのコメント") or
-            ja_part.startswith("# 査読コメント")):
+            ja_part.startswith("# 査読コメント") or
+            ja_part.startswith("# 修正提案")):
         return None
 
     def _parse_items(text):
@@ -1158,7 +1159,7 @@ def _generate_comments_to_authors_md(major, minor, expression_comments,
                                      methods_stats_re=None, logic_argument_re=None,
                                      figure_table_re=None, ethics_re=None):
     """Generate comments_to_authors.md — author-facing only, no internal annotations."""
-    lines = ["# Comments to Authors", ""]
+    lines = ["# Fix Suggestions", ""]
 
     all_comments = (list(major) + list(minor) + list(expression_comments)
                     + list(ms_comments or []) + list(la_comments or [])
@@ -1243,22 +1244,22 @@ def _generate_confidential_comments_md(expression_available=False,
         not_assessed.append("- Ethics and conflict of interest")
 
     return "\n".join([
-        "# Confidential Comments to the Editor",
+        "# Submission Readiness Summary",
         "",
-        "This review was generated using automated analysis as part of "
-        "the Peer Review Assistant. The assessment was performed by "
-        "independent LLM reviewers.",
+        "This report was generated using automated analysis via "
+        "the Academic Paper Checker. The assessment was performed by "
+        "independent LLM checkers.",
         "",
     ] + scope_lines + [
         "",
         "**Not assessed in this run:**",
     ] + not_assessed + [
         "",
-        "The human reviewer should supplement this assessment with their own "
-        "evaluation of these aspects.",
+        "The author should review all findings and make their own "
+        "judgment about revisions before submission.",
         "",
-        "**Reviewer confidence**: Overall confidence varies by comment; see "
-        "individual comments in the main review for per-comment confidence "
+        "**Checker confidence**: Overall confidence varies by finding; see "
+        "individual items in the main report for per-item confidence "
         "levels.",
         "",
     ])
@@ -1292,14 +1293,14 @@ def _generate_recommendation_md(major_count, minor_count, total_count,
         checks.append("ethics")
 
     lines = [
-        "# Recommendation",
+        "# Submission Readiness Assessment",
         "",
-        f"**判定 / Verdict**: {rec['level_ja']} ({rec['level_en']})",
+        f"**評価 / Assessment**: {rec['level_ja']} ({rec['level_en']})",
         "",
         f"**根拠 / Basis**: {rec['rationale']}",
         "",
-        f"This recommendation is based on {total_count} "
-        f"comment(s) from {', '.join(checks)} check(s):",
+        f"This assessment is based on {total_count} "
+        f"finding(s) from {', '.join(checks)} check(s):",
         f"- {major_count} major issue(s) (structure)",
         f"- {minor_count} minor issue(s) (structure)",
     ]
@@ -1319,17 +1320,15 @@ def _generate_recommendation_md(major_count, minor_count, total_count,
                      f"{ethics_major_count} major)")
     lines += [
         "",
-        "**Limitations**: Citation verification, originality assessment, "
-        "and statistical methodology checks were not performed. "
-        "The recommendation should be treated as a preliminary draft for "
-        "the human reviewer to finalize.",
+        "**Note**: This is a preliminary automated assessment. "
+        "The author should review all findings and exercise their own judgment.",
         "",
     ]
 
     if total_count == 0:
         lines.append(
-            "No issues were identified. A complete recommendation "
-            "requires running the full set of review checks (expression, "
+            "No issues were identified. A complete assessment "
+            "requires running the full set of check items (expression, "
             "methods, citations, originality)."
         )
         lines.append("")

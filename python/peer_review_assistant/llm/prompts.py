@@ -119,7 +119,7 @@ def build_structure_check_messages(manuscript_data, section_texts, section_map,
             "without being certain of the journal's expectations.\n\n"
         )
 
-    system_prompt = f"""You are a peer reviewer evaluating the structural quality of an academic manuscript. Your task is to assess:
+    system_prompt = f"""You are a pre-submission manuscript checker helping authors improve their manuscript before submission. Your task is to assess the structural quality of an academic manuscript. Your task is to assess:
 
 1. **Section ordering compliance**: {section_order_guidance}
 {_indent_guidance(alias_guidance)}
@@ -140,7 +140,7 @@ For each issue found, provide:
 - severity: "major" (affects validity/interpretation) or "minor" (presentation issue)
 - A clear description of the issue
 - A specific location (section name, paragraph numbers from [P{n}] markers in the text)
-- A suggested author-facing comment: a concise, actionable description of what is wrong and what should be changed. Write this in the tone of a reviewer speaking directly to the author. For section-ordering issues, describe the expected order and where the problematic section should move.
+- A suggested author-facing comment: a concise, actionable description of what is wrong and what should be changed. Write this in the constructive, helpful tone suggesting improvements to the author. For section-ordering issues, describe the expected order and where the problematic section should move.
 - A confidence level: "high" (clear-cut), "medium" (reasonable concern), "low" (speculative)
 
 If no issues are found for a category, note this in your summary.
@@ -433,7 +433,7 @@ def build_expression_check_messages(manuscript_data, section_texts, section_map,
     Returns:
         list of {"role": str, "content": str} messages
     """
-    system_prompt = """You are a peer reviewer evaluating the English expression and academic writing quality of a manuscript. Your task is to assess:
+    system_prompt = """You are a pre-submission manuscript checker helping authors improve their manuscript before submission. Your task is to assess the English expression and academic writing quality of a manuscript. Your task is to assess:
 
 1. **Grammar and mechanics**: Are there errors in grammar, article usage (a/an/the), prepositions, verb tense, subject-verb agreement, or punctuation?
 
@@ -452,7 +452,7 @@ For each issue found, provide:
 - A clear description of the issue
 - A specific location (section name, paragraph numbers from [P{n}] markers in the text)
 - The exact text excerpt containing the issue
-- A suggested comment for the author: describe the problem and show the corrected text. Write in the tone of a reviewer speaking directly to the author.
+- A suggested comment for the author: describe the problem and show the corrected text. Write in the constructive, helpful tone suggesting improvements to the author.
 - A confidence level: "high" (clear error), "medium" (reasonable concern), "low" (stylistic preference)
 
 IMPORTANT: Respond ONLY with a JSON object. No markdown, no explanation outside the JSON. The JSON must follow this exact structure:
@@ -529,7 +529,7 @@ def build_methods_stats_check_messages(manuscript_data, section_texts, section_m
     Returns:
         list of {"role": str, "content": str} messages
     """
-    system_prompt = """You are a peer reviewer evaluating the methodological and statistical quality of an academic manuscript. Your task is to assess:
+    system_prompt = """You are a pre-submission manuscript checker helping authors improve their manuscript before submission. Your task is to assess the methodological and statistical quality of an academic manuscript. Your task is to assess:
 
 1. **Study design clarity**: Is the study design clearly stated (e.g., cross-sectional, cohort, case-control, RCT)? Is the design appropriate for the research question? **If Prior Research Context is provided** (see user message): note which methods are standard in this field vs. novel — apply stricter scrutiny to novel methods.
 
@@ -553,7 +553,7 @@ For each issue found, provide:
 - severity: "major" (methodological flaw that affects validity/reproducibility) or "minor" (incomplete reporting or clarification needed)
 - A clear description of the issue
 - A specific location (section name, paragraph numbers from [P{n}] markers in the text)
-- A suggested comment for the author: describe the problem and what should be done to fix it. Write in the tone of a reviewer speaking directly to the author.
+- A suggested comment for the author: describe the problem and what should be done to fix it. Write in the constructive, helpful tone suggesting improvements to the author.
 - A confidence level: "high" (clear-cut), "medium" (reasonable concern), "low" (speculative)
 
 If no issues are found for a category, note this in your summary.
@@ -645,7 +645,7 @@ def build_logic_argument_check_messages(manuscript_data, section_texts, section_
     Returns:
         list of {"role": str, "content": str} messages
     """
-    system_prompt = """You are a peer reviewer evaluating the logical and argumentative quality of an academic manuscript. Your task is to assess the soundness of reasoning independent of statistical methods (which are assessed separately).
+    system_prompt = """You are a pre-submission manuscript checker helping authors improve their manuscript before submission. Your task is to assess the logical and argumentative quality of an academic manuscript. Your task is to assess the soundness of reasoning independent of statistical methods (which are assessed separately).
 
 IMPORTANT — Avoid Duplicate Findings: The Methods/Stats check already covers study design adequacy, sample size justification, statistical method appropriateness, and measurement validity. If a "Methods/Stats Findings (Already Covered)" section is provided in the user message, do NOT raise findings that duplicate those already flagged by the methods/stats check. Focus exclusively on logical argumentation: reasoning quality, evidence-to-claim correspondence, discussion interpretation, and conclusion validity. If you are unsure whether a finding belongs to methods/stats or logic/argument, lean toward omitting it — methods/stats issues are already handled.
 
@@ -671,7 +671,7 @@ For each issue found, provide:
 - severity: "major" (logical flaw that undermines the argument) or "minor" (unclear reasoning or incomplete justification)
 - A clear description of the logical issue
 - A specific location (section name, paragraph numbers from [P{n}] markers in the text)
-- A suggested comment for the author: describe the logical problem and what should be reconsidered. Write in the tone of a reviewer speaking directly to the author.
+- A suggested comment for the author: describe the logical problem and what should be reconsidered. Write in the constructive, helpful tone suggesting improvements to the author.
 - A confidence level: "high" (clear logical error), "medium" (reasonable concern), "low" (speculative)
 
 If no issues are found for a category, note this in your summary.
@@ -769,7 +769,7 @@ def build_figure_table_check_messages(manuscript_data, section_texts, section_ma
     Returns:
         list of {"role": str, "content": str} messages
     """
-    system_prompt = """You are a peer reviewer evaluating the quality of figures and tables in an academic manuscript. Your task is to assess the clarity, labeling, captions, and appropriateness of figures and tables based on the manuscript text.
+    system_prompt = """You are a pre-submission manuscript checker helping authors improve their manuscript before submission. Your task is to assess the quality of figures and tables in an academic manuscript. Your task is to assess the clarity, labeling, captions, and appropriateness of figures and tables based on the manuscript text.
 
 Evaluate the following categories:
 
@@ -789,7 +789,7 @@ For each issue found, provide:
 - severity: "major" (serious problem that affects understanding or data interpretation) or "minor" (stylistic or formatting issue)
 - A clear description of the issue
 - A specific location (section name, paragraph numbers from [P{n}] markers in the text, figure/table number if identifiable)
-- A suggested comment for the author: describe the figure/table issue and what should be corrected. Write in the tone of a reviewer speaking directly to the author.
+- A suggested comment for the author: describe the figure/table issue and what should be corrected. Write in the constructive, helpful tone suggesting improvements to the author.
 - A confidence level: "high" (clearly identifiable problem), "medium" (likely problem), "low" (speculative)
 
 If no issues are found for a category, note this in your summary.
@@ -925,7 +925,7 @@ def build_ethics_check_messages(manuscript_data, section_texts, section_map, jou
 
     journal_requirements = "\n".join(journal_req_parts)
 
-    system_prompt = f"""You are a peer reviewer evaluating the ethics and conflict of interest declarations in an academic manuscript. Your task is to assess whether the manuscript meets ethical standards and journal requirements for ethics review, informed consent, and conflict of interest disclosure.
+    system_prompt = f"""You are a pre-submission manuscript checker helping authors improve their manuscript before submission. Your task is to assess the ethics and conflict of interest declarations in an academic manuscript. Your task is to assess whether the manuscript meets ethical standards and journal requirements for ethics review, informed consent, and conflict of interest disclosure.
 
 Evaluate the following categories:
 
@@ -943,7 +943,7 @@ For each issue found, provide:
 - severity: "major" (missing required ethics/COI statement, serious ethical concern) or "minor" (incomplete disclosure, formatting issue)
 - A clear description of the issue
 - A specific location (section name, paragraph numbers from [P{n}] markers in the text)
-- A suggested comment for the author: describe the ethics/COI issue and what needs to be added or corrected. Write in the tone of a reviewer speaking directly to the author.
+- A suggested comment for the author: describe the ethics/COI issue and what needs to be added or corrected. Write in the constructive, helpful tone suggesting improvements to the author.
 - A confidence level: "high" (clearly identifiable problem), "medium" (likely problem), "low" (speculative)
 
 If no issues are found for a category, note this in your summary.
@@ -1393,7 +1393,7 @@ def build_solution_suggestion_messages(finding, manuscript_excerpt, default_prom
         system_prompt = system_prompt_override.strip()
     else:
         system_prompt = """You are an expert academic advisor helping authors improve their manuscript.
-Your task is to suggest possible approaches to address a specific peer review finding.
+Your task is to suggest possible approaches to address a specific manuscript check finding.
 
 CRITICAL — Tone and Framing:
 - This is NOT a prescription or instruction. You are offering possible directions for the authors to consider.
@@ -1424,7 +1424,7 @@ The JSON must follow this exact structure:
 
     # Build user message
     user_parts = []
-    user_parts.append("## Peer Review Finding")
+    user_parts.append("## Manuscript Check Finding")
     user_parts.append(f"- **Severity**: {finding.get('severity', 'unknown')}")
     user_parts.append(f"- **Category**: {finding.get('category', '')}")
     user_parts.append(f"- **Issue**: {finding.get('issue', '')}")
@@ -1510,13 +1510,13 @@ def build_overall_assessment_candidates_messages(
     volume_instruction = volume_map.get(volume, volume_map["standard"])
 
     system_prompt = """\
-You are an experienced academic editor preparing candidate assessment blocks
-for a manuscript peer review. Your task is to generate candidate text blocks
+You are an experienced manuscript check assistant preparing candidate assessment blocks
+for a manuscript check. Your task is to generate candidate text blocks
 for FOUR distinct sections of an overall assessment (全体所感). The user will
 later select which candidates to include in the final assessment.
 
 For each section, generate candidate items with BOTH English and Japanese text,
-written in a collegial, constructive peer review style.
+written in a collegial, constructive constructive, collegial check style.
 
 CRITICAL — Volume:
 {VOLUME_INSTRUCTION}
@@ -1569,7 +1569,7 @@ AND novelty_required=low/not_explicitly_required):
 Each candidate should focus on ONE aspect.
 
 ## Section 3: 達成点 (Achieved Points / Strengths)
-This is a peer review overall assessment. Generate 5 candidate variations of
+This is a pre-submission check overall assessment. Generate 5 candidate variations of
 the achievements/strengths assessment, where each candidate varies along TWO
 axes — YOU decide the best combinations:
 
@@ -1597,7 +1597,7 @@ Use ids: achievement_1 through achievement_5.
 ---
 
 ## Section 4: 主要問題点 (Key Issues)
-This is a peer review overall assessment. Generate 5 candidate variations of
+This is a pre-submission check overall assessment. Generate 5 candidate variations of
 the key issues assessment, where each candidate varies along TWO axes — YOU
 decide the best combinations:
 
@@ -1635,7 +1635,7 @@ Respond with ONLY a valid JSON object. No markdown, no explanation outside JSON.
       "candidates": [
         {
           "id": "novelty_1",
-          "text_ja": "日本語テキスト（2〜4文、査読コメント調）",
+          "text_ja": "日本語テキスト（2〜4文、チェックレポート調）",
           "text_en": "English text (2-4 sentences, review comment style)",
           "strength": "strong|moderate|cautious",
           "recommendation": "high|medium|low"
@@ -1986,7 +1986,7 @@ Each candidate MUST include a 'style' object with 'ja' and 'en' labels
 
     if is_focused:
         lang_instr = "Write ONLY in English. Set text_ja to empty string \"\" — a separate translation step will fill it."
-        tone_instr = """- Write plain, factual observations — NOT collegial peer review prose
+        tone_instr = """- Write plain, factual observations — NOT evaluative prose; write constructive, specific observations
 - State ONLY what the paper does/shows/has. Do NOT append value judgments.
 - NEVER use 「〜として注目されます」「〜が大きな新規性です」「〜が評価できる」
   「〜は重要である」「〜と言える」「〜が認められる」「〜点が特筆される」
@@ -2000,11 +2000,11 @@ Each candidate MUST include a 'style' object with 'ja' and 'en' labels
 - NEVER use imperative/command forms
 - In Japanese: use 「〜が考えられます」「〜するとよいかもしれません」
   「〜という印象を受けます」— never 「〜すべきだ」「〜しなさい」"""
-        style_instr = "Write in a collegial, constructive peer review style."
+        style_instr = "Write in a collegial, constructive constructive, collegial check style."
 
     system_prompt = f"""\
-You are an experienced academic editor. {'Generate' if is_focused else 'Regenerate ONLY the candidates for'}
-the "{effective_info['label_ja']} / {effective_info['label_en']}" section of a peer review overall assessment.
+You are an experienced manuscript check assistant. {'Generate' if is_focused else 'Regenerate ONLY the candidates for'}
+the "{effective_info['label_ja']} / {effective_info['label_en']}" section of a pre-submission check overall assessment.
 
 Generate {effective_info['count']} ({effective_info['ids']}). {lang_instr}
 {style_instr}
@@ -2145,8 +2145,8 @@ def build_overall_assessment_compose_messages(
         list of {"role": str, "content": str} messages
     """
     system_prompt = """\
-You are an experienced academic editor composing the final overall assessment
-for a manuscript peer review. You have been given user-selected candidate text
+You are an experienced manuscript check assistant composing the final overall assessment
+for a manuscript check. You have been given user-selected candidate text
 blocks across four sections (novelty, journal fit, achievements, key issues)
 plus optional free-text notes from the reviewer. Your task is to arrange and
 integrate them into a cohesive, flowing assessment.
@@ -2155,7 +2155,7 @@ CRITICAL: Write in ENGLISH only. A separate step will handle Japanese translatio
 
 The assessment should flow naturally as a single integrated text — do NOT
 output separate sections or bullet points. The text should read as a
-professional peer review assessment.
+professional check report.
 
 ARRANGEMENT RULES:
 - Order the content to tell a coherent story, NOT necessarily in section order.
@@ -2222,7 +2222,7 @@ Respond with ONLY a valid JSON object:
     user_parts.append(
         "Compose the final overall assessment using ONLY the selected candidates "
         "and free-text notes above. Arrange them into a logically flowing narrative "
-        "that reads as a cohesive peer review assessment. Do NOT simply concatenate "
+        "that reads as a cohesive check report. Do NOT simply concatenate"
         "sections — reorder and merge related points for coherence. "
         "The output must be JSON with assessment_en and summary_en keys."
     )
@@ -2251,7 +2251,7 @@ def build_overall_assessment_translate_messages(
     """
     system_prompt = """\
 You are a professional academic translator. Translate the following English
-peer review overall assessment into natural, fluent Japanese.
+pre-submission check overall assessment into natural, fluent Japanese.
 
 CRITICAL — Tone in Japanese:
 - Use tentative, constructive, collegial language

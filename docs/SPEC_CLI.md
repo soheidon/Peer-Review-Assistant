@@ -12,14 +12,14 @@
 
 ## 1. CLI の役割
 
-Python CLI は Peer Review Assistant の**処理エンジン**であり、以下の全処理を担当する。
+Python CLI は Academic Paper Checker の**処理エンジン**であり、以下の全処理を担当する。
 
 - 作業フォルダの初期化
 - 原稿（docx / PDF）の前処理・行番号抽出
 - LLM 呼び出し（5チェック項目 × 3スロット）
 - 文献データベース照会
 - チェック項目内マージ
-- 最終マージ・査読コメント出力
+- 最終マージ・チェックレポート出力
 
 GUI（Tauri）は表示・操作・ファイル選択に徹し、解析ロジックは持たない。
 
@@ -138,7 +138,7 @@ pra-cli healthcheck
 
 ### 5.1 目的
 
-指定されたパスに査読作業フォルダを作成し、必要なサブディレクトリ・空ログファイル・初期設定ファイルを生成する。
+指定されたパスにチェック作業フォルダを作成し、必要なサブディレクトリ・空ログファイル・初期設定ファイルを生成する。
 
 ### 5.2 呼び出し
 
@@ -489,16 +489,16 @@ Tauri v2 では、実行可能なコマンドを capabilities で明示的に許
 | `pra-cli novelty-deep-research-prompt` | Deep Research プロンプト生成（広範囲探索用+批判的検証用） |
 | `pra-cli novelty-merge-research` | 2つのDeep Research結果をLLMで比較・統合 |
 | `pra-cli novelty-assess` | 新規性・ジャーナル適合性評価（ジャーナルプロファイル連携） |
-| `pra-cli novelty-review-comment-candidates` | 査読コメント候補生成（12項目、将来の自動化用） |
-| `pra-cli novelty-review-comment-compose` | 選択候補から査読コメント統合（将来の自動化用） |
-| `pra-cli novelty-review-comment-auto` | 全自動査読コメント生成（将来の自動化用） |
+| `pra-cli novelty-review-comment-candidates` | チェックコメント候補生成（12項目、将来の自動化用） |
+| `pra-cli novelty-review-comment-compose` | 選択候補からチェックコメント統合（将来の自動化用） |
+| `pra-cli novelty-review-comment-auto` | 全自動チェックコメント生成（将来の自動化用） |
 | **査読チェック・マージ** | |
 | `pra-cli run-structure-check` | 構成チェック（IMRaD整合性など） |
 | `pra-cli run-expression-check` | 表現チェック（文法・学術表現・過剰主張） |
 | `pra-cli run-methods-stats-check` | 方法・統計チェック（研究デザイン・統計手法・倫理） |
 | `pra-cli run-citation-check` | 引用文献チェック（文献実在性・引用妥当性） |
 | `pra-cli merge-check-section` | チェック項目内マージ（構成/表現/方法統計） |
-| `pra-cli final-merge` | 最終マージ・査読コメント出力（`--format md,docx,txt,all` `--lang en,ja`） |
+| `pra-cli final-merge` | 最終マージ・チェックレポート出力（`--format md,docx,txt,all` `--lang en,ja`） |
 
 ### 11.2 今後実装予定
 
@@ -514,7 +514,7 @@ Tauri v2 では、実行可能なコマンドを capabilities で明示的に許
 pra-cli final-merge --project <project_folder> [--lang en|ja] [--format md,docx,txt,all]
 ```
 
-最終査読コメント文書を生成する。全チェック項目のマージ結果、ユーザー選択状態、全体所感、採否判定を統合して出力する。
+最終チェックレポート文書を生成する。全チェック項目のマージ結果、ユーザー選択状態、全体所感、投稿準備状況判定を統合して出力する。
 
 **パラメータ**:
 
@@ -535,8 +535,8 @@ pra-cli final-merge --project <project_folder> [--lang en|ja] [--format md,docx,
 | `outputs/final/final_review.txt` | テキスト形式（英語、`--format txt` 時） |
 | `outputs/final/final_review_jp.txt` | テキスト形式（日本語、`--format txt` 時） |
 | `outputs/final/_data/comments_to_authors.md` | 著者向けコメント（英日バイリンガル） |
-| `outputs/final/_data/confidential_comments_to_editor.md` | 編集者向けコメント |
-| `outputs/final/_data/recommendation.md` | 推奨判定と理由 |
+| `outputs/final/_data/confidential_comments_to_editor.md` | 投稿準備サマリー |
+| `outputs/final/_data/recommendation.md` | 投稿準備状況評価と理由 |
 | `outputs/final/_data/audit_trail.json` | 処理記録 |
 
 **出力形式の詳細**:
@@ -545,7 +545,7 @@ pra-cli final-merge --project <project_folder> [--lang en|ja] [--format md,docx,
 - **テキスト**（`txt_writer.py`）: H2 → `━━━ Title ━━━`、H3 → `┄┄ Title ┄┄`、太字ラベル → `[Label] text`。Unicode 罫線文字使用。
 - **Word**（`docx_writer.py`、python-docx）: A4 判、Times New Roman / Yu Mincho フォント。H2=14pt、H3=12pt の太字見出し。
 
-**日本語訳保存**: `comments_to_authors.md` が英日バイリンガル形式（`# 査読コメント\n...\n\n---\n\n# Comments to Authors\n...`）の場合、再実行時に日本語部が保存される。
+**日本語訳保存**: `comments_to_authors.md` が英日バイリンガル形式（`# 修正提案\n...\n\n---\n\n# Comments to Authors\n...`）の場合、再実行時に日本語部が保存される。
 
 ---
 

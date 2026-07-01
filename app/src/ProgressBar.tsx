@@ -31,8 +31,8 @@ const STAGES = [
   { key: "db_check",   label: "DB照合",           done: (p: ProgressBarProps) => p.crossrefDone },
   { key: "cite_review",label: "文献確認",         done: (p: ProgressBarProps) => p.viewerDataReady },
   { key: "novelty",    label: "新規性チェック",   done: (p: ProgressBarProps) => p.noveltyAssessDone },
-  { key: "review",     label: "査読チェック",     done: (p: ProgressBarProps) => p.structureMergeDone },
-  { key: "output",     label: "査読結果作成",     done: (p: ProgressBarProps) => p.finalMergeDone },
+  { key: "review",     label: "原稿チェック",     done: (p: ProgressBarProps) => p.structureMergeDone },
+  { key: "output",     label: "レポート作成",     done: (p: ProgressBarProps) => p.finalMergeDone },
 ];
 
 export default function ProgressBar(props: ProgressBarProps) {

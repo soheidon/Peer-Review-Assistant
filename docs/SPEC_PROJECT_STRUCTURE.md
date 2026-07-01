@@ -119,7 +119,7 @@ release/
 - references_split.json
 - db_verified_references.json
 - LLM出力JSON
-- 査読結果Markdown
+- チェックレポートMarkdown
 - 原稿docx / PDF
 - APIキーや個人設定
 - ユーザーの作業フォルダ
@@ -128,12 +128,12 @@ release/
 
 ---
 
-## 3. ユーザー査読案件フォルダ構成（推奨運用例）
+## 3. ユーザーのチェック案件フォルダ構成（推奨運用例）
 
-ユーザーは、1つの査読案件につき1つの案件フォルダを作成する。このフォルダの配下に `original/`、`work/`、`final/` の3領域を置くことを推奨する。
+ユーザーは、1つのチェック案件につき1つの案件フォルダを作成する。このフォルダの配下に `original/`、`work/`、`final/` の3領域を置くことを推奨する。
 
 ```text
-D:\GoogleDrive\Documents\Paper\査読\2025-05-07-Scientific Reports\
+D:\GoogleDrive\Documents\Paper\投稿前チェック\2025-05-07-Scientific Reports\
   original/
     受け取った原本をそのまま保存する場所
     received_manuscript.docx
@@ -142,7 +142,7 @@ D:\GoogleDrive\Documents\Paper\査読\2025-05-07-Scientific Reports\
     journal_email.txt
 
   work/
-    Peer Review Assistant の作業フォルダ
+    Academic Paper Checker の作業フォルダ
     project.json
     source/
       manuscript.docx                         ← アプリがコピーした標準名ファイル
@@ -155,7 +155,7 @@ D:\GoogleDrive\Documents\Paper\査読\2025-05-07-Scientific Reports\
     logs/
 
   final/
-    最終的に投稿・提出した査読コメントを保存する場所
+    最終的に投稿・提出したチェックレポートを保存する場所
     review_submitted.md
     comments_to_authors.md
     confidential_comments_to_editor.md
@@ -168,7 +168,7 @@ D:\GoogleDrive\Documents\Paper\査読\2025-05-07-Scientific Reports\
 | `original/` | ユーザー（手動） | 受け取った原本をそのまま保管。アプリは読み取りのみ行う |
 | `work/` | アプリ（`init-project`） | アプリが処理に使う作業フォルダ。`project.json` をルートに持つ |
 | `work/source/` | アプリ（`attach-source`） | アプリが原本からコピーした標準名ファイルを置く場所 |
-| `final/` | ユーザー（手動） | 提出済みの査読コメントを保存。アプリは関与しない |
+| `final/` | ユーザー（手動） | 提出済みのチェックレポートを保存。アプリは関与しない |
 
 ### 3.2 original/ と work/source/ の違い
 

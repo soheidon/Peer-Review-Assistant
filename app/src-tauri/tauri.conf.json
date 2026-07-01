@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicedoc/open-tauri/main/schemas/config.schema.json",
-  "productName": "Peer Review Assistant",
+  "productName": "Academic Paper Checker",
   "version": "0.4.1",
   "identifier": "com.peerreviewassistant.app",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Peer Review Assistant / 査読アシスタント",
+        "title": "Academic Paper Checker / 学術論文チェック",
         "width": 900,
         "height": 700,
         "resizable": true,

@@ -101,7 +101,7 @@ pra-cli preprocess-docx --project <project_folder>
 
 ### 2.1 目的
 
-Phase 2A で抽出した各段落・文に番号を付与し、査読コメントの位置指定に使えるようにする。
+Phase 2A で抽出した各段落・文に番号を付与し、修正提案の位置指定に使えるようにする。
 
 ### 2.2 CLI コマンド
 

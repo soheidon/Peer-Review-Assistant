@@ -40,8 +40,8 @@ export default function HomePanel({
     { label: "引用文献抽出", done: citationExtractionDone },
     { label: "文献DB照合", done: crossrefDone },
     { label: "文献確認", done: viewerDataReady },
-    { label: "査読チェック", done: structureMergeDone },
-    { label: "査読結果作成", done: finalMergeDone },
+    { label: "原稿チェック", done: structureMergeDone },
+    { label: "レポート作成", done: finalMergeDone },
   ];
 
   const doneCount = stages.filter((s) => s.done).length;
@@ -51,7 +51,7 @@ export default function HomePanel({
   if (setupPhase === "loading") {
     return (
       <div className="home-panel">
-        <h1 className="home-title">Peer Review Assistant</h1>
+        <h1 className="home-title">Academic Paper Checker</h1>
         <div className="setup-loading">
           <span className="setup-spinner" />
           <span>Python CLI を確認中...</span>
@@ -64,13 +64,13 @@ export default function HomePanel({
   if (setupPhase === "setup_needed") {
     return (
       <div className="home-panel">
-        <h1 className="home-title">Peer Review Assistant</h1>
-        <p className="home-subtitle">査読アシスタント v0.4.0</p>
+        <h1 className="home-title">Academic Paper Checker</h1>
+        <p className="home-subtitle">学術論文チェック v0.5.0</p>
 
         <div className="setup-warning-box">
           <h2>Python CLI (pra-cli) が見つかりません</h2>
           <p>
-            このツールの査読処理エンジン（Python CLI）がインストールされていません。<br />
+            このツールの原稿チェック処理エンジン（Python CLI）がインストールされていません。<br />
             下のボタンをクリックすると、自動的にインストールされます。
           </p>
           <button className="setup-install-btn" onClick={onRunSetup}>
@@ -92,7 +92,7 @@ export default function HomePanel({
   if (setupPhase === "installing") {
     return (
       <div className="home-panel">
-        <h1 className="home-title">Peer Review Assistant</h1>
+        <h1 className="home-title">Academic Paper Checker</h1>
         <div className="setup-loading">
           <span className="setup-spinner" />
           <span style={{ fontWeight: 600 }}>Python CLI をインストール中...</span>
@@ -109,7 +109,7 @@ export default function HomePanel({
   if (setupPhase === "installed_verifying") {
     return (
       <div className="home-panel">
-        <h1 className="home-title">Peer Review Assistant</h1>
+        <h1 className="home-title">Academic Paper Checker</h1>
         <div className="setup-loading">
           <span className="setup-spinner" />
           <span>ヘルスチェック実行中...</span>
@@ -123,8 +123,8 @@ export default function HomePanel({
   if (setupPhase === "error") {
     return (
       <div className="home-panel">
-        <h1 className="home-title">Peer Review Assistant</h1>
-        <p className="home-subtitle">査読アシスタント v0.4.0</p>
+        <h1 className="home-title">Academic Paper Checker</h1>
+        <p className="home-subtitle">学術論文チェック v0.5.0</p>
 
         {statusMessage && (
           <div className={`status-banner ${statusMessage.type}`}>
@@ -163,8 +163,8 @@ export default function HomePanel({
   // ── Phase: ready (normal home screen) ──
   return (
     <div className="home-panel">
-      <h1 className="home-title">Peer Review Assistant</h1>
-      <p className="home-subtitle">査読アシスタント v0.4.0</p>
+      <h1 className="home-title">Academic Paper Checker</h1>
+      <p className="home-subtitle">学術論文チェック v0.5.0</p>
 
       {statusMessage && (
         <div className={`status-banner ${statusMessage.type}`}>

@@ -4486,7 +4486,7 @@ function App() {
   const runBatchStructure = async () => {
     const reviewerSlots = llmSlots.filter(s => s.name.startsWith("reviewer") && s.enabled !== false);
     if (reviewerSlots.length === 0) {
-      addLog({ event: "error", message: "有効な査読AIスロットがありません。" });
+      addLog({ event: "error", message: "有効なチェックAIスロットがありません。" });
       return;
     }
     setBatchRunning(prev => ({ ...prev, structure: true }));
@@ -4516,7 +4516,7 @@ function App() {
   const runBatchExpression = async () => {
     const reviewerSlots = llmSlots.filter(s => s.name.startsWith("reviewer") && s.enabled !== false);
     if (reviewerSlots.length === 0) {
-      addLog({ event: "error", message: "有効な査読AIスロットがありません。" });
+      addLog({ event: "error", message: "有効なチェックAIスロットがありません。" });
       return;
     }
     setBatchRunning(prev => ({ ...prev, expression: true }));
@@ -4545,7 +4545,7 @@ function App() {
   const runBatchMethodsStats = async () => {
     const reviewerSlots = llmSlots.filter(s => s.name.startsWith("reviewer") && s.enabled !== false);
     if (reviewerSlots.length === 0) {
-      addLog({ event: "error", message: "有効な査読AIスロットがありません。" });
+      addLog({ event: "error", message: "有効なチェックAIスロットがありません。" });
       return;
     }
     setBatchRunning(prev => ({ ...prev, methods_stats: true }));
@@ -4574,7 +4574,7 @@ function App() {
   const runBatchLogicArgument = async () => {
     const reviewerSlots = llmSlots.filter(s => s.name.startsWith("reviewer") && s.enabled !== false);
     if (reviewerSlots.length === 0) {
-      addLog({ event: "error", message: "有効な査読AIスロットがありません。" });
+      addLog({ event: "error", message: "有効なチェックAIスロットがありません。" });
       return;
     }
     setBatchRunning(prev => ({ ...prev, logic_argument: true }));
@@ -4603,7 +4603,7 @@ function App() {
   const runBatchFigureTable = async () => {
     const reviewerSlots = llmSlots.filter(s => s.name.startsWith("reviewer") && s.enabled !== false);
     if (reviewerSlots.length === 0) {
-      addLog({ event: "error", message: "有効な査読AIスロットがありません。" });
+      addLog({ event: "error", message: "有効なチェックAIスロットがありません。" });
       return;
     }
     setBatchRunning(prev => ({ ...prev, figure_table: true }));
@@ -4632,7 +4632,7 @@ function App() {
   const runBatchEthics = async () => {
     const reviewerSlots = llmSlots.filter(s => s.name.startsWith("reviewer") && s.enabled !== false);
     if (reviewerSlots.length === 0) {
-      addLog({ event: "error", message: "有効な査読AIスロットがありません。" });
+      addLog({ event: "error", message: "有効なチェックAIスロットがありません。" });
       return;
     }
     setBatchRunning(prev => ({ ...prev, ethics: true }));
@@ -4932,7 +4932,7 @@ function App() {
     setStatusMessage(null);
     const langLabel = lang === "ja" ? "日本語" : "英語";
     const formatLabel = format === "docx" ? "Word" : format === "txt" ? "テキスト" : "Markdown";
-    addLog({ event: "info", message: `最終査読コメントを生成中 (${langLabel} / ${formatLabel})...` });
+    addLog({ event: "info", message: `チェックレポートを生成中 (${langLabel} / ${formatLabel})...` });
 
     try {
       // comment_card_checked.json is kept up-to-date by the persistence effect.
@@ -4955,15 +4955,15 @@ function App() {
         const suffix = lang === "ja" ? "_jp" : "";
         const outFile = `final_review${suffix}.${ext}`;
         const outPath = `${projectPath.replace(/\\/g, "/")}/outputs/final/${outFile}`;
-        setStatusMessage({text: `査読コメントを生成しました → ${outPath}`, type: "ok"});
+        setStatusMessage({text: `チェックレポートを生成しました → ${outPath}`, type: "ok"});
         await loadResultFile(outFile);
       } else {
-        setStatusMessage({text: "最終査読コメントの生成に失敗しました。", type: "error"});
+        setStatusMessage({text: "チェックレポートの生成に失敗しました。", type: "error"});
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       addLog({ event: "error", message: msg });
-      setStatusMessage({text: "最終査読コメントの生成でエラーが発生しました。", type: "error"});
+      setStatusMessage({text: "チェックレポートの生成でエラーが発生しました。", type: "error"});
     } finally {
       setFinalMergeRunning(false);
     }
@@ -5516,7 +5516,7 @@ function App() {
     const slot = llmSlots.find(s => s.name === "reviewer1");
     if (!slot || !projectPath.trim()) return;
     setReevaluationRunning(prev => ({ ...prev, [checkName]: true }));
-    addLog({ event: "info", message: `${checkLabel(checkName)}: 再評価を開始（評価AI 1で裁決）...` });
+    addLog({ event: "info", message: `${checkLabel(checkName)}: 再評価を開始（チェックAI 1で裁決）...` });
     try {
       const { Command } = await import("@tauri-apps/plugin-shell");
       const args = buildLlmArgs(slot, [
@@ -5926,7 +5926,7 @@ function App() {
     return sections;
   }
 
-  /** Aggregate all review data into CommentCard[] for the 査読コメント viewer. */
+  /** Aggregate all check data into CommentCard[] for the 修正提案 viewer. */
   async function buildCommentCards(): Promise<CommentCard[]> {
     const cards: CommentCard[] = [];
     const { invoke } = await import("@tauri-apps/api/core");
@@ -5998,7 +5998,7 @@ function App() {
       }
     }
 
-    // ── 5-10. 査読チェック findings ──
+    // ── 5-10. 原稿チェック findings ──
     const CHECK_META: { name: string; source: CardSource; label: string; done: boolean }[] = [
       { name: "structure", source: "check_structure", label: "構成", done: structureMergeDone },
       { name: "expression", source: "check_expression", label: "表現", done: expressionMergeDone },

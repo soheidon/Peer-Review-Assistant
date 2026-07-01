@@ -44,7 +44,7 @@ interface ResultsPanelProps {
   onReflectEdit: () => void;
   // Compose status
   assessmentComposed: boolean;
-  // Comment cards for 査読コメント aggregation
+  // Comment cards for 修正提案 aggregation
   commentCards: CommentCard[];
   commentCardChecked: Record<string, boolean>;
   onToggleCommentCard: (cardKey: string) => void;
@@ -209,13 +209,13 @@ interface ResultFile {
 }
 
 const RESULT_FILE_LABELS: Record<string, { label: string; description: string }> = {
-  "final_review.md": { label: "最終査読", description: "英語の最終査読レポート" },
-  "final_review_jp.md": { label: "最終査読", description: "日本語の最終査読レポート" },
-  "Review_comments.md": { label: "採否決定", description: "英語の採否決定コメント" },
-  "Review_comments_jp.md": { label: "採否決定", description: "日本語の採否決定コメント" },
-  "comments_to_authors.md": { label: "査読コメント", description: "著者向けコメント一覧" },
-  "confidential_comments_to_editor.md": { label: "編集者への所見", description: "守秘コメント" },
-  "recommendation.md": { label: "採否", description: "判定サマリー" },
+  "final_review.md": { label: "チェックレポート", description: "英語の最終チェックレポート" },
+  "final_review_jp.md": { label: "チェックレポート", description: "日本語の最終チェックレポート" },
+  "Review_comments.md": { label: "投稿準備状況", description: "英語の投稿準備状況評価" },
+  "Review_comments_jp.md": { label: "投稿準備状況", description: "日本語の投稿準備状況評価" },
+  "comments_to_authors.md": { label: "修正提案", description: "改善提案一覧" },
+  "confidential_comments_to_editor.md": { label: "投稿準備サマリー", description: "投稿準備状況の内部評価" },
+  "recommendation.md": { label: "総合評価", description: "改善提案サマリー" },
   "audit_trail.json": { label: "監査証跡", description: "生成メタデータ" },
   "overall_assessment.md": { label: "全体所感", description: "総合評価" },
   "free_text.md": { label: "自由記述", description: "自由記述テキスト" },
@@ -466,7 +466,7 @@ export default function ResultsPanel({
     })();
   }, [viewingFileOutput, hasProject, projectPath, outputDir]);
 
-  // Auto-open 査読コメント when results already exist
+  // Auto-open 修正提案 when results already exist
   const autoOpenedRef = useRef(false);
   useEffect(() => {
     if (commentCards.length > 0 && !viewingComments && !autoOpenedRef.current) {
@@ -478,7 +478,7 @@ export default function ResultsPanel({
   // Derive verdict card data from commentCards (single source of truth)
   const verdictCards = commentCards.filter(c => c.source === "verdict");
   const verdictMainCard = verdictCards.find(c => c.cardLabel === "判定");
-  // Filter: show all verdict cards in 査読コメント, but hide the 判定 card in the file viewer
+  // Filter: show all verdict cards in 修正提案, but hide the 判定 card in the file viewer
   const verdictCardsForDetail = verdictCards.filter(c => c.key !== "verdict::verdict");
 
   // Reset when candidates appear (new generation) or disappear
@@ -624,14 +624,14 @@ export default function ResultsPanel({
             </div>
           </section>
 
-          {/* ── 査読コメント ── */}
+          {/* ── 修正提案 ── */}
           <section className="panel"
             onClick={() => { setViewingComments(true); setViewingFileOutput(false); }}
             style={{ cursor: "pointer", marginTop: 12, minHeight: 72 }}
             title="クリックで専用ビューアーを表示"
           >
             <h2 style={{ userSelect: "none" }}>
-              査読コメント
+              修正提案
             </h2>
           </section>
 
@@ -665,7 +665,7 @@ export default function ResultsPanel({
                 flexShrink: 0, display: "flex", gap: 8, alignItems: "center",
                 marginBottom: 12, flexWrap: "wrap",
               }}>
-                <h3 style={{ margin: 0, fontSize: 16 }}>査読結果作成 — ファイル出力</h3>
+                <h3 style={{ margin: 0, fontSize: 16 }}>レポート作成 — ファイル出力</h3>
               </div>
 
               {/* 出力設定 */}
@@ -678,7 +678,7 @@ export default function ResultsPanel({
                   padding: "8px 12px", background: "#f5f5f5",
                   borderBottom: "1px solid #e0e0e0",
                 }}>
-                  査読コメントの出力
+                  修正提案の出力
                 </div>
                 <div style={{ padding: "10px 12px" }}>
                   {/* Unified path + folder selector */}
@@ -858,7 +858,7 @@ export default function ResultsPanel({
               </div>
 
             </div>
-          ) : /* ── 査読コメント専用ビューアー ── */
+          ) : /* ── 修正提案専用ビューアー ── */
           viewingComments ? (() => {
             const SOURCE_ORDER: CardSource[] = [
               "verdict", "general_impressions",
@@ -887,7 +887,7 @@ export default function ResultsPanel({
                 marginBottom: 8, flexWrap: "wrap",
               }}>
                 <h3 style={{ margin: 0, fontSize: 16 }}>
-                  査読結果作成 — 査読コメント ({commentCards.length})
+                  レポート作成 — 修正提案 ({commentCards.length})
                 </h3>
                 <div style={{ flex: 1 }} />
                 {/* Font size toggle */}
@@ -912,7 +912,7 @@ export default function ResultsPanel({
               <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
                 {commentCards.length === 0 ? (
                   <div style={{ padding: 40, color: "#aaa", fontSize: "13px", textAlign: "center" }}>
-                    まだ表示可能な査読データがありません。各チェックと採否決定を実行してください。
+                    まだ表示可能なチェックデータがありません。各チェックと投稿準備状況評価を実行してください。
                   </div>
                 ) : (
                   groupedCards.map((group) => (
@@ -975,7 +975,7 @@ export default function ResultsPanel({
                                 </span>
                               )}
                               <span style={{ fontSize: 11, color: "#333", marginLeft: "auto" }}>
-                                {checked ? "査読コメントに含まれる" : "査読コメントに含まれない"}
+                                {checked ? "修正提案に含まれる" : "修正提案に含まれない"}
                               </span>
                             </div>
                             {/* 該当箇所 */}
@@ -1081,7 +1081,7 @@ export default function ResultsPanel({
                 }}
               >
                 <h3 style={{ margin: 0, fontSize: 16 }}>
-                  査読結果作成 — 全体所感
+                  レポート作成 — 全体所感
                 </h3>
                 <div style={{ flex: 1 }} />
                 {/* Font size toggle */}
@@ -1239,7 +1239,7 @@ export default function ResultsPanel({
                         </div>
                       </div>
 
-                      {/* Composed file viewer with 査読コメント checkbox */}
+                      {/* Composed file viewer with 修正提案 checkbox */}
                       {(() => {
                         const giChecked = commentCardChecked["general_impressions::main"] !== false;
                         return (<>
@@ -1275,7 +1275,7 @@ export default function ResultsPanel({
                             General Impressions
                           </span>
                           <span style={{ fontSize: "11px", color: "#333", marginLeft: "auto" }}>
-                            {giChecked ? "査読コメントに使用されます" : "査読コメントに使用されません"}
+                            {giChecked ? "修正提案に使用されます" : "修正提案に使用されません"}
                           </span>
                         </div>
                         <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
@@ -1668,7 +1668,7 @@ export default function ResultsPanel({
                 marginBottom: 8, flexWrap: "wrap",
               }}>
                 <h3 style={{ margin: 0, fontSize: 16 }}>
-                  査読結果作成 — {(() => {
+                  レポート作成 — {(() => {
                     const info = RESULT_FILE_LABELS[selectedResultFile];
                     return info ? info.label : selectedResultFile;
                   })()}
@@ -1732,8 +1732,8 @@ export default function ResultsPanel({
                       background: "#e8f5e9", padding: "6px 8px", borderRadius: 3,
                       fontWeight: 500,
                     }}>
-                      ※ 査読チェック（構成・表現・方法統計・論理主張・図表・倫理利益相反）および
-                      新規性評価の全結果を考慮し、Accept / Minor Revision / Major Revision / Reject の判定を生成します。
+                      ※ 原稿チェック（構成・表現・方法統計・論理主張・図表・倫理利益相反）および
+                      新規性評価の全結果を考慮し、投稿準備状況の判定を生成します。
                     </div>
                     <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
                       <button
@@ -1915,7 +1915,7 @@ export default function ResultsPanel({
                           {card.cardSubtitle}
                         </span>
                         <span style={{ fontSize: "11px", color: "#333", marginLeft: "auto" }}>
-                          {checked ? "査読コメントに使用されます" : "査読コメントに使用されません"}
+                          {checked ? "修正提案に使用されます" : "修正提案に使用されません"}
                         </span>
                       </div>
                       {hasJa ? (
@@ -1972,7 +1972,7 @@ export default function ResultsPanel({
                           background: "#e8f5e9", padding: "6px 8px", borderRadius: 3,
                           fontWeight: 500,
                         }}>
-                          ※ 査読チェック全セクションの結果を参照して、Reasoning / Key Strengths / Key Concerns を修正します。Verdict（判定）は変更されません。
+                          ※ 原稿チェック全セクションの結果を参照して、Reasoning / Key Strengths / Key Concerns を修正します。投稿準備状況の判定は変更されません。
                         </div>
                         <textarea
                           value={verdictEditInstruction}

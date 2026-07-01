@@ -7,8 +7,8 @@ const MENU_ITEMS = [
   { key: "sections",   label: "本文分割",       icon: "📋" },
   { key: "citations",  label: "文献確認",       icon: "📚" },
   { key: "novelty",    label: "新規性チェック", icon: "💡" },
-  { key: "review",     label: "査読チェック",   icon: "✓" },
-  { key: "results",    label: "査読結果作成",   icon: "📄" },
+  { key: "review",     label: "原稿チェック",   icon: "✓" },
+  { key: "results",    label: "レポート作成",   icon: "📄" },
 ];
 
 interface SidebarProps {

@@ -1755,7 +1755,7 @@ export default function JournalPanel({
         {projectPath && (journalLoaded || jp.journal_name.trim()) && !journalSaved &&
           "取得した情報を確認し、「保存」を押してください。"}
         {projectPath && journalLoaded && journalSaved &&
-          "ジャーナル情報を編集後、「保存」を押してください。次の工程（文献確認・査読チェック）で自動参照されます。"}
+          "ジャーナル情報を編集後、「保存」を押してください。次の工程（文献確認・原稿チェック）で自動参照されます。"}
       </div>
 
       {/* Acquisition modal */}

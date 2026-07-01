@@ -446,7 +446,7 @@ export default function CitationReviewPanel({
       <div className="next-step">
         {!crossrefDone && "次: 「前処理」メニューから Crossref照合 を実行してください"}
         {crossrefDone && !viewerDataReady && "次: 文献確認データを作成・更新してください"}
-        {viewerDataReady && "文献を確認し、問題がなければ「査読チェック」メニューに進んでください"}
+        {viewerDataReady && "文献を確認し、問題がなければ「原稿チェック」メニューに進んでください"}
       </div>
     </div>
   );

@@ -235,7 +235,7 @@ def build_novelty_summary_messages(
     identification.
     """
     system_prompt = """\
-You are an expert assistant supporting peer review of academic manuscripts.
+You are an expert assistant supporting pre-submission manuscript preparation.
 Read the manuscript provided and summarize/analyze it from the perspectives below.
 
 Important instructions:
@@ -419,7 +419,7 @@ Evaluate from both a general novelty assessment perspective and what contributio
         dr_note = "\n**Note**: This is an assessment integrating two external research results.\n"
 
     system_prompt = f"""\
-You are a peer reviewer for an academic manuscript.
+You are a pre-submission manuscript checker for an academic manuscript.
 Based on the manuscript summary, the results of an external literature survey (Deep Research),
 and the target journal profile information, evaluate the novelty and journal fit.
 {dr_note}
@@ -433,7 +433,7 @@ Other instructions:
 - If specific references are cited in the literature survey results, refer to them explicitly.
 - Do not overstate novelty.
 - Adapt what to emphasize and what to avoid according to the journal's evaluation axis.
-- Provide perspectives useful for reviewers when writing novelty-related comments.
+- Provide perspectives useful for authors preparing for submission.
 
 Output in the following Markdown format.
 
@@ -602,7 +602,7 @@ def build_novelty_review_journal_fit_messages(
         )
 
     system_prompt = f"""\
-You are a peer reviewer evaluating whether a manuscript is a good fit for its target journal.
+You are a pre-submission manuscript checker evaluating whether a manuscript is a good fit for its target journal.
 Based on the manuscript summary, novelty assessment, and journal profile, produce a focused
 journal-fit evaluation.
 
@@ -711,7 +711,7 @@ def build_novelty_review_universal_messages(
     Journal tier estimation is handled by a separate evaluation.
     """
     system_prompt = """\
-You are a peer reviewer performing a journal-agnostic evaluation of a manuscript's
+You are a pre-submission manuscript checker performing a journal-agnostic evaluation of a manuscript's
 thematic novelty. Your goal is to assess how novel the research theme and findings
 are, independent of any specific target journal.
 
@@ -831,7 +831,7 @@ def build_novelty_review_journal_tier_messages(
     independent of any specific target journal.
     """
     system_prompt = """\
-You are a peer reviewer estimating the appropriate journal tier for a manuscript,
+You are a pre-submission manuscript checker estimating the appropriate journal tier for a manuscript,
 based solely on its thematic novelty. Your role is to place the manuscript in the
 right impact-factor band, independent of any specific target journal.
 
@@ -911,7 +911,7 @@ def build_novelty_find_journals_messages(
     This is the "internal method" — no external AI needed.
     """
     system_prompt = """\
-You are a peer reviewer tasked with finding real, existing academic journals
+You are a pre-submission manuscript checker tasked with finding real, existing academic journals
 that would be suitable submission targets for a manuscript, based on its
 thematic novelty and estimated journal tier.
 
@@ -1050,7 +1050,7 @@ def build_journal_search_parse_messages(
 5. Rank by match quality (best fit first). Select the top 10."""
 
     system_prompt = f"""\
-You are a coordinating peer reviewer. Your task is to parse and merge academic
+You are a coordinating pre-submission checker. Your task is to parse and merge academic
 journal recommendations from external AI search results into a clean, ranked list.
 
 CRITICAL LANGUAGE RULE:
@@ -1180,8 +1180,8 @@ def build_novelty_review_comment_messages(
     comments (NOT a cover letter). Output in both Japanese and English.
     """
     system_prompt = """\
-You are a peer reviewer for an academic manuscript.
-Based on the manuscript summary and novelty assessment results, write the "Novelty and Overlap with Existing Literature" section for the **final review comments**.
+You are a pre-submission manuscript checker for an academic manuscript.
+Based on the manuscript summary and novelty assessment results, write the "Novelty and Overlap with Existing Literature" section for the **final check report**.
 
 This is NOT a cover letter — it is text to be included in the reviewer's report.
 
@@ -1191,7 +1191,7 @@ Important instructions:
 - Do not overstate novelty.
 - If there is overlap with existing research, point it out honestly.
 - Output in both English and Japanese (for international journal submission).
-- Approximately 3–5 paragraphs per language, in a style appropriate for an academic peer review report.
+- Approximately 3–5 paragraphs per language, in a style appropriate for an academic check report.
 
 Output in the following format.
 
@@ -1199,11 +1199,11 @@ Output in the following format.
 
 ## English
 
-[3–5 paragraphs of English review comments]
+[3–5 paragraphs of English check findings]
 
 ## 日本語
 
-[3〜5段落の日本語査読コメント]"""
+[3〜5段落の日本語チェックコメント]"""
 
     summary_json = json.dumps(novelty_summary, ensure_ascii=False, indent=2)
 
@@ -1386,8 +1386,8 @@ def build_novelty_comment_candidates_messages(
     ratings, and recommendation levels. User selects which to include.
     """
     system_prompt = """\
-You are a peer reviewer for an academic manuscript.
-Based on the manuscript summary and novelty assessment results, generate per-item candidate text for the "Novelty and Overlap with Existing Literature" section of the final review comments.
+You are a pre-submission manuscript checker for an academic manuscript.
+Based on the manuscript summary and novelty assessment results, generate per-item candidate text for the "Novelty and Overlap with Existing Literature" section of the final check report.
 
 This is NOT a cover letter — these are candidate texts to be included in the reviewer's report.
 
@@ -1398,7 +1398,7 @@ Important instructions:
 - Assign a recommendation level (high / medium / low).
 - Adapt the wording to the journal's evaluation axis.
 - Mark overclaiming items as cautious or not_recommended.
-- Each candidate should be approximately 3–5 sentences in a style appropriate for an academic peer review report.
+- Each candidate should be approximately 3–5 sentences in a style appropriate for an academic check report.
 
 Output in the following JSON format. Do NOT output any text other than JSON.
 
@@ -1488,14 +1488,14 @@ def build_novelty_comment_compose_messages(
     }.get(language, "Output in both English and Japanese.")
 
     system_prompt = f"""\
-You are a peer reviewer for an academic manuscript.
-Based on the selected candidate texts, compose a cohesive "Novelty and Overlap with Existing Literature" section for the final review comments.
+You are a pre-submission manuscript checker for an academic manuscript.
+Based on the selected candidate texts, compose a cohesive "Novelty and Overlap with Existing Literature" section for the final check report.
 
 Important instructions:
 - {lang_instr}
 - Use only the selected candidates; do not include content that was not selected.
 - Remove redundancies and integrate into a naturally flowing text.
-- Avoid overclaiming; write in a style appropriate for an academic peer review report.
+- Avoid overclaiming; write in a style appropriate for an academic check report.
 - Aim for approximately 3–5 paragraphs per language.
 - This is NOT a cover letter — it is text to be included in the reviewer's report.
 
@@ -1505,11 +1505,11 @@ Output in the following Markdown format.
 
 ## English
 
-[3-5 paragraphs of English review comments]
+[3-5 paragraphs of English check findings]
 
 ## 日本語
 
-[3〜5段落の日本語査読コメント]"""
+[3〜5段落の日本語チェックコメント]"""
 
     journal_note = ""
     if journal_profile:
@@ -1568,7 +1568,7 @@ def build_novelty_achievement_messages(
         list of {"role": str, "content": str} messages
     """
     system_prompt = """\
-You are a peer reviewer evaluating whether a manuscript actually achieves the
+You are a pre-submission manuscript checker evaluating whether a manuscript actually achieves the
 novelty it claims. The novelty claims were assessed in a separate thematic
 novelty evaluation (provided below). Your task is to cross-reference those
 claims with concrete problems found in the manuscript's expression, methods,

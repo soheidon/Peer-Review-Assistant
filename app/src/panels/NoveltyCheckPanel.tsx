@@ -826,7 +826,7 @@ export default function NoveltyCheckPanel({
             {noveltySummaryDone && !noveltyPromptDone && "次: Deep Researchプロンプトを生成し、外部で実行してください"}
             {noveltyPromptDone && !noveltyDrSaved && "次: Deep Research結果A・Bを貼り付けて保存してください"}
             {noveltyDrSaved && !noveltyMergeDone && !noveltyAssessDone && "次: 「統合・評価」を実行してください"}
-            {noveltyAssessDone && "新規性チェック完了。統合結果を「査読チェック」で参照してください。"}
+            {noveltyAssessDone && "新規性チェック完了。統合結果を「原稿チェック」で参照してください。"}
           </div>
 
         </div>{/* end left column */}

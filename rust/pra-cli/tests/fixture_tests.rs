@@ -43,6 +43,48 @@ fn fixture_count_is_reasonable() {
     assert!(fixtures.len() >= 14);
 }
 
+// ── Section normalizer fixture tests ──
+
+mod section_normalizer_tests {
+    use pra_cli_rs::section_normalizer::normalize_sections;
+    use serde::Deserialize;
+    use serde_json::Value;
+
+    #[derive(Deserialize)]
+    struct SnFixture {
+        name: String,
+        section_map: Value,
+        journal_profile: Option<Value>,
+        expected: Value,
+    }
+
+    fn load_fixtures() -> Vec<SnFixture> {
+        let json_str = include_str!("section_normalizer_fixtures.json");
+        serde_json::from_str(json_str).expect("failed to parse section_normalizer_fixtures.json")
+    }
+
+    #[test]
+    fn all_section_normalizer_fixtures_match() {
+        let fixtures = load_fixtures();
+        assert!(!fixtures.is_empty(), "fixtures should not be empty");
+
+        for f in &fixtures {
+            let actual = normalize_sections(&f.section_map, f.journal_profile.as_ref());
+            assert_eq!(
+                actual, f.expected,
+                "Mismatch for fixture '{}'",
+                f.name
+            );
+        }
+    }
+
+    #[test]
+    fn sn_fixture_count_is_reasonable() {
+        let fixtures = load_fixtures();
+        assert!(fixtures.len() >= 12);
+    }
+}
+
 // ── Merge fixture tests ──
 
 mod merge_tests {

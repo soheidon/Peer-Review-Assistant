@@ -1,0 +1,16 @@
+{
+  "check_name": "methods_stats",
+  "status": "success",
+  "generated_at": null,
+  "sources": [
+    {
+      "source": "gpt-4o",
+      "status": "done",
+      "model": "gpt-4o",
+      "finding_count": 0
+    }
+  ],
+  "summary": "methods_stats check completed.",
+  "comments": [],
+  "conflicts": []
+}

@@ -1,0 +1,74 @@
+{
+  "check_name": "structure",
+  "status": "success",
+  "generated_at": null,
+  "sources": [
+    {
+      "source": "gpt-4o",
+      "status": "done",
+      "model": "gpt-4o",
+      "finding_count": 2
+    }
+  ],
+  "summary": "structure check completed.",
+  "comments": [
+    {
+      "comment_id": "structure_001",
+      "severity": "major",
+      "category": "Structure",
+      "location": {
+        "section": "Methods",
+        "paragraph_start": 1,
+        "paragraph_end": 2
+      },
+      "issue": "Statistical approach is questionable.",
+      "suggested_author_comment": "Justify the statistical method choice.",
+      "evidence": "Reviewer A flagged this issue.",
+      "confidence": "high",
+      "conflict": true,
+      "source_findings": [
+        "structure_001_src1"
+      ],
+      "reviewer_note": "SEVERITY CONFLICT: gpt-4o rated major, claude-opus rated minor."
+    },
+    {
+      "comment_id": "structure_002",
+      "severity": "minor",
+      "category": "Structure",
+      "location": {
+        "section": "Introduction",
+        "paragraph_start": 1,
+        "paragraph_end": 2
+      },
+      "issue": "Minor typo in abstract.",
+      "suggested_author_comment": "Fix the typo.",
+      "evidence": "Reviewer A flagged this issue.",
+      "confidence": "high",
+      "conflict": false,
+      "source_findings": [
+        "structure_002_src1"
+      ]
+    }
+  ],
+  "conflicts": [
+    {
+      "comment_id": "structure_001",
+      "severity": "major",
+      "category": "Structure",
+      "location": {
+        "section": "Methods",
+        "paragraph_start": 1,
+        "paragraph_end": 2
+      },
+      "issue": "Statistical approach is questionable.",
+      "suggested_author_comment": "Justify the statistical method choice.",
+      "evidence": "Reviewer A flagged this issue.",
+      "confidence": "high",
+      "conflict": true,
+      "source_findings": [
+        "structure_001_src1"
+      ],
+      "reviewer_note": "SEVERITY CONFLICT: gpt-4o rated major, claude-opus rated minor."
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+## 1. 総合評価
+
+structure check completed.
+
+## 2. 構造
+
+### 2.1. Introduction, Paragraphs 1-2
+
+**Recommendation**: 大幅修正が必要
+
+**改善提案**: 研究のギャップが明示されていません。
+
+### 2.2. Discussion, Paragraphs 1-2
+
+**Recommendation**: 軽微な改善を提案
+
+**改善提案**: 考察が冗長です。
+
+## 3. 表現
+
+### 3.1. Abstract, Paragraphs 1-2
+
+**Recommendation**: 軽微な改善を提案
+
+**改善提案**: 要旨の表現が不自然です。
+
+## 4. 方法と統計
+
+### 4.1. Methods, Paragraphs 1-2
+
+**Recommendation**: 大幅修正が必要
+
+**改善提案**: 統計検定の選択が不適切です。
+
+## 5. 論理と議論
+
+### 5.1. Results, Paragraphs 1-2
+
+**Recommendation**: 軽微な改善を提案
+
+**改善提案**: 結論が結果から導かれていません。
+
+## 6. 図表
+
+### 6.1. Results, Paragraphs 1-2
+
+**Recommendation**: 軽微な改善を提案
+
+**改善提案**: 図3の解像度が低すぎます。
+
+## 7. 倫理と利益相反
+
+### 7.1. Methods, Paragraphs 1-2
+
+**Recommendation**: 大幅修正が必要
+
+**改善提案**: IRB承認番号が記載されていません。

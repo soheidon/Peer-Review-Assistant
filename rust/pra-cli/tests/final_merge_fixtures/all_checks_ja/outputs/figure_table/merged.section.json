@@ -1,0 +1,35 @@
+{
+  "check_name": "figure_table",
+  "status": "success",
+  "generated_at": null,
+  "sources": [
+    {
+      "source": "gpt-4o",
+      "status": "done",
+      "model": "gpt-4o",
+      "finding_count": 1
+    }
+  ],
+  "summary": "figure_table check completed.",
+  "comments": [
+    {
+      "comment_id": "figure_table_001",
+      "severity": "minor",
+      "category": "Structure",
+      "location": {
+        "section": "Results",
+        "paragraph_start": 1,
+        "paragraph_end": 2
+      },
+      "issue": "図3の解像度が低すぎます。",
+      "suggested_author_comment": "高解像度版を提供してください。",
+      "evidence": "Reviewer A flagged this issue.",
+      "confidence": "high",
+      "conflict": false,
+      "source_findings": [
+        "figure_table_001_src1"
+      ]
+    }
+  ],
+  "conflicts": []
+}

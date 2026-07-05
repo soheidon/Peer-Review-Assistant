@@ -1,0 +1,35 @@
+{
+  "check_name": "expression",
+  "status": "success",
+  "generated_at": null,
+  "sources": [
+    {
+      "source": "gpt-4o",
+      "status": "done",
+      "model": "gpt-4o",
+      "finding_count": 1
+    }
+  ],
+  "summary": "expression check completed.",
+  "comments": [
+    {
+      "comment_id": "expression_001",
+      "severity": "minor",
+      "category": "Structure",
+      "location": {
+        "section": "Abstract",
+        "paragraph_start": 1,
+        "paragraph_end": 2
+      },
+      "issue": "要旨の表現が不自然です。",
+      "suggested_author_comment": "明確さのために修正してください。",
+      "evidence": "Reviewer A flagged this issue.",
+      "confidence": "high",
+      "conflict": false,
+      "source_findings": [
+        "expression_001_src1"
+      ]
+    }
+  ],
+  "conflicts": []
+}

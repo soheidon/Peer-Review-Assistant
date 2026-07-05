@@ -1,0 +1,36 @@
+{
+  "check_name": "methods_stats",
+  "status": "success",
+  "generated_at": null,
+  "sources": [
+    {
+      "source": "gpt-4o",
+      "status": "done",
+      "model": "gpt-4o",
+      "finding_count": 1
+    }
+  ],
+  "summary": "methods_stats check completed.",
+  "comments": [
+    {
+      "comment_id": "methods_stats_001",
+      "severity": "major",
+      "category": "Structure",
+      "location": {
+        "section": "Methods",
+        "paragraph_start": 1,
+        "paragraph_end": 2,
+        "text_excerpt": "We used a t-test to compare groups."
+      },
+      "issue": "Statistical test choice is inappropriate.",
+      "suggested_author_comment": "Use a non-parametric alternative.",
+      "evidence": "Reviewer A flagged this issue.",
+      "confidence": "high",
+      "conflict": false,
+      "source_findings": [
+        "methods_stats_001_src1"
+      ]
+    }
+  ],
+  "conflicts": []
+}

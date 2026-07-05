@@ -1,0 +1,11 @@
+{
+  "total_comments": 7,
+  "major_count": 3,
+  "minor_count": 4,
+  "recommendation": {
+    "level_en": "Major Revision",
+    "level_ja": "大幅修正",
+    "rationale": "3 major and 1 minor issue(s) identified. Substantial revisions are required across multiple dimensions.",
+    "source": "auto"
+  }
+}

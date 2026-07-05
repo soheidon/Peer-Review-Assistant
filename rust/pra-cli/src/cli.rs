@@ -46,4 +46,48 @@ pub enum Commands {
         #[arg(long)]
         check: String,
     },
+
+    /// Normalize manuscript section headings to canonical names using
+    /// journal-specific aliases and position-based disambiguation rules.
+    /// Reads section map from --input and journal profile from --journal,
+    /// writes normalized result to --output.
+    NormalizeSections {
+        #[arg(long)]
+        input: String,
+
+        #[arg(long)]
+        output: String,
+
+        /// Optional journal profile JSON file. If omitted, works without aliases.
+        #[arg(long)]
+        journal: Option<String>,
+    },
+
+    /// Convert final review markdown to a .docx file.
+    /// Reads markdown from --input, writes .docx to --output.
+    ConvertMdToDocx {
+        #[arg(long)]
+        input: String,
+
+        #[arg(long)]
+        output: String,
+
+        #[arg(long, default_value = "en")]
+        lang: String,
+    },
+
+    /// Generate the final review document from all check outputs.
+    /// Reads merged.section.json from outputs/<check>/ and produces
+    /// final_review.md, comments_to_authors.md, confidential_comments.md,
+    /// recommendation.md, audit_trail.json, and optionally DOCX/TXT.
+    FinalMerge {
+        #[arg(long)]
+        project: String,
+
+        #[arg(long, default_value = "en")]
+        lang: String,
+
+        #[arg(long, default_value = "all")]
+        format: String,
+    },
 }

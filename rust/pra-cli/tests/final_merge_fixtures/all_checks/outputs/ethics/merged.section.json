@@ -1,0 +1,35 @@
+{
+  "check_name": "ethics",
+  "status": "success",
+  "generated_at": null,
+  "sources": [
+    {
+      "source": "gpt-4o",
+      "status": "done",
+      "model": "gpt-4o",
+      "finding_count": 1
+    }
+  ],
+  "summary": "ethics check completed.",
+  "comments": [
+    {
+      "comment_id": "ethics_001",
+      "severity": "major",
+      "category": "Structure",
+      "location": {
+        "section": "Methods",
+        "paragraph_start": 1,
+        "paragraph_end": 2
+      },
+      "issue": "IRB approval number is missing.",
+      "suggested_author_comment": "Add the IRB approval number.",
+      "evidence": "Reviewer A flagged this issue.",
+      "confidence": "high",
+      "conflict": false,
+      "source_findings": [
+        "ethics_001_src1"
+      ]
+    }
+  ],
+  "conflicts": []
+}

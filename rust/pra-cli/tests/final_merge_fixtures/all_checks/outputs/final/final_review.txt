@@ -1,0 +1,53 @@
+━━━ 1. General Assessment ━━━
+structure check completed.
+
+━━━ 2. Structure ━━━
+
+┄┄ 2.1. Introduction, Paragraphs 1-2 ┄┄
+"Many researchers have studied..."
+
+[Recommendation] Needs Major Revision
+
+[Suggestion] Missing research gap statement.
+
+┄┄ 2.2. Discussion, Paragraphs 1-2 ┄┄
+[Recommendation] Minor Improvements Suggested
+
+[Suggestion] Discussion could be more concise.
+
+━━━ 3. Expression ━━━
+
+┄┄ 3.1. Abstract, Paragraphs 1-2 ┄┄
+[Recommendation] Minor Improvements Suggested
+
+[Suggestion] Awkward phrasing in abstract.
+
+━━━ 4. Methods and Statistics ━━━
+
+┄┄ 4.1. Methods, Paragraphs 1-2 ┄┄
+"We used a t-test to compare groups."
+
+[Recommendation] Needs Major Revision
+
+[Suggestion] Statistical test choice is inappropriate.
+
+━━━ 5. Logic and Argument ━━━
+
+┄┄ 5.1. Results, Paragraphs 1-2 ┄┄
+[Recommendation] Minor Improvements Suggested
+
+[Suggestion] Conclusion does not follow from results.
+
+━━━ 6. Figures and Tables ━━━
+
+┄┄ 6.1. Results, Paragraphs 1-2 ┄┄
+[Recommendation] Minor Improvements Suggested
+
+[Suggestion] Figure 3 resolution is too low.
+
+━━━ 7. Ethics and Conflict of Interest ━━━
+
+┄┄ 7.1. Methods, Paragraphs 1-2 ┄┄
+[Recommendation] Needs Major Revision
+
+[Suggestion] IRB approval number is missing.

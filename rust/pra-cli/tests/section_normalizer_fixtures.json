@@ -1,0 +1,1619 @@
+[
+  {
+    "name": "no_profile",
+    "section_map": {
+      "sections": [
+        {
+          "name": "introduction",
+          "heading": "Introduction",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 0,
+          "end_paragraph": 5
+        },
+        {
+          "name": "methods",
+          "heading": "Methods",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 6,
+          "end_paragraph": 12
+        },
+        {
+          "name": "results",
+          "heading": "Results",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 13,
+          "end_paragraph": 18
+        }
+      ]
+    },
+    "journal_profile": null,
+    "expected": {
+      "sections": [
+        {
+          "name": "introduction",
+          "heading": "Introduction",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 0,
+          "end_paragraph": 5,
+          "canonical_name": "introduction"
+        },
+        {
+          "name": "methods",
+          "heading": "Methods",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 6,
+          "end_paragraph": 12,
+          "canonical_name": "methods"
+        },
+        {
+          "name": "results",
+          "heading": "Results",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 13,
+          "end_paragraph": 18,
+          "canonical_name": "results"
+        }
+      ],
+      "canonical_order": [
+        "introduction",
+        "methods",
+        "results"
+      ],
+      "classifications": {
+        "introduction": "main_text",
+        "methods": "main_text",
+        "results": "main_text"
+      }
+    }
+  },
+  {
+    "name": "exact_alias_match",
+    "section_map": {
+      "sections": [
+        {
+          "name": "s1",
+          "heading": "Introduction",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 0,
+          "end_paragraph": 3
+        }
+      ]
+    },
+    "journal_profile": {
+      "manuscript_structure": {
+        "section_aliases": {
+          "introduction": [
+            "Introduction",
+            "Background"
+          ],
+          "methods": [
+            "Methods",
+            "Materials and Methods"
+          ]
+        },
+        "main_text_order": [
+          "introduction",
+          "methods",
+          "results",
+          "discussion"
+        ],
+        "front_matter_sections": [
+          "abstract"
+        ],
+        "back_matter_sections": [
+          "references"
+        ]
+      }
+    },
+    "expected": {
+      "sections": [
+        {
+          "name": "s1",
+          "heading": "Introduction",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 0,
+          "end_paragraph": 3,
+          "canonical_name": "introduction"
+        }
+      ],
+      "canonical_order": [
+        "introduction"
+      ],
+      "classifications": {
+        "s1": "main_text"
+      }
+    }
+  },
+  {
+    "name": "substring_match",
+    "section_map": {
+      "sections": [
+        {
+          "name": "s1",
+          "heading": "2.1 Introduction",
+          "level": 2,
+          "parent_section": null,
+          "start_paragraph": 0,
+          "end_paragraph": 3
+        }
+      ]
+    },
+    "journal_profile": {
+      "manuscript_structure": {
+        "section_aliases": {
+          "introduction": [
+            "Introduction",
+            "Background"
+          ],
+          "methods": [
+            "Methods",
+            "Materials and Methods"
+          ]
+        },
+        "main_text_order": [
+          "introduction",
+          "methods",
+          "results",
+          "discussion"
+        ],
+        "front_matter_sections": [
+          "abstract"
+        ],
+        "back_matter_sections": [
+          "references"
+        ]
+      }
+    },
+    "expected": {
+      "sections": [
+        {
+          "name": "s1",
+          "heading": "2.1 Introduction",
+          "level": 2,
+          "parent_section": null,
+          "start_paragraph": 0,
+          "end_paragraph": 3,
+          "canonical_name": "introduction"
+        }
+      ],
+      "canonical_order": [
+        "introduction"
+      ],
+      "classifications": {
+        "s1": "main_text"
+      }
+    }
+  },
+  {
+    "name": "longest_substring_wins",
+    "section_map": {
+      "sections": [
+        {
+          "name": "s1",
+          "heading": "Methods and Materials",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 0,
+          "end_paragraph": 5
+        }
+      ]
+    },
+    "journal_profile": {
+      "manuscript_structure": {
+        "section_aliases": {
+          "introduction": [
+            "Introduction",
+            "Intro"
+          ],
+          "methods": [
+            "Methods and Materials",
+            "Methods"
+          ]
+        },
+        "main_text_order": [
+          "introduction",
+          "methods"
+        ],
+        "front_matter_sections": [],
+        "back_matter_sections": []
+      }
+    },
+    "expected": {
+      "sections": [
+        {
+          "name": "s1",
+          "heading": "Methods and Materials",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 0,
+          "end_paragraph": 5,
+          "canonical_name": "methods"
+        }
+      ],
+      "canonical_order": [
+        "methods"
+      ],
+      "classifications": {
+        "s1": "main_text"
+      }
+    }
+  },
+  {
+    "name": "position_before_introduction",
+    "section_map": {
+      "sections": [
+        {
+          "name": "s1",
+          "heading": "Summary",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 0,
+          "end_paragraph": 1
+        },
+        {
+          "name": "s2",
+          "heading": "Introduction",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 2,
+          "end_paragraph": 5
+        }
+      ]
+    },
+    "journal_profile": {
+      "manuscript_structure": {
+        "section_aliases": {
+          "abstract": [
+            "Abstract",
+            "Summary"
+          ],
+          "highlights": [
+            "Research highlights",
+            "Highlights",
+            "Key points"
+          ],
+          "introduction": [
+            "Introduction",
+            "Background",
+            "はじめに",
+            "序論"
+          ],
+          "methods": [
+            "Methods",
+            "Materials and Methods",
+            "方法",
+            "実験"
+          ],
+          "results": [
+            "Results",
+            "Findings",
+            "結果"
+          ],
+          "discussion": [
+            "Discussion",
+            "考察",
+            "議論"
+          ],
+          "conclusion": [
+            "Conclusion",
+            "Concluding remarks",
+            "結論"
+          ],
+          "references": [
+            "References",
+            "参考文献"
+          ],
+          "acknowledgements": [
+            "Acknowledgements",
+            "謝辞"
+          ],
+          "data_availability": [
+            "Data Availability",
+            "Data and Code Availability"
+          ]
+        },
+        "section_alias_rules": [
+          {
+            "alias": "Summary",
+            "canonical": "abstract",
+            "condition": "before_introduction"
+          },
+          {
+            "alias": "Research highlights",
+            "canonical": "highlights",
+            "condition": "before_introduction"
+          },
+          {
+            "alias": "Concluding remarks",
+            "canonical": "discussion_subsection_or_conclusion",
+            "condition": "inside_or_immediately_after_discussion"
+          },
+          {
+            "alias": "Statistical Analyses",
+            "canonical": "methods_subsection",
+            "condition": "inside_methods"
+          }
+        ],
+        "main_text_order": [
+          "introduction",
+          "methods",
+          "results",
+          "discussion",
+          "conclusion"
+        ],
+        "front_matter_sections": [
+          "abstract",
+          "highlights",
+          "keywords"
+        ],
+        "back_matter_sections": [
+          "references",
+          "acknowledgements",
+          "data_availability"
+        ]
+      }
+    },
+    "expected": {
+      "sections": [
+        {
+          "name": "s1",
+          "heading": "Summary",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 0,
+          "end_paragraph": 1,
+          "canonical_name": "abstract"
+        },
+        {
+          "name": "s2",
+          "heading": "Introduction",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 2,
+          "end_paragraph": 5,
+          "canonical_name": "introduction"
+        }
+      ],
+      "canonical_order": [
+        "abstract",
+        "introduction"
+      ],
+      "classifications": {
+        "s1": "front_matter",
+        "s2": "main_text"
+      }
+    }
+  },
+  {
+    "name": "position_inside_discussion",
+    "section_map": {
+      "sections": [
+        {
+          "name": "discussion",
+          "heading": "Discussion",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 0,
+          "end_paragraph": 8
+        },
+        {
+          "name": "s2",
+          "heading": "Concluding remarks",
+          "level": 2,
+          "parent_section": "discussion",
+          "start_paragraph": 2,
+          "end_paragraph": 4
+        }
+      ]
+    },
+    "journal_profile": {
+      "manuscript_structure": {
+        "section_aliases": {
+          "abstract": [
+            "Abstract",
+            "Summary"
+          ],
+          "highlights": [
+            "Research highlights",
+            "Highlights",
+            "Key points"
+          ],
+          "introduction": [
+            "Introduction",
+            "Background",
+            "はじめに",
+            "序論"
+          ],
+          "methods": [
+            "Methods",
+            "Materials and Methods",
+            "方法",
+            "実験"
+          ],
+          "results": [
+            "Results",
+            "Findings",
+            "結果"
+          ],
+          "discussion": [
+            "Discussion",
+            "考察",
+            "議論"
+          ],
+          "conclusion": [
+            "Conclusion",
+            "Concluding remarks",
+            "結論"
+          ],
+          "references": [
+            "References",
+            "参考文献"
+          ],
+          "acknowledgements": [
+            "Acknowledgements",
+            "謝辞"
+          ],
+          "data_availability": [
+            "Data Availability",
+            "Data and Code Availability"
+          ]
+        },
+        "section_alias_rules": [
+          {
+            "alias": "Summary",
+            "canonical": "abstract",
+            "condition": "before_introduction"
+          },
+          {
+            "alias": "Research highlights",
+            "canonical": "highlights",
+            "condition": "before_introduction"
+          },
+          {
+            "alias": "Concluding remarks",
+            "canonical": "discussion_subsection_or_conclusion",
+            "condition": "inside_or_immediately_after_discussion"
+          },
+          {
+            "alias": "Statistical Analyses",
+            "canonical": "methods_subsection",
+            "condition": "inside_methods"
+          }
+        ],
+        "main_text_order": [
+          "introduction",
+          "methods",
+          "results",
+          "discussion",
+          "conclusion"
+        ],
+        "front_matter_sections": [
+          "abstract",
+          "highlights",
+          "keywords"
+        ],
+        "back_matter_sections": [
+          "references",
+          "acknowledgements",
+          "data_availability"
+        ]
+      }
+    },
+    "expected": {
+      "sections": [
+        {
+          "name": "discussion",
+          "heading": "Discussion",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 0,
+          "end_paragraph": 8,
+          "canonical_name": "discussion"
+        },
+        {
+          "name": "s2",
+          "heading": "Concluding remarks",
+          "level": 2,
+          "parent_section": "discussion",
+          "start_paragraph": 2,
+          "end_paragraph": 4,
+          "canonical_name": "discussion_subsection_or_conclusion"
+        }
+      ],
+      "canonical_order": [
+        "discussion",
+        "discussion_subsection_or_conclusion"
+      ],
+      "classifications": {
+        "discussion": "main_text",
+        "s2": "main_text"
+      }
+    }
+  },
+  {
+    "name": "position_immediately_after_discussion",
+    "section_map": {
+      "sections": [
+        {
+          "name": "discussion",
+          "heading": "Discussion",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 0,
+          "end_paragraph": 5
+        },
+        {
+          "name": "s2",
+          "heading": "Concluding remarks",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 6,
+          "end_paragraph": 7
+        }
+      ]
+    },
+    "journal_profile": {
+      "manuscript_structure": {
+        "section_aliases": {
+          "abstract": [
+            "Abstract",
+            "Summary"
+          ],
+          "highlights": [
+            "Research highlights",
+            "Highlights",
+            "Key points"
+          ],
+          "introduction": [
+            "Introduction",
+            "Background",
+            "はじめに",
+            "序論"
+          ],
+          "methods": [
+            "Methods",
+            "Materials and Methods",
+            "方法",
+            "実験"
+          ],
+          "results": [
+            "Results",
+            "Findings",
+            "結果"
+          ],
+          "discussion": [
+            "Discussion",
+            "考察",
+            "議論"
+          ],
+          "conclusion": [
+            "Conclusion",
+            "Concluding remarks",
+            "結論"
+          ],
+          "references": [
+            "References",
+            "参考文献"
+          ],
+          "acknowledgements": [
+            "Acknowledgements",
+            "謝辞"
+          ],
+          "data_availability": [
+            "Data Availability",
+            "Data and Code Availability"
+          ]
+        },
+        "section_alias_rules": [
+          {
+            "alias": "Summary",
+            "canonical": "abstract",
+            "condition": "before_introduction"
+          },
+          {
+            "alias": "Research highlights",
+            "canonical": "highlights",
+            "condition": "before_introduction"
+          },
+          {
+            "alias": "Concluding remarks",
+            "canonical": "discussion_subsection_or_conclusion",
+            "condition": "inside_or_immediately_after_discussion"
+          },
+          {
+            "alias": "Statistical Analyses",
+            "canonical": "methods_subsection",
+            "condition": "inside_methods"
+          }
+        ],
+        "main_text_order": [
+          "introduction",
+          "methods",
+          "results",
+          "discussion",
+          "conclusion"
+        ],
+        "front_matter_sections": [
+          "abstract",
+          "highlights",
+          "keywords"
+        ],
+        "back_matter_sections": [
+          "references",
+          "acknowledgements",
+          "data_availability"
+        ]
+      }
+    },
+    "expected": {
+      "sections": [
+        {
+          "name": "discussion",
+          "heading": "Discussion",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 0,
+          "end_paragraph": 5,
+          "canonical_name": "discussion"
+        },
+        {
+          "name": "s2",
+          "heading": "Concluding remarks",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 6,
+          "end_paragraph": 7,
+          "canonical_name": "discussion_subsection_or_conclusion"
+        }
+      ],
+      "canonical_order": [
+        "discussion",
+        "discussion_subsection_or_conclusion"
+      ],
+      "classifications": {
+        "discussion": "main_text",
+        "s2": "main_text"
+      }
+    }
+  },
+  {
+    "name": "position_inside_methods",
+    "section_map": {
+      "sections": [
+        {
+          "name": "methods",
+          "heading": "Methods",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 0,
+          "end_paragraph": 8
+        },
+        {
+          "name": "s2",
+          "heading": "Statistical Analyses",
+          "level": 2,
+          "parent_section": "methods",
+          "start_paragraph": 3,
+          "end_paragraph": 5
+        }
+      ]
+    },
+    "journal_profile": {
+      "manuscript_structure": {
+        "section_aliases": {
+          "abstract": [
+            "Abstract",
+            "Summary"
+          ],
+          "highlights": [
+            "Research highlights",
+            "Highlights",
+            "Key points"
+          ],
+          "introduction": [
+            "Introduction",
+            "Background",
+            "はじめに",
+            "序論"
+          ],
+          "methods": [
+            "Methods",
+            "Materials and Methods",
+            "方法",
+            "実験"
+          ],
+          "results": [
+            "Results",
+            "Findings",
+            "結果"
+          ],
+          "discussion": [
+            "Discussion",
+            "考察",
+            "議論"
+          ],
+          "conclusion": [
+            "Conclusion",
+            "Concluding remarks",
+            "結論"
+          ],
+          "references": [
+            "References",
+            "参考文献"
+          ],
+          "acknowledgements": [
+            "Acknowledgements",
+            "謝辞"
+          ],
+          "data_availability": [
+            "Data Availability",
+            "Data and Code Availability"
+          ]
+        },
+        "section_alias_rules": [
+          {
+            "alias": "Summary",
+            "canonical": "abstract",
+            "condition": "before_introduction"
+          },
+          {
+            "alias": "Research highlights",
+            "canonical": "highlights",
+            "condition": "before_introduction"
+          },
+          {
+            "alias": "Concluding remarks",
+            "canonical": "discussion_subsection_or_conclusion",
+            "condition": "inside_or_immediately_after_discussion"
+          },
+          {
+            "alias": "Statistical Analyses",
+            "canonical": "methods_subsection",
+            "condition": "inside_methods"
+          }
+        ],
+        "main_text_order": [
+          "introduction",
+          "methods",
+          "results",
+          "discussion",
+          "conclusion"
+        ],
+        "front_matter_sections": [
+          "abstract",
+          "highlights",
+          "keywords"
+        ],
+        "back_matter_sections": [
+          "references",
+          "acknowledgements",
+          "data_availability"
+        ]
+      }
+    },
+    "expected": {
+      "sections": [
+        {
+          "name": "methods",
+          "heading": "Methods",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 0,
+          "end_paragraph": 8,
+          "canonical_name": "methods"
+        },
+        {
+          "name": "s2",
+          "heading": "Statistical Analyses",
+          "level": 2,
+          "parent_section": "methods",
+          "start_paragraph": 3,
+          "end_paragraph": 5,
+          "canonical_name": "methods_subsection"
+        }
+      ],
+      "canonical_order": [
+        "methods",
+        "methods_subsection"
+      ],
+      "classifications": {
+        "methods": "main_text",
+        "s2": "main_text"
+      }
+    }
+  },
+  {
+    "name": "japanese_headings",
+    "section_map": {
+      "sections": [
+        {
+          "name": "s1",
+          "heading": "はじめに",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 0,
+          "end_paragraph": 3
+        },
+        {
+          "name": "s2",
+          "heading": "方法",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 4,
+          "end_paragraph": 8
+        },
+        {
+          "name": "s3",
+          "heading": "結果",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 9,
+          "end_paragraph": 12
+        },
+        {
+          "name": "s4",
+          "heading": "考察",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 13,
+          "end_paragraph": 16
+        }
+      ]
+    },
+    "journal_profile": {
+      "manuscript_structure": {
+        "section_aliases": {
+          "abstract": [
+            "Abstract",
+            "Summary"
+          ],
+          "highlights": [
+            "Research highlights",
+            "Highlights",
+            "Key points"
+          ],
+          "introduction": [
+            "Introduction",
+            "Background",
+            "はじめに",
+            "序論"
+          ],
+          "methods": [
+            "Methods",
+            "Materials and Methods",
+            "方法",
+            "実験"
+          ],
+          "results": [
+            "Results",
+            "Findings",
+            "結果"
+          ],
+          "discussion": [
+            "Discussion",
+            "考察",
+            "議論"
+          ],
+          "conclusion": [
+            "Conclusion",
+            "Concluding remarks",
+            "結論"
+          ],
+          "references": [
+            "References",
+            "参考文献"
+          ],
+          "acknowledgements": [
+            "Acknowledgements",
+            "謝辞"
+          ],
+          "data_availability": [
+            "Data Availability",
+            "Data and Code Availability"
+          ]
+        },
+        "section_alias_rules": [
+          {
+            "alias": "Summary",
+            "canonical": "abstract",
+            "condition": "before_introduction"
+          },
+          {
+            "alias": "Research highlights",
+            "canonical": "highlights",
+            "condition": "before_introduction"
+          },
+          {
+            "alias": "Concluding remarks",
+            "canonical": "discussion_subsection_or_conclusion",
+            "condition": "inside_or_immediately_after_discussion"
+          },
+          {
+            "alias": "Statistical Analyses",
+            "canonical": "methods_subsection",
+            "condition": "inside_methods"
+          }
+        ],
+        "main_text_order": [
+          "introduction",
+          "methods",
+          "results",
+          "discussion",
+          "conclusion"
+        ],
+        "front_matter_sections": [
+          "abstract",
+          "highlights",
+          "keywords"
+        ],
+        "back_matter_sections": [
+          "references",
+          "acknowledgements",
+          "data_availability"
+        ]
+      }
+    },
+    "expected": {
+      "sections": [
+        {
+          "name": "s1",
+          "heading": "はじめに",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 0,
+          "end_paragraph": 3,
+          "canonical_name": "introduction"
+        },
+        {
+          "name": "s2",
+          "heading": "方法",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 4,
+          "end_paragraph": 8,
+          "canonical_name": "methods"
+        },
+        {
+          "name": "s3",
+          "heading": "結果",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 9,
+          "end_paragraph": 12,
+          "canonical_name": "results"
+        },
+        {
+          "name": "s4",
+          "heading": "考察",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 13,
+          "end_paragraph": 16,
+          "canonical_name": "discussion"
+        }
+      ],
+      "canonical_order": [
+        "introduction",
+        "methods",
+        "results",
+        "discussion"
+      ],
+      "classifications": {
+        "s1": "main_text",
+        "s2": "main_text",
+        "s3": "main_text",
+        "s4": "main_text"
+      }
+    }
+  },
+  {
+    "name": "classification_mixed",
+    "section_map": {
+      "sections": [
+        {
+          "name": "abstract_sec",
+          "heading": "Abstract",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 0,
+          "end_paragraph": 1
+        },
+        {
+          "name": "intro",
+          "heading": "Introduction",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 2,
+          "end_paragraph": 5
+        },
+        {
+          "name": "methods_sec",
+          "heading": "Methods",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 6,
+          "end_paragraph": 10
+        },
+        {
+          "name": "results_sec",
+          "heading": "Results",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 11,
+          "end_paragraph": 14
+        },
+        {
+          "name": "discussion_sec",
+          "heading": "Discussion",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 15,
+          "end_paragraph": 18
+        },
+        {
+          "name": "references_sec",
+          "heading": "References",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 19,
+          "end_paragraph": 20
+        }
+      ]
+    },
+    "journal_profile": {
+      "manuscript_structure": {
+        "section_aliases": {
+          "abstract": [
+            "Abstract",
+            "Summary"
+          ],
+          "highlights": [
+            "Research highlights",
+            "Highlights",
+            "Key points"
+          ],
+          "introduction": [
+            "Introduction",
+            "Background",
+            "はじめに",
+            "序論"
+          ],
+          "methods": [
+            "Methods",
+            "Materials and Methods",
+            "方法",
+            "実験"
+          ],
+          "results": [
+            "Results",
+            "Findings",
+            "結果"
+          ],
+          "discussion": [
+            "Discussion",
+            "考察",
+            "議論"
+          ],
+          "conclusion": [
+            "Conclusion",
+            "Concluding remarks",
+            "結論"
+          ],
+          "references": [
+            "References",
+            "参考文献"
+          ],
+          "acknowledgements": [
+            "Acknowledgements",
+            "謝辞"
+          ],
+          "data_availability": [
+            "Data Availability",
+            "Data and Code Availability"
+          ]
+        },
+        "section_alias_rules": [
+          {
+            "alias": "Summary",
+            "canonical": "abstract",
+            "condition": "before_introduction"
+          },
+          {
+            "alias": "Research highlights",
+            "canonical": "highlights",
+            "condition": "before_introduction"
+          },
+          {
+            "alias": "Concluding remarks",
+            "canonical": "discussion_subsection_or_conclusion",
+            "condition": "inside_or_immediately_after_discussion"
+          },
+          {
+            "alias": "Statistical Analyses",
+            "canonical": "methods_subsection",
+            "condition": "inside_methods"
+          }
+        ],
+        "main_text_order": [
+          "introduction",
+          "methods",
+          "results",
+          "discussion",
+          "conclusion"
+        ],
+        "front_matter_sections": [
+          "abstract",
+          "highlights",
+          "keywords"
+        ],
+        "back_matter_sections": [
+          "references",
+          "acknowledgements",
+          "data_availability"
+        ]
+      }
+    },
+    "expected": {
+      "sections": [
+        {
+          "name": "abstract_sec",
+          "heading": "Abstract",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 0,
+          "end_paragraph": 1,
+          "canonical_name": "abstract"
+        },
+        {
+          "name": "intro",
+          "heading": "Introduction",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 2,
+          "end_paragraph": 5,
+          "canonical_name": "introduction"
+        },
+        {
+          "name": "methods_sec",
+          "heading": "Methods",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 6,
+          "end_paragraph": 10,
+          "canonical_name": "methods"
+        },
+        {
+          "name": "results_sec",
+          "heading": "Results",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 11,
+          "end_paragraph": 14,
+          "canonical_name": "results"
+        },
+        {
+          "name": "discussion_sec",
+          "heading": "Discussion",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 15,
+          "end_paragraph": 18,
+          "canonical_name": "discussion"
+        },
+        {
+          "name": "references_sec",
+          "heading": "References",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 19,
+          "end_paragraph": 20,
+          "canonical_name": "references"
+        }
+      ],
+      "canonical_order": [
+        "abstract",
+        "introduction",
+        "methods",
+        "results",
+        "discussion",
+        "references"
+      ],
+      "classifications": {
+        "abstract_sec": "front_matter",
+        "intro": "main_text",
+        "methods_sec": "main_text",
+        "results_sec": "main_text",
+        "discussion_sec": "main_text",
+        "references_sec": "back_matter"
+      }
+    }
+  },
+  {
+    "name": "dedup_canonical_order",
+    "section_map": {
+      "sections": [
+        {
+          "name": "intro_a",
+          "heading": "Introduction",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 0,
+          "end_paragraph": 3
+        },
+        {
+          "name": "intro_b",
+          "heading": "Introduction subsection",
+          "level": 2,
+          "parent_section": "intro_a",
+          "start_paragraph": 1,
+          "end_paragraph": 2
+        }
+      ]
+    },
+    "journal_profile": {
+      "manuscript_structure": {
+        "section_aliases": {
+          "introduction": [
+            "Introduction",
+            "Background"
+          ],
+          "methods": [
+            "Methods",
+            "Materials and Methods"
+          ]
+        },
+        "main_text_order": [
+          "introduction",
+          "methods",
+          "results",
+          "discussion"
+        ],
+        "front_matter_sections": [
+          "abstract"
+        ],
+        "back_matter_sections": [
+          "references"
+        ]
+      }
+    },
+    "expected": {
+      "sections": [
+        {
+          "name": "intro_a",
+          "heading": "Introduction",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 0,
+          "end_paragraph": 3,
+          "canonical_name": "introduction"
+        },
+        {
+          "name": "intro_b",
+          "heading": "Introduction subsection",
+          "level": 2,
+          "parent_section": "intro_a",
+          "start_paragraph": 1,
+          "end_paragraph": 2,
+          "canonical_name": "introduction"
+        }
+      ],
+      "canonical_order": [
+        "introduction"
+      ],
+      "classifications": {
+        "intro_a": "main_text",
+        "intro_b": "main_text"
+      }
+    }
+  },
+  {
+    "name": "unknown_section",
+    "section_map": {
+      "sections": [
+        {
+          "name": "custom_name",
+          "heading": "Some Weird Heading",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 0,
+          "end_paragraph": 3
+        }
+      ]
+    },
+    "journal_profile": {
+      "manuscript_structure": {
+        "section_aliases": {
+          "introduction": [
+            "Introduction",
+            "Background"
+          ],
+          "methods": [
+            "Methods",
+            "Materials and Methods"
+          ]
+        },
+        "main_text_order": [
+          "introduction",
+          "methods",
+          "results",
+          "discussion"
+        ],
+        "front_matter_sections": [
+          "abstract"
+        ],
+        "back_matter_sections": [
+          "references"
+        ]
+      }
+    },
+    "expected": {
+      "sections": [
+        {
+          "name": "custom_name",
+          "heading": "Some Weird Heading",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 0,
+          "end_paragraph": 3,
+          "canonical_name": "custom_name"
+        }
+      ],
+      "canonical_order": [
+        "custom_name"
+      ],
+      "classifications": {
+        "custom_name": "main_text"
+      }
+    }
+  },
+  {
+    "name": "empty_sections",
+    "section_map": {
+      "sections": []
+    },
+    "journal_profile": {
+      "manuscript_structure": {
+        "section_aliases": {
+          "abstract": [
+            "Abstract",
+            "Summary"
+          ],
+          "highlights": [
+            "Research highlights",
+            "Highlights",
+            "Key points"
+          ],
+          "introduction": [
+            "Introduction",
+            "Background",
+            "はじめに",
+            "序論"
+          ],
+          "methods": [
+            "Methods",
+            "Materials and Methods",
+            "方法",
+            "実験"
+          ],
+          "results": [
+            "Results",
+            "Findings",
+            "結果"
+          ],
+          "discussion": [
+            "Discussion",
+            "考察",
+            "議論"
+          ],
+          "conclusion": [
+            "Conclusion",
+            "Concluding remarks",
+            "結論"
+          ],
+          "references": [
+            "References",
+            "参考文献"
+          ],
+          "acknowledgements": [
+            "Acknowledgements",
+            "謝辞"
+          ],
+          "data_availability": [
+            "Data Availability",
+            "Data and Code Availability"
+          ]
+        },
+        "section_alias_rules": [
+          {
+            "alias": "Summary",
+            "canonical": "abstract",
+            "condition": "before_introduction"
+          },
+          {
+            "alias": "Research highlights",
+            "canonical": "highlights",
+            "condition": "before_introduction"
+          },
+          {
+            "alias": "Concluding remarks",
+            "canonical": "discussion_subsection_or_conclusion",
+            "condition": "inside_or_immediately_after_discussion"
+          },
+          {
+            "alias": "Statistical Analyses",
+            "canonical": "methods_subsection",
+            "condition": "inside_methods"
+          }
+        ],
+        "main_text_order": [
+          "introduction",
+          "methods",
+          "results",
+          "discussion",
+          "conclusion"
+        ],
+        "front_matter_sections": [
+          "abstract",
+          "highlights",
+          "keywords"
+        ],
+        "back_matter_sections": [
+          "references",
+          "acknowledgements",
+          "data_availability"
+        ]
+      }
+    },
+    "expected": {
+      "sections": [],
+      "canonical_order": [],
+      "classifications": {}
+    }
+  },
+  {
+    "name": "case_insensitive_alias",
+    "section_map": {
+      "sections": [
+        {
+          "name": "s1",
+          "heading": "INTRODUCTION",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 0,
+          "end_paragraph": 3
+        }
+      ]
+    },
+    "journal_profile": {
+      "manuscript_structure": {
+        "section_aliases": {
+          "introduction": [
+            "Introduction",
+            "Background"
+          ],
+          "methods": [
+            "Methods",
+            "Materials and Methods"
+          ]
+        },
+        "main_text_order": [
+          "introduction",
+          "methods",
+          "results",
+          "discussion"
+        ],
+        "front_matter_sections": [
+          "abstract"
+        ],
+        "back_matter_sections": [
+          "references"
+        ]
+      }
+    },
+    "expected": {
+      "sections": [
+        {
+          "name": "s1",
+          "heading": "INTRODUCTION",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 0,
+          "end_paragraph": 3,
+          "canonical_name": "introduction"
+        }
+      ],
+      "canonical_order": [
+        "introduction"
+      ],
+      "classifications": {
+        "s1": "main_text"
+      }
+    }
+  },
+  {
+    "name": "subsection_stripped_for_classification",
+    "section_map": {
+      "sections": [
+        {
+          "name": "discussion",
+          "heading": "Discussion",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 0,
+          "end_paragraph": 5
+        },
+        {
+          "name": "s2",
+          "heading": "Concluding remarks",
+          "level": 2,
+          "parent_section": "discussion",
+          "start_paragraph": 3,
+          "end_paragraph": 5
+        }
+      ]
+    },
+    "journal_profile": {
+      "manuscript_structure": {
+        "section_aliases": {
+          "discussion": [
+            "Discussion"
+          ],
+          "conclusion": [
+            "Conclusion"
+          ]
+        },
+        "section_alias_rules": [
+          {
+            "alias": "Concluding remarks",
+            "canonical": "discussion_subsection_or_conclusion",
+            "condition": "inside_or_immediately_after_discussion"
+          }
+        ],
+        "main_text_order": [
+          "discussion",
+          "conclusion"
+        ],
+        "front_matter_sections": [],
+        "back_matter_sections": []
+      }
+    },
+    "expected": {
+      "sections": [
+        {
+          "name": "discussion",
+          "heading": "Discussion",
+          "level": 1,
+          "parent_section": null,
+          "start_paragraph": 0,
+          "end_paragraph": 5,
+          "canonical_name": "discussion"
+        },
+        {
+          "name": "s2",
+          "heading": "Concluding remarks",
+          "level": 2,
+          "parent_section": "discussion",
+          "start_paragraph": 3,
+          "end_paragraph": 5,
+          "canonical_name": "discussion_subsection_or_conclusion"
+        }
+      ],
+      "canonical_order": [
+        "discussion",
+        "discussion_subsection_or_conclusion"
+      ],
+      "classifications": {
+        "discussion": "main_text",
+        "s2": "main_text"
+      }
+    }
+  }
+]

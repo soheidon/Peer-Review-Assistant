@@ -1,0 +1,16 @@
+{
+  "check_name": "figure_table",
+  "status": "success",
+  "generated_at": null,
+  "sources": [
+    {
+      "source": "gpt-4o",
+      "status": "done",
+      "model": "gpt-4o",
+      "finding_count": 0
+    }
+  ],
+  "summary": "figure_table check completed.",
+  "comments": [],
+  "conflicts": []
+}

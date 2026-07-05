@@ -1,0 +1,16 @@
+{
+  "verdicts": [
+    {
+      "comment_id": "structure_001",
+      "verdict": "tool_correct",
+      "reasoning": "Agreed — the gap statement is needed.",
+      "author_comment": "Please explicitly state what gap this study addresses in the introduction."
+    },
+    {
+      "comment_id": "structure_002",
+      "verdict": "external_correct",
+      "reasoning": "The sample IS sufficiently described.",
+      "author_comment": ""
+    }
+  ]
+}

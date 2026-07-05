@@ -1,0 +1,14 @@
+{
+  "verdicts": [
+    {
+      "comment_id": "structure_001",
+      "verdict": "agree",
+      "reasoning": "The research gap is indeed missing."
+    },
+    {
+      "comment_id": "structure_002",
+      "verdict": "partial",
+      "reasoning": "Sample demographics are partially described."
+    }
+  ]
+}

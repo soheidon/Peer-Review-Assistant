@@ -1,0 +1,73 @@
+{
+  "check_name": "structure",
+  "status": "success",
+  "generated_at": null,
+  "sources": [
+    {
+      "source": "gpt-4o",
+      "status": "done",
+      "model": "gpt-4o",
+      "finding_count": 3
+    }
+  ],
+  "summary": "structure check completed.",
+  "comments": [
+    {
+      "comment_id": "structure_001",
+      "severity": "major",
+      "category": "Structure",
+      "location": {
+        "section": "Introduction",
+        "paragraph_start": 1,
+        "paragraph_end": 2,
+        "text_excerpt": "Previous studies have shown..."
+      },
+      "issue": "The research question is missing from the introduction.",
+      "suggested_author_comment": "Add a clear research question at the end of the introduction.",
+      "evidence": "Reviewer A flagged this issue.",
+      "confidence": "high",
+      "conflict": false,
+      "source_findings": [
+        "structure_001_src1"
+      ]
+    },
+    {
+      "comment_id": "structure_002",
+      "severity": "minor",
+      "category": "Structure",
+      "location": {
+        "section": "Methods",
+        "paragraph_start": 1,
+        "paragraph_end": 2,
+        "text_excerpt": "We recruited 30 participants."
+      },
+      "issue": "Sample size justification is unclear.",
+      "suggested_author_comment": "Provide a power analysis or cite a reference for sample size.",
+      "evidence": "Reviewer A flagged this issue.",
+      "confidence": "high",
+      "conflict": false,
+      "source_findings": [
+        "structure_002_src1"
+      ]
+    },
+    {
+      "comment_id": "structure_003",
+      "severity": "minor",
+      "category": "Structure",
+      "location": {
+        "section": "Results",
+        "paragraph_start": 1,
+        "paragraph_end": 2
+      },
+      "issue": "Table 2 lacks a descriptive caption.",
+      "suggested_author_comment": "Add a descriptive caption for Table 2.",
+      "evidence": "Reviewer A flagged this issue.",
+      "confidence": "high",
+      "conflict": false,
+      "source_findings": [
+        "structure_003_src1"
+      ]
+    }
+  ],
+  "conflicts": []
+}

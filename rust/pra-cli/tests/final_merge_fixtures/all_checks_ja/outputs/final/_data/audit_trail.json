@@ -1,0 +1,59 @@
+{
+  "generated_at": "2026-07-05T21:17:50.607202+09:00",
+  "phase": "9E",
+  "description": "Final review generation with structure, expression, methods_stats, logic_argument, and figure_table checks",
+  "inputs": {
+    "merged_structure": "outputs/structure/merged.section.json",
+    "abstract_available": false,
+    "merged_expression": "outputs/expression/merged.section.json",
+    "merged_methods_stats": "outputs/methods_stats/merged.section.json",
+    "merged_logic_argument": "outputs/logic_argument/merged.section.json",
+    "merged_figure_table": "outputs/figure_table/merged.section.json",
+    "merged_ethics": "outputs/ethics/merged.section.json"
+  },
+  "check_items_assessed": [
+    "structure",
+    "expression",
+    "methods_stats",
+    "logic_argument",
+    "figure_table",
+    "ethics"
+  ],
+  "check_items_not_assessed": [
+    "citation",
+    "originality"
+  ],
+  "comment_counts": {
+    "total": 7,
+    "major": 1,
+    "minor": 1,
+    "structure_minor": 1,
+    "expression_minor": 1,
+    "ms_count": 1,
+    "ms_major": 1,
+    "ms_minor": 0,
+    "la_count": 1,
+    "la_major": 0,
+    "la_minor": 1,
+    "ft_count": 1,
+    "ft_major": 0,
+    "ft_minor": 1,
+    "ethics_count": 1,
+    "ethics_major": 1,
+    "ethics_minor": 0
+  },
+  "external_check": null,
+  "recommendation": {
+    "level_en": "Major Revision",
+    "level_ja": "大幅修正",
+    "rationale": "3 major and 1 minor issue(s) identified. Substantial revisions are required across multiple dimensions.",
+    "source": "auto"
+  },
+  "output_files": [
+    "outputs/final/final_review.md",
+    "outputs/final/_data/comments_to_authors.md",
+    "outputs/final/_data/confidential_comments_to_editor.md",
+    "outputs/final/_data/recommendation.md",
+    "outputs/final/_data/audit_trail.json"
+  ]
+}

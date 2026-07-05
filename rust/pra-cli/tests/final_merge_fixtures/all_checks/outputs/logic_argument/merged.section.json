@@ -1,0 +1,35 @@
+{
+  "check_name": "logic_argument",
+  "status": "success",
+  "generated_at": null,
+  "sources": [
+    {
+      "source": "gpt-4o",
+      "status": "done",
+      "model": "gpt-4o",
+      "finding_count": 1
+    }
+  ],
+  "summary": "logic_argument check completed.",
+  "comments": [
+    {
+      "comment_id": "logic_argument_001",
+      "severity": "minor",
+      "category": "Structure",
+      "location": {
+        "section": "Results",
+        "paragraph_start": 1,
+        "paragraph_end": 2
+      },
+      "issue": "Conclusion does not follow from results.",
+      "suggested_author_comment": "Soften the claim or add supporting evidence.",
+      "evidence": "Reviewer A flagged this issue.",
+      "confidence": "high",
+      "conflict": false,
+      "source_findings": [
+        "logic_argument_001_src1"
+      ]
+    }
+  ],
+  "conflicts": []
+}

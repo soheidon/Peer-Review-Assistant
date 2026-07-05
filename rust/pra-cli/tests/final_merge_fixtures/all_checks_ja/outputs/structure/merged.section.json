@@ -1,0 +1,53 @@
+{
+  "check_name": "structure",
+  "status": "success",
+  "generated_at": null,
+  "sources": [
+    {
+      "source": "gpt-4o",
+      "status": "done",
+      "model": "gpt-4o",
+      "finding_count": 2
+    }
+  ],
+  "summary": "structure check completed.",
+  "comments": [
+    {
+      "comment_id": "structure_001",
+      "severity": "major",
+      "category": "Structure",
+      "location": {
+        "section": "Introduction",
+        "paragraph_start": 1,
+        "paragraph_end": 2
+      },
+      "issue": "研究のギャップが明示されていません。",
+      "suggested_author_comment": "研究ギャップの記述を追加してください。",
+      "evidence": "Reviewer A flagged this issue.",
+      "confidence": "high",
+      "conflict": false,
+      "source_findings": [
+        "structure_001_src1"
+      ]
+    },
+    {
+      "comment_id": "structure_002",
+      "severity": "minor",
+      "category": "Structure",
+      "location": {
+        "section": "Discussion",
+        "paragraph_start": 1,
+        "paragraph_end": 2
+      },
+      "issue": "考察が冗長です。",
+      "suggested_author_comment": "考察セクションを簡潔にしてください。",
+      "evidence": "Reviewer A flagged this issue.",
+      "confidence": "high",
+      "conflict": false,
+      "source_findings": [
+        "structure_002_src1"
+      ]
+    }
+  ],
+  "conflicts": []
+}
